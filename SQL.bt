@@ -1,0 +1,161 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: SQL.bt
+//   Authors: SweetScape Software
+//   Version: 1.0
+//   Purpose: Syntax highlighting for SQL files.
+//  Category: Syntax
+// File Mask: *.sql
+//  ID Bytes: 
+//   History: 
+//   1.0   2018-10-15 SweetScape Software: Initial version.
+//------------------------------------------------
+RequiresVersion( 9 );
+
+// To save memory, allow a single copy of this template to provide 
+//  syntax highlighting for all open files that match the file mask.
+HighlightAllowInstanceSharing( true );
+
+// Get list of coloring styles
+local int commentStyle  = HighlightFindStyle( "code-comment" );
+local int keywordStyle  = HighlightFindStyle( "code-keyword" );
+local int dataTypeStyle = HighlightFindStyle( "code-data-type" );
+local int stringStyle   = HighlightFindStyle( "code-string" );
+
+// Types of rules we may be applying that may span multiple lines
+const int RULE_NONE              = 0;
+const int RULE_MULTILINE_COMMENT = 1;
+
+// Build list of keywords
+local TKeywordList keywordList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD | HIGHLIGHT_IGNORECASE,
+    "ABORT", "ACCEPT", "ACCESS", "ADD", "ADMIN", "ALL", "ALTER", "AND", "ANY", "ARRAY", 
+    "ARRAYLEN", "AS", "ASC", "ASSERT", "ASSIGN", "AT", "ATTRIBUTES", "AUDIT", 
+    "AUTHORIZATION", "AUTO_INCREMENT", "AVG", "BASE_TABLE", "BEGIN", "BETWEEN", 
+    "BINARY_INTEGER", "BODY", "BOOLEAN", "BY", "CASE", "CAST", "CHAR", "CHAR_BASE", 
+    "CHECK", "CLOSE", "CLUSTER", "CLUSTERS", "COLAUTH", "COLUMN", "COMMENT", "COMMIT", 
+    "COMPRESS", "CONNECT", "CONNECTED", "CONSTANT", "CONSTRAINT", "CRASH", "CREATE", 
+    "CURRENT", "CURRVAL", "CURSOR", "DATABASE", "DATA_BASE", "DBA", "DEALLOCATE", 
+    "DEBUGOFF", "DEBUGON", "DECIMAL", "DECLARE", "DEFAULT", "DEFINITION", "DELAY", 
+    "DELETE", "DESC", "DIGITS", "DISPOSE", "DISTINCT", "DO", "DROP", "ELSE", "ELSIF", 
+    "ENABLE", "END", "ENTRY", "ESCAPE", "EXCEPTION", "EXCEPTION_INIT", "EXCHANGE", 
+    "EXCLUSIVE", "EXEC", "EXISTS", "EXIT", "EXTERNAL", "FAST", "FETCH", "FILE", "FOR", 
+    "FORCE", "FOREIGN", "FORM", "FROM", "FUNCTION", "GENERIC", "GOTO", "GRANT", "GROUP", 
+    "HAVING", "IDENTIFIED", "IF", "IMMEDIATE", "IN", "INCREMENT", "INDEX", "INDEXES", 
+    "INDICATOR", "INITIAL", "INITRANS", "INNER", "INSERT", "INTERFACE", "INTERSECT", 
+    "INTO", "IS", "JOIN", "KEY", "LEFT", "LEVEL", "LIBRARY", "LIKE", "LIMIT", "LIMITED", 
+    "LOCAL", "LOCK", "LOG", "LOGGING", "LONG", "LOOP", "MASTER", "MAXEXTENTS", "MAXTRANS", 
+    "MAXVALUE", "MEMBER", "MINEXTENTS", "MINUS", "MISLABEL", "MODE", "MODIFY", "MULTISET", 
+    "NEW", "NEXT", "NO", "NOAUDIT", "NOCOMPRESS", "NOLOGGING", "NOPARALLEL", "NOT", 
+    "NOWAIT", "NULL", "NUMBER_BASE", "OBJECT", "OF", "OFF", "OFFLINE", "ON", "ONLINE", 
+    "ONLY", "OPEN", "OPTION", "OR", "ORDER", "OUT", "OUTER", "PACKAGE", "PARALLEL", 
+    "PARTITION", "PCTFREE", "PCTINCREASE", "PCTUSED", "PLS_INTEGER", "POSITIVE", 
+    "POSITIVEN", "PRAGMA", "PRIMARY", "PRIOR", "PRIVATE", "PRIVILEGES", "PROCEDURE", 
+    "PUBLIC", "RAISE", "RANGE", "RAW", "READ", "REBUILD", "RECORD", "REF", "REFERENCES", 
+    "REFRESH", "RELEASE", "REMR", "RENAME", "REPLACE", "RESOURCE", "RESTRICT", "RETURN", 
+    "RETURNING", "REVERSE", "REVOKE", "RIGHT", "ROLLBACK", "ROW", "ROWID", "ROWLABEL", 
+    "ROWNUM", "ROWS", "RUN", "SAVEPOINT", "SCHEMA", "SEGMENT", "SELECT", "SEPARATE", 
+    "SESSION", "SET", "SHARE", "SNAPSHOT", "SOME", "SPACE", "SPLIT", "SQL", "START", 
+    "STATEMENT", "STORAGE", "SUBTYPE", "SUCCESSFUL", "SYNONYM", "TABAUTH", "TABLE", 
+    "TABLES", "TABLESPACE", "TASK", "TERMINATE", "THEN", "TO", "TOP", "TRIGGER", 
+    "TRUNCATE", "TYPE", "UNION", "UNIQUE", "UNLIMITED", "UNRECOVERABLE", "UNUSABLE", 
+    "UPDATE", "USE", "USING", "VALIDATE", "VALUE", "VALUES", "VARIABLE", "VIEW", "VIEWS", 
+    "WHEN", "WHENEVER", "WHEREWHERE", "WHILE", "WITH", "WORK" );
+ 
+// Build list of datatypes
+local TKeywordList dataTypeList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD | HIGHLIGHT_IGNORECASE,
+    "BFILE", "BIGINT", "BINARY", "BIT", "BLOB", "CHAR", "CHARACTER", "CLOB", "CURSOR", 
+    "DATE", "DATETIME", "DATETIME2", "DATETIMEOFFSET", "DEC", "DECIMAL", "DOUBLE", "ENUM", 
+    "FLOAT", "IMAGE", "INT", "INTEGER", "LONGBLOB", "LONGTEXT", "MEDIUMBLOB", "MEDIUMINT", 
+    "MEDIUMTEXT", "MLSLABEL", "MONEY", "NATURAL", "NATURALN", "NCHAR", "NCLOB", "NTEXT", 
+    "NUMBER", "NUMERIC", "NVARCHAR", "NVARCHAR2", "REAL", "ROWTYPE", "SIGNTYPE", 
+    "SMALLDATETIME", "SMALLINT", "SMALLMONEY", "SQL_VARIANT", "STRING", "TEXT", "TIME", 
+    "TIMESTAMP", "TINYINT", "TINYTEXT", "UNIQUEIDENTIFIER", "VARBINARY", "VARCHAR", 
+    "VARCHAR2", "XML", "YEAR" );
+
+// Build list of functions
+local TKeywordList functionList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD | HIGHLIGHT_IGNORECASE,
+    "ABS", "ACOS", "ADDDATE", "ADDTIME", "ASCII", "ASIN", "ATAN", "ATAN2", "AVG", "BIN", 
+    "BINARY", "CASE", "CAST", "CEIL", "CEILING", "CHARACTER_LENGTH", "CHAR_LENGTH", 
+    "COALESCE", "CONCAT", "CONCAT_WS", "CONNECTION_ID", "CONV", "CONVERT", "CONVERT_TZ", 
+    "COS", "COT", "COUNT", "CURDATE", "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", 
+    "CURRENT_USER", "CURTIME", "DATABASE", "DATE", "DATEDIFF", "DATE_ADD", "DATE_FORMAT", 
+    "DATE_SUB", "DAY", "DAYNAME", "DAYOFMONTH", "DAYOFWEEK", "DAYOFYEAR", "DEGREES", "DIV", 
+    "EXP", "EXTRACT", "FIELD", "FIND_IN_SET", "FLOOR", "FORMAT", "FROM_DAYS", 
+    "FROM_UNIXTIME", "GET_FORMAT", "GREATEST", "HOUR", "IF", "IFNULL", "INSERT", "INSTR", 
+    "ISNULL", "LAST_DAY", "LAST_INSERT_ID", "LCASE", "LEAST", "LEFT", "LENGTH", "LN", 
+    "LOCALTIME", "LOCALTIMESTAMP", "LOCATE", "LOG", "LOG10", "LOG2", "LOWER", "LPAD", 
+    "LTRIM", "MAKEDATE", "MAKETIME", "MAX", "MICROSECOND", "MID", "MIN", "MINUTE", "MOD", 
+    "MONTH", "MONTHNAME", "NOW", "NULLIF", "PERIOD_ADD", "PERIOD_DIFF", "PI", "POSITION", 
+    "POW", "POWER", "QUARTER", "RADIANS", "RAND", "REPEAT", "REPLACE", "REVERSE", "RIGHT", 
+    "ROUND", "RPAD", "RTRIM", "SECOND", "SEC_TO_TIME", "SESSION_USER", "SIGN", "SIN", 
+    "SPACE", "SQRT", "STRCMP", "STR_TO_DATE", "SUBDATE", "SUBSTR", "SUBSTRING", 
+    "SUBSTRING_INDEX", "SUBTIME", "SUM", "SYSDATE", "SYSTEM_USER", "TAN", "TIME", 
+    "TIMEDIFF", "TIMESTAMP", "TIMESTAMPADD", "TIMESTAMPDIFF", "TIME_FORMAT", 
+    "TIME_TO_SEC", "TO_DAYS", "TO_SECONDS", "TRIM", "TRUNCATE", "UCASE", "UNIX_TIMESTAMP", 
+    "UPPER", "USER", "UTC_DATE", "UTC_TIME", "UTC_TIMESTAMP", "VERSIONWEEK", "WEEK", 
+    "WEEKDAY", "WEEKOFYEAR", "YEAR", "YEARWEEKYEARWEEK" );
+
+// Main function to apply syntax highlighting to a line of text.
+//  flags is preserved between lines and allows us to do multi-line comments.
+void HighlightLineRealtime( int64 line, wchar_t text[], int foreColors[], int backColors[], int count, ushort &flags )
+{
+    int i, len, pos, rule = flags;
+    while( i < count )
+    {  
+        // Check multi-line comment - could be continued from a previous line
+        if( (text[i] == '/' || rule == RULE_MULTILINE_COMMENT) && 
+            HighlightCheckMultiLineRule( text, count, "/*", "*/", i, 
+            rule, RULE_NONE, RULE_MULTILINE_COMMENT, foreColors, backColors, commentStyle ) ) 
+            continue;
+
+        // Check single-line strings
+        if( (text[i] == '\"') && 
+            HighlightCheckSingleLineRule( text, count, "\"", "\"", i, 
+            foreColors, backColors, stringStyle, HIGHLIGHT_CSTRING ) ) 
+            continue;
+        if( (text[i] == '\'') && 
+            HighlightCheckSingleLineRule( text, count, "\'", "\'", i, 
+            foreColors, backColors, stringStyle, HIGHLIGHT_CSTRING ) ) 
+            continue;
+        if( (text[i] == '`') && 
+            HighlightCheckSingleLineRule( text, count, "`", "`", i, 
+            foreColors, backColors, stringStyle, HIGHLIGHT_CSTRING ) ) 
+            continue;
+
+        // Check single-line comments
+        if( (text[i] == '-') &&
+            HighlightCheckCommentRule( text, count, "--", i, 
+            foreColors, backColors, commentStyle ) ) 
+            continue;
+        if( (text[i] == '#') &&
+            HighlightCheckCommentRule( text, count, "#", i, 
+            foreColors, backColors, commentStyle ) ) 
+            continue;
+
+        // Keywords
+        if( IsCharAlphaW(text[i]) )
+        {
+            // Check regular keywords
+            if( HighlightCheckKeywordRule( text, count, keywordList, i, 
+                foreColors, backColors, keywordStyle ) )
+                continue;
+    
+            // Check data types
+            if( HighlightCheckKeywordRule( text, count, dataTypeList, i, 
+                foreColors, backColors, dataTypeStyle ) )
+                continue;
+    
+            // Check functions
+            if( HighlightCheckKeywordRule( text, count, functionList, i, 
+                foreColors, backColors, keywordStyle ) )
+                continue;
+        }
+
+        // Nothing found - skip over whole words
+        i = HighlightGetNextToken( text, count, i );
+    }
+
+    // Save rule in the flags for the next line
+    flags = rule;
+}

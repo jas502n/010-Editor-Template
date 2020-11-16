@@ -1,0 +1,377 @@
+//------------------------------------------------
+//--- 010 Editor v11.0 Binary Template
+//
+//      File: SCW.bt
+//   Authors: Vorono4ka
+//   Version: 0.4
+//   Purpose: SC3D 3D file format template (Supercell).
+//  Category: GIS
+// File Mask: *.scw
+//  ID Bytes: 53 43 33 44
+//   History: 
+//   0.4   2020-10-12 Vorono4ka: Added CAME, MATE
+//   0.3   2020-10-10 Vorono4ka: Fixed a bug with breaking the template due to several materials + fixed the display of Node
+//   0.2   2020-10-09 Vorono4ka: Added HEAD, GEOM, NODE
+//------------------------------------------------
+
+BigEndian();
+
+// Types
+typedef struct {
+    short length;
+    if (length != -1) {
+        char str[length];
+    }
+} String <read=stringRead>;
+
+string stringRead(String &v) {
+    if (v.length > 0) {
+        return v.str;
+    } else {
+        return "";
+    }
+};
+
+typedef struct {
+    float segments[16];
+} Matrix4x4;
+
+typedef struct {
+    ubyte a;
+    ubyte r;
+    ubyte g;
+    ubyte b;
+} ARGB <read=ARGBRead>;
+
+string ARGBRead(ARGB &v) {
+    string s;
+    SPrintf(s, "#%x%x%x %d", v.r, v.g, v.b, v.a);
+    return s;
+}
+
+// Structures
+typedef struct {
+    byte useTexture;
+    if (useTexture == 1) 
+        String parameter;
+    else
+        ARGB parameter;
+} GLParameter <read=GLParameterRead>;
+
+string GLParameterRead(GLParameter &v) {
+    string s;
+    if (v.useTexture == 1) 
+        s = stringRead(v.parameter);
+    else
+        s = ARGBRead(v.parameter);
+    return s;
+}
+
+typedef struct {
+    for (l = 0; l < stride; l++) {
+        ushort position;
+    }
+} Point;
+
+typedef struct {
+    for (j = 0; j < 3; j++) {
+        for (l = 0; l < inputsCount; l++) {
+            switch (indexSize) {
+                case 1:
+                    ubyte index;
+                    break;
+                case 2:
+                    ushort index;
+                    break;
+            }
+        }
+    }
+} MaterialPoint;
+
+typedef struct {
+    ushort id;
+
+    if ((_frameFlags & 1) != 0) {
+		ushort rotationX;
+		ushort rotationY;
+		ushort rotationZ;
+		ushort rotationW;
+	}
+
+    if ((_frameFlags & 2) != 0)
+        float positionX;
+    if ((_frameFlags & 4) != 0)
+        float positionY;
+    if ((_frameFlags & 8) != 0)
+        float positionZ;
+
+    if ((_frameFlags & 16) != 0)
+        float scaleX;
+    if ((_frameFlags & 32) != 0)
+        float scaleY;
+    if ((_frameFlags & 64) != 0)
+        float scaleZ;
+} Frame;
+
+typedef struct {
+    for (i = 0; i < count; i++) {
+        for (l = 0; l < 3; l++) {
+            for (j = 0; j < inputsCount; j++) {
+                switch (indexSize) {
+                    case 1:
+                        ubyte index;
+                        break;
+                    case 2:
+                        ushort index;
+                        break;
+                }
+            }
+        }
+    }
+} MaterialPoints;
+
+typedef struct {
+    String name;
+    Matrix4x4 matrix;
+} Joint <read=jointRead>;
+
+string jointRead(Joint &v) {
+    local string s;
+    SPrintf(s, "%s", v.name.str);
+    return s;
+};
+
+typedef struct {
+    ubyte jointIds[4];
+    ushort weights[4];
+} Weight;
+
+typedef struct {
+    String name;
+    ubyte index;
+    ubyte subIndex;
+    ubyte stride;
+    float scale;
+    uint32 count;
+    
+    for (i = 0; i < count; i++) {
+        Point point;
+    }
+} Vertex <read=vertexRead>;
+
+string vertexRead(Vertex &v) {
+    local string s;
+    SPrintf(s, "%s - %d", v.name.str, v.count);
+    return s;
+};
+
+typedef struct {
+    ubyte count;
+    for (i = 0; i < count; i++)
+        Joint joint;
+} Joints <read=jointsRead>;
+
+string jointsRead(Joints &v) {
+    local string s;
+    SPrintf(s, "Count: %d", v.count);
+    return s;
+};
+
+typedef struct {
+    uint32 count;
+    for (i = 0; i < count; i++)
+        Weight weight;
+} Weights <read=weightsRead>;
+
+string weightsRead(Weights &v) {
+    local string s;
+    SPrintf(s, "Count: %d", v.count);
+    return s;
+};
+
+typedef struct {
+    String name;
+    uint32 count;
+    byte inputsCount;
+    byte indexSize;
+    
+    MaterialPoints points;
+} Material <read=materialRead>;
+
+string materialRead(Material &v) {
+    local string s;
+    SPrintf(s, "%s - %d", v.name.str, v.count);
+    return s;
+};
+
+typedef struct {
+    local byte _frameFlags;
+
+    String name;
+    String parent;
+    
+    ushort instancesCount;
+    for (i = 0; i < instancesCount; i++) {
+        char instanceType[4];
+        String targetObject;
+        
+        switch (instanceType) {
+            case "GEOM":
+            case "CONT":
+                ushort materialsCount;
+                for (l = 0; l < materialsCount; l++) {
+                    String symbol;
+                    String target;
+                }
+                break;
+            case "CAME":
+                String target;
+                break;
+        }
+    }
+    
+    ushort framesCount;
+    if (framesCount > 0) {
+        ubyte frameFlags;
+        for (i = 0; i < framesCount; i++) {
+            if (i == 0) 
+                _frameFlags = 127;
+            else
+                _frameFlags = frameFlags;
+            Frame frame;
+        }
+    }
+} Node <read=nodeRead>;
+
+string nodeRead(Node &v) {
+    local string s;
+    SPrintf(s, "%s", v.name.str);
+    if (v.parent.length > 0) {
+        SPrintf(s, "%s - %s", v.name.str, v.parent.str);
+    }
+    return s;
+};
+
+
+typedef struct {
+    local int _i, _l, _j;
+    local int i, l, j;
+
+    uint32 length;
+    char name[4];
+
+    switch (name) {
+        case "HEAD":
+            ushort version;
+            ushort frameRate;
+            ushort unk2;
+            ushort animationFrameEnd;
+            String materialsFilename;
+            if ( version == 2 ) {
+                byte unkBool;
+            }
+
+            fileVersion = (byte) version;
+
+            break;
+        case "MATE":
+            String materialName;
+            String shaderFile;
+
+            ubyte unk;
+            ubyte unk;
+
+            ARGB ambientColor;
+
+            GLParameter diffuse;
+            GLParameter specular;
+
+            String unk;
+            String unk;
+
+            GLParameter colorize;
+            GLParameter emission;
+
+            String opacityTexture;
+
+            float unk;
+            float unk;
+
+            String diffuseLightmap;
+            String specularLightmap;
+            
+            if (fileVersion == 2) 
+                String unk;
+            int shaderDefineFlags;
+            break;
+        case "GEOM":
+            String geometryName;
+            String geometryGroupName;
+
+            if (fileVersion <= 1) {
+                Matrix4x4 unk;
+            }
+
+            ubyte verticesCount;
+            for (_i = 0; _i < verticesCount; _i++)
+                Vertex vertex;
+
+            ubyte hasBindMatrix;
+            if (hasBindMatrix == 1) 
+                Matrix4x4 bindMatrix;
+
+            Joints joints;
+
+            Weights weights;
+
+            ubyte materialsCount;
+            for (_i = 0; _i < materialsCount; _i++) {
+                Material material;
+            }
+
+            break;
+        case "CAME":
+            String cameraName;
+            float unk;
+            float xFov;
+            float aspectRatio;
+            float zNear;
+            float zFar;
+            break;
+        case "NODE":
+            ushort nodesCount;
+            for (_i = 0; _i < nodesCount; _i++)
+                Node node;
+            break;
+        case "WEND":
+            Printf("EoF detected.");
+            break;
+        default:
+            char skip[length];
+            break;
+    }
+    uint crc32;
+} Chunk <read=chunkRead, comment=chunkComment>;
+
+string chunkComment(Chunk &v) {
+    local string s;
+    SPrintf(s, "%x", v.crc32);
+    return s;
+};
+
+string chunkRead(Chunk &v) {
+    local string s;
+    SPrintf(s, "%s - %d", v.name, v.length);
+    return s;
+};
+
+
+struct FILE {
+    local byte fileVersion;
+
+    char magic[4];
+
+    while (!FEof()) {
+        Chunk chunk;
+    }
+} file;

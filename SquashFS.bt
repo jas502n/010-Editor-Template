@@ -1,0 +1,176 @@
+//------------------------------------------------
+//--- 010 Editor v7.0 Binary Template
+//
+//      File: SquashFS.bt
+//   Authors: Drake Madison
+//   Version: 2.0
+//   Purpose: Parses the SquashFS compressed read-only file
+//            system for Linux. Supports 3.x and 4.x files.
+//  Category: Archive
+// File Mask: *.sqsh;*.squashfs
+//  ID Bytes: 68 73 71 73
+//   History: 
+//   2.0   2016-09-26 Drake Madison: Added support for squashfs 4.x files
+//   1.0   2016-03-29 Drake Madison: Initial release
+//------------------------------------------------
+struct SQUASHFS3_SUPER_BLOCK
+{
+    char   s_magic[4];
+    uint32 inodes;
+    uint32 bytes_used_2;
+    uint32 uid_start_2;
+    uint32 guid_start_2;
+    uint32 inode_table_start_2;
+    uint32 directory_table_start_2;
+    uint16 s_major;
+    uint16 s_minor;
+    uint16 block_size_1;
+    uint16 block_log;
+    ubyte  flags;
+    ubyte  no_uids;
+    ubyte  no_guids;
+    uint32 mkfs_time /* time of filesystem creation */;
+    uint64 root_inode;
+    uint32 block_size;
+    uint32 fragments;
+    uint32 fragment_table_start_2;
+    int64  bytes_used;
+    int64  uid_start;
+    int64  guid_start;
+    int64  inode_table_start;
+    int64  directory_table_start;
+    int64  fragment_table_start;
+    int64  lookup_table_start;
+};
+
+struct SQUASHFS4_SUPER_BLOCK
+{
+    char   s_magic[4];
+    uint32 inodes;
+    uint32 mkfs_time /* time of filesystem creation */;
+    uint32 block_size;
+    uint32 fragments;
+    uint16 compression;
+    uint16 block_log;
+    uint16  flags;
+    uint16  no_ids;
+    uint16 s_major;
+    uint16 s_minor;
+    uint64 root_inode;
+    int64  bytes_used;
+    int64  id_table_start;
+    int64  xattr_id_table_start;
+    int64  inode_table_start;
+    int64  directory_table_start;
+    int64  fragment_table_start;
+    int64  lookup_table_start;
+};
+
+local uint32 sb_size_bytes;
+// Index entries are 64-bit file offsets
+local uint32 index_entry_size_bytes    = 8;
+local uint32 fragments_per_index_block = 512; // 8192 / 16 bytes per fragment
+// Major and Minor filesystem version numbers are at the same superblock offset for both 3.x and 4.x
+local uint32 major_version = ReadUShort( 28 );
+
+// file starts with superblock
+if (major_version == 3)
+{
+    SQUASHFS3_SUPER_BLOCK sqsb;
+    sb_size_bytes = sizeof( SQUASHFS3_SUPER_BLOCK );
+    Printf( "Squashfs 3.x file\n" );
+}
+else if (major_version == 4)
+{
+    SQUASHFS4_SUPER_BLOCK sqsb;
+    sb_size_bytes = sizeof( SQUASHFS4_SUPER_BLOCK );
+    Printf( "Squashfs 4.x file\n" );
+}
+else
+{
+    Warning( "Unsupported squashfile version\n" );
+    return -1;
+}
+
+// verify header
+if (sqsb.s_magic != "hsqs")
+{
+    Warning( "File is not squashfs. Template stopped." );
+    return -1;
+}
+
+// This is the actual fragment table, whereas sqsb.fragment_table_start points to the index table
+// NOTE: This only works if the first index entry points to the earliest fragment block in the
+//       file. But it appears that is how it is always written.
+local uint64 frag_table_start       = ReadUInt64( sqsb.fragment_table_start );
+local uint32 fragment_index_entries = 1 + (sqsb.fragments / fragments_per_index_block);
+
+// TODO: We could more fully define the internals of the File Data, Inode Table, and Directory Table
+//       by defining a 'compressed block' structure
+
+// Define File Data block
+ubyte file_data[sqsb.inode_table_start - sb_size_bytes];
+
+// Define Inode Table block
+ubyte inode_table[sqsb.directory_table_start - sqsb.inode_table_start];
+
+// Define Directory Table block
+ubyte directory_table[frag_table_start - sqsb.directory_table_start];
+
+// Define Fragment Table
+ubyte fragment_table[sqsb.fragment_table_start - frag_table_start];
+
+// Define Fragment Table Index
+int64 fragment_table_index[fragment_index_entries];
+
+// Define NFS Export Lookup Table
+local uint64 id_table_start;
+
+if (major_version == 3)
+{
+    id_table_start = sqsb.uid_start;
+}
+else if (major_version == 4)
+{
+    // In 4.x files the ID table start points to an index table
+    id_table_start = ReadUInt64( sqsb.id_table_start );
+}
+
+if (sqsb.lookup_table_start != -1)
+{
+    ubyte export_table[id_table_start - sqsb.fragment_table_start -
+                       (fragment_index_entries * index_entry_size_bytes)];
+}
+
+// Define UID/GID Table
+if (major_version == 3)
+{
+    if (sqsb.no_uids > 0)
+    {
+        uint32 uid_table[sqsb.no_uids];
+    }
+    
+    if (sqsb.no_guids > 0)
+    {
+        uint32 gid_table[sqsb.no_guids];
+    }
+}
+else if (major_version == 4)
+{
+    local uint32 id_table_size;
+
+    if (sqsb.xattr_id_table_start != -1)
+    {
+        id_table_size = sqsb.xattr_id_table_start - id_table_start;
+    }
+    else
+    {
+        id_table_size = sqsb.bytes_used - id_table_start;
+    }
+
+    Printf( "id_table_size = %d\n", id_table_size );
+    ubyte id_table[id_table_size];
+}
+
+// Remainder of the file is padding (out to 4KByte boundary)
+ubyte padding[4096 - (sqsb.bytes_used % 4096)];

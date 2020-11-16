@@ -1,0 +1,134 @@
+//------------------------------------------------
+//--- 010 Editor v3.0.5 Binary Template
+//
+//      File: Realflow_Bin_Particles.bt
+//   Authors: Simon Beetham
+//   Version: 1.0
+//   Purpose: Reads Nextlimit Realflow BIN particle files as per .pdf delivered with Realflow
+//  Category: CAD
+// File Mask: *.bin
+//  ID Bytes: DA BA FA 00
+// History:
+//   1.0  2020-05-10 Simon Beetham: Initial version.
+//------------------------------------------------
+
+typedef struct
+{
+	float max<name="Max", read=fnRead_mma>;
+	float min<name="Min", read=fnRead_mma>;
+	float avg<name="Avg", read=fnRead_mma>;
+} maxminavg_t<name="Max/Min/Avg", read=fnRead_maxminavg_t>;
+
+string fnRead_mma(float &val)
+{
+	string s;
+	return SPrintf(s, "%.6f", val);
+}
+
+string fnRead_maxminavg_t(maxminavg_t &mma)
+{
+	string s;
+	return SPrintf(s, "Max: %.6f, Min: %.6f, Avg: %.6f", mma.max, mma.min, mma.avg);
+}
+
+typedef struct
+{
+	float x;
+	float y;
+	float z;
+} xyz_t<name="XYZ", read=fnRead_xyz_t>;
+
+string fnRead_xyz_t(xyz_t &xyz)
+{
+	string s;
+	return SPrintf(s, "XYZ: %.6f, %.6f, %.6f", xyz.x, xyz.y, xyz.z);
+}
+
+typedef struct
+{
+	float u;
+	float v;
+	float w;
+} texture_uvw_t<name="UVW", read=fnRead_texture_uvw_t>;
+
+string fnRead_texture_uvw_t(texture_uvw_t &uvw)
+{
+	string s;
+	return SPrintf(s, "UVW: %.6f, %.6f, %.6f", uvw.u, uvw.v, uvw.w);
+}
+
+LittleEndian();
+
+int header_fileId<name="FileID">;
+char header_fluid_name[250]<name="Fluid Name">;
+short header_version<name="Version">;
+float header_scale_scene<name="Scale Scene", read=fnRead_header_scale_scene>;
+int header_fluid_type<name="Fluid Type">;
+float header_elapsed_sim_time<name="Elapsed Simulation Time", read=fnRead_header_elapsed_sim_time>;
+int header_frame_number<name="Frame Number">;
+int header_frames_per_second<name="Frames Per Second">;
+int header_number_of_particles<name="Number Of Particles">;
+float header_radius<name="Radius", read=fnRead_header_radius>;
+maxminavg_t header_pressure<name="Pressure">;
+maxminavg_t header_speed<name="Speed">;
+maxminavg_t header_temperature<name="Temperature">;
+if (header_version >= 7)
+{
+	xyz_t header_emmiter_position<name="Emitter Position">;
+	xyz_t header_emitter_rotation<name="Emitter Rotation">;
+	xyz_t header_emitter_scale<name="Emitter Scale">;
+}
+
+string fnRead_header_scale_scene(float &header_scale_scene)
+{
+	string s;
+	return SPrintf(s, "%.6f", header_scale_scene);
+}
+
+string fnRead_header_elapsed_sim_time(float &header_elapsed_sim_time)
+{
+	string s;
+	return SPrintf(s, "%.6f", header_elapsed_sim_time);
+}
+
+string fnRead_header_radius(float &header_radius)
+{
+	string s;
+	return SPrintf(s, "%.6f", header_radius);
+}
+
+string fnRead_float(float &f)
+{
+	string s;
+	return SPrintf(s, "%.6f", f);
+}
+
+typedef struct
+{
+	xyz_t particle_position<name="Position">;
+	xyz_t particle_velocity<name="Velocity">;
+	xyz_t particle_force<name="Force">;
+	if (header_version >= 9)
+		xyz_t particle_vorticity<name="Vorticity">;
+	if (header_version >= 3)
+		xyz_t particle_normal<name="Normal">;
+	if (header_version >= 4)
+		int particle_neighbors<name="Neighbors">;
+	if (header_version >= 5)
+		texture_uvw_t particle_uvw<name="Texture UVW">;
+	if (header_version >= 5)
+		short particle_info_bits<name="Info Bits">;
+	float particle_age<name="Age", read=fnRead_float>;
+	float particle_isolation_time<name="Isolation Time", read=fnRead_float>;
+	float particle_viscosity<name="Viscosity", read=fnRead_float>;
+	float particle_density<name="Density", read=fnRead_float>;
+	float particle_pressure<name="Pressure", read=fnRead_float>;
+	float particle_mass<name="Mass", read=fnRead_float>;
+	float particle_temperature<name="Temperature", read=fnRead_float>;
+	if (header_version < 12)
+		int particle_Id<name="ID">;
+	if (header_version >= 12)
+		uint64 particle_Id<name="ID">;
+} particle_t<name="Particle">;
+
+particle_t particles[header_number_of_particles]<name="Particles">;

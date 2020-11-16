@@ -1,0 +1,94 @@
+//------------------------------------------------
+//--- 010 Editor v8.0 Binary Template
+//
+//      File: Torrent.bt
+//   Authors: Bartosz Dziewonski
+//   Version: 1.0
+//   Purpose: Parse torrent files.
+//  Category: Internet
+// File Mask: *.torrent
+//  ID Bytes: 
+//   History: 
+//   1.0   2018-01-31 Bartosz Dziewonski: Initial version.
+//------------------------------------------------
+
+int64 find_next( char terminator ) {
+    local int64 pos = FTell();
+    local int64 len = 0;
+    while( ReadByte(pos+len) != terminator )
+        len++;
+    return len;
+}
+
+struct sha1 {
+    BigEndian();
+    uint32 data[5];
+    LittleEndian();
+};
+
+struct sha1s {
+    char length[ find_next(':') ];
+    char string_identifier <hidden=1>;
+    local int n = Atoi(length) / 20;
+    while (n--) {
+        struct sha1 data <read=read_sha1>;
+    }
+};
+
+string read_sha1( struct sha1 &v ) {
+    string s;
+    SPrintf( s, "%08x%08x%08x%08x%08x",
+        v.data[ 0], v.data[ 1], v.data[ 2], v.data[ 3], v.data[ 4]
+    );
+    return s;
+}
+
+typedef struct {
+    local char identifier = ReadByte();
+    if (identifier == 'i') {
+        char int_identifier <hidden=1>;
+        char integer[ find_next('e') ];
+        char terminator <hidden=1>;
+    } else if (identifier == 'l') {
+        local int length = 0;
+        char list_identifier <hidden=1>;
+        while (ReadByte() != 'e') {
+            length++;
+            struct bencode item;
+        }
+        char terminator <hidden=1>;
+    } else if (identifier == 'd') {
+        local int length = 0;
+        char dict_identifier <hidden=1>;
+        while (ReadByte() != 'e') {
+            length++;
+            struct bencode key;
+            if (Strcmp(key.str, "pieces") == 0)
+                struct sha1s value;
+            else
+                struct bencode value;
+        }
+        char terminator <hidden=1>;
+    } else {
+        char length[ find_next(':') ];
+        char string_identifier <hidden=1>;
+        char str[ Atoi(length) ];
+    }
+} bencode <read=read_bencode>;
+
+string read_bencode( struct bencode &v ) {
+    string s;
+    if (v.identifier == 'i')
+        return v.integer;
+    if (v.identifier == 'l') {
+        SPrintf( s, "(list: %u)", v.length );
+        return s;
+    }
+    if (v.identifier == 'd') {
+        SPrintf( s, "(dict: %u)", v.length );
+        return s;
+    }
+    return v.str;
+}
+
+bencode contents;

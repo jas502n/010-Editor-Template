@@ -1,0 +1,83 @@
+//------------------------------------------------
+//--- 010 Editor v10.0.2 Binary Template
+//
+//  File: OrochiDAT.bt
+//  Authors: SeleDreams
+//  Version: 0.2
+//  Purpose: Analyzing Silicon Studio's Orochi / Mizuchi Engine data archiving format
+//  Category: Archive
+//  File Mask: GxArchivedFile???.dat
+//  ID Bytes: 47 44 41 54
+//  History: 
+//   0.2   2020-05-08 SeleDreams: Implemented a feature allowing to see the file formats
+//   0.1   2020-05-06 SeleDreams: Initial Release
+//------------------------------------------------
+
+typedef struct{
+        uint Offset;
+        uint Length;
+ } GDATFileDef;
+
+
+typedef struct {
+    char MAGIC[4];
+    int FileCount;
+    GDATFileDef File_Definitions[FileCount];
+} GDATHeader;
+
+
+typedef struct{
+        char MAGIC[4];
+        byte Data[File.Header.File_Definitions[i].Length - 4];
+} GDATFile<read=DisplayFileType>;
+
+/** 
+*  - This structure is an array containing all the files in the order of their definition.
+*  - I've added it this way to avoid a mess where all the files are listed at the root of the inspector.
+**/
+typedef struct{
+    local int i = 0;
+    for (i = 0; i < File.Header.FileCount; i++){
+        Printf("Added %d files to the array...\n",i+1);
+        FSeek(File.Header.File_Definitions[i].Offset);
+        GDATFile file;
+    }
+} GDATFiles;
+
+
+typedef struct {
+    GDATHeader Header;
+    GDATFiles Files;
+} GDAT <read=DisplayFileCount>;
+
+
+string DisplayFileCount(GDAT &input){
+    string s;
+    SPrintf(s,"%d Files",input.Header.FileCount);
+    return s;
+}
+
+string DisplayFileType(GDATFile &input){
+    string s;
+    local char reversed[4];
+    local int i;
+    for (i = 3; i > -1; i--)
+    {
+        reversed[3-i] = input.MAGIC[i];
+    }
+    if (reversed[1] == '\0'){
+        SPrintf(s,"Unknown File");
+    }
+    else{
+    SPrintf(s,"%s File",reversed);
+    }
+    return s;
+}
+
+GDAT File;
+Printf("%d Files were found in this GDAT file\n", File.Header.FileCount);
+
+
+
+
+

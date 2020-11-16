@@ -1,0 +1,37 @@
+//------------------------------------------------
+//--- 010 Editor v6.0.3 Binary Template
+//
+//      File: SeqBox.bt
+//   Authors: Marco Pontello
+//   Version: 1.0
+//   Purpose: Explore a SeqBox file container/archive.
+//  Category: Archive
+// File Mask: *.sbx
+//  ID Bytes: 53 42 78 //SBx
+//   History: 
+//   1.0   2017-04-12 MP: Initial release.
+//
+// See: https://github.com/MarcoPon/SeqBox
+//------------------------------------------------
+
+local int BLOCKSIZE = 512;
+
+BigEndian();
+DisplayFormatHex();
+
+struct BLOCK {
+    struct HEADER {
+        struct MAGIC {
+            char    signature[3];
+        } magic;
+        byte    version; 
+        short   CRC16;
+        struct UID {
+            byte    uid[6];
+        } uid;
+        int     blocknum;
+    } header;
+    byte    data[BLOCKSIZE - sizeof(header)];
+} block[FileSize() / BLOCKSIZE];
+
+

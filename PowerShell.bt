@@ -1,0 +1,130 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: PowerShell.bt
+//   Authors: SweetScape Software
+//   Version: 1.0
+//   Purpose: Syntax highlighting for Windows PowerShell scripts.
+//  Category: Syntax
+// File Mask: *.ps1,*.psm1
+//  ID Bytes: 
+//   History: 
+//   1.0   2018-11-28 SweetScape Software: Initial version.
+//------------------------------------------------
+RequiresVersion( 9 );
+
+// To save memory, allow a single copy of this template to provide 
+//  syntax highlighting for all open files that match the file mask.
+HighlightAllowInstanceSharing( true );
+
+// Get list of coloring styles
+local int commentStyle  = HighlightFindStyle( "code-comment" );
+local int keywordStyle  = HighlightFindStyle( "code-keyword" );
+local int dataTypeStyle = HighlightFindStyle( "code-data-type" );
+local int stringStyle   = HighlightFindStyle( "code-string" );
+
+// Types of rules we may be applying that may span multiple lines
+const int RULE_NONE              = 0;
+const int RULE_MULTILINE_COMMENT = 1;
+
+// Build list of keywords
+local TKeywordList keywordList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD | HIGHLIGHT_IGNORECASE,
+    "AC", "ADD-PSSNAPIN", "ASNP", "BEGIN", "BREAK", "CAT", "CATCH", "CD", 
+    "CHDIR", "CLC", "CLEAR", "CLEAR-CONTENT", "CLEAR-HISTORY", "CLEAR-HOST", 
+    "CLEAR-ITEM", "CLEAR-ITEMPROPERTY", "CLEAR-VARIABLE", "CLHY", "CLI", "CLP", 
+    "CLS", "CLV", "CNSN", "COMPARE", "COMPARE-OBJECT", "CONNECT-PSSESSION", 
+    "CONTINUE", "CONVERT-PATH", "COPY", "COPY-ITEM", "COPY-ITEMPROPERTY", "CP", 
+    "CPI", "CPP", "CURL", "CVPA", "DATA", "DBP", "DEL", "DIFF", "DIR", 
+    "DISABLE-PSBREAKPOINT", "DISCONNECT-PSSESSION", "DNSN", "DO", 
+    "DYNAMICPARAM", "EBP", "ECHO", "ELSE", "ELSEIF", "ENABLE-PSBREAKPOINT", 
+    "END", "ENTER-PSSESSION", "EPAL", "EPCSV", "EPSN", "ERASE", "ETSN", "EXIT", 
+    "EXIT-PSSESSION", "EXPORT-ALIAS", "EXPORT-CSV", "EXPORT-PSSESSION", "EXSN", 
+    "FC", "FILTER", "FINALLY", "FL", "FOR", "FOREACH", "FOREACH-OBJECT", 
+    "FORMAT-CUSTOM", "FORMAT-LIST", "FORMAT-TABLE", "FORMAT-WIDE", "FROM", 
+    "FT", "FUNCTION", "FW", "GAL", "GBP", "GC", "GCI", "GCM", "GCS", "GDR", 
+    "GET-ALIAS", "GET-CHILDITEM", "GET-COMMAND", "GET-CONTENT", "GET-HISTORY", 
+    "GET-ITEM", "GET-ITEMPROPERTY", "GET-JOB", "GET-LOCATION", "GET-MEMBER", 
+    "GET-MODULE", "GET-PROCESS", "GET-PSBREAKPOINT", "GET-PSCALLSTACK", 
+    "GET-PSDRIVE", "GET-PSSESSION", "GET-PSSNAPIN", "GET-SERVICE", "GET-UNIQUE", 
+    "GET-VARIABLE", "GET-WMIOBJECT", "GHY", "GI", "GJB", "GL", "GM", "GMO", 
+    "GP", "GPS", "GROUP", "GROUP-OBJECT", "GSN", "GSNP", "GSV", "GU", "GV", 
+    "GWMI", "H", "HELP", "HISTORY", "ICM", "IEX", "IF", "IHY", "II", 
+    "IMPORT-ALIAS", "IMPORT-CSV", "IMPORT-MODULE", "IMPORT-PSSESSION", "IN", 
+    "INVOKE-COMMAND", "INVOKE-EXPRESSION", "INVOKE-HISTORY", "INVOKE-ITEM", 
+    "INVOKE-RESTMETHOD", "INVOKE-WEBREQUEST", "INVOKE-WMIMETHOD", "IPAL", 
+    "IPCSV", "IPMO", "IPSN", "IRM", "ISE", "IWMI", "IWR", "KILL", "LOCAL", 
+    "LP", "LS", "MAN", "MD", "MEASURE", "MEASURE-OBJECT", "MI", "MKDIR", 
+    "MOUNT", "MOVE", "MOVE-ITEM", "MOVE-ITEMPROPERTY", "MP", "MV", "NAL", 
+    "NDR", "NEW-ALIAS", "NEW-ITEM", "NEW-MODULE", "NEW-PSDRIVE", 
+    "NEW-PSSESSION", "NEW-PSSESSIONCONFIGURATIONFILE", "NEW-VARIABLE", "NI", 
+    "NMO", "NPSSC", "NSN", "NV", "OGV", "OH", "OUT-GRIDVIEW", "OUT-HOST", 
+    "OUT-PRINTER", "PARAM", "POP-LOCATION", "POPD", "PRIVATE", "PROCESS", 
+    "PS", "PUSH-LOCATION", "PUSHD", "PWD", "R", "RBP", "RCJB", "RCSN", "RD", 
+    "RDR", "RECEIVE-JOB", "RECEIVE-PSSESSION", "REMOVE-ITEM", 
+    "REMOVE-ITEMPROPERTY", "REMOVE-JOB", "REMOVE-MODULE", "REMOVE-PSBREAKPOINT", 
+    "REMOVE-PSDRIVE", "REMOVE-PSSESSION", "REMOVE-PSSNAPIN", "REMOVE-VARIABLE", 
+    "REMOVE-WMIOBJECT", "REN", "RENAME-ITEM", "RENAME-ITEMPROPERTY", 
+    "RESOLVE-PATH", "RESUME-JOB", "RETURN", "RI", "RJB", "RM", "RMDIR", "RMO", 
+    "RNI", "RNP", "RP", "RSN", "RSNP", "RUJB", "RV", "RVPA", "RWMI", "SAJB", 
+    "SAL", "SAPS", "SASV", "SBP", "SC", "SELECT", "SELECT-OBJECT", "SET", 
+    "SET-ALIAS", "SET-CONTENT", "SET-ITEM", "SET-LOCATION", "SET-PSBREAKPOINT", 
+    "SET-VARIABLE", "SHCM", "SHOW-COMMAND", "SI", "START-JOB", "START-PROCESS", 
+    "START-SERVICE", "STOP-PROCESS", "SWITCH", "THROW", "TRAP", "TRY", "UNTIL", 
+    "WHERE ", "WHERE-OBJECT", "WHILE ", "WRITE-DEBUG", "WRITE-ERROR", 
+    "WRITE-HOST", "WRITE-OUTPUT", "WRITE-PROGRESS", "WRITE-VERBOSE", 
+    "WRITE-WARNING" );
+ 
+// Main function to apply syntax highlighting to a line of text.
+//  flags is preserved between lines and allows us to do multi-line comments.
+void HighlightLineRealtime( int64 line, wchar_t text[], int foreColors[], int backColors[], int count, ushort &flags )
+{
+    int i, len, pos, match, rule = flags;
+    while( i < count )
+    {  
+        // Check multi-line comment - could be continued from a previous line
+        if( (text[i] == '<' || rule == RULE_MULTILINE_COMMENT) && 
+            HighlightCheckMultiLineRule( text, count, "<#", "#>", i, 
+            rule, RULE_NONE, RULE_MULTILINE_COMMENT, foreColors, backColors, commentStyle ) ) 
+            continue;
+
+        // Check single-line comments
+        if( (text[i] == '#') &&
+            HighlightCheckCommentRule( text, count, "#", i, 
+            foreColors, backColors, commentStyle ) ) 
+            continue;
+
+        // Check single-line string
+        if( (text[i] == '\"') &&
+            HighlightCheckSingleLineRule( text, count, "\"", "\"", i, 
+            foreColors, backColors, stringStyle ) ) 
+            continue;
+        if( (text[i] == '\'') &&
+            HighlightCheckSingleLineRule( text, count, "\'", "\'", i, 
+            foreColors, backColors, stringStyle ) ) 
+            continue;
+
+        // Check keywords
+        if( HighlightCheckKeywordRule( text, count, keywordList, i, 
+            foreColors, backColors, keywordStyle ) )
+            continue;
+
+        // Check variables starting with $
+        if( text[i] == '$' )
+        {
+            // Match $$, $?, $^, $_, $(word)
+            match = HighlightMatchString( text, count, "\\$[\\$?^_]|\\$\\w+", i, HIGHLIGHT_REGEX );
+            if( match > 0 )
+            {
+                HighlightApplyStyle( foreColors, backColors, i, match, dataTypeStyle );
+                i += match;
+                continue;
+            }
+        }
+
+        // Nothing found - skip over whole words
+        i = HighlightGetNextToken( text, count, i );
+    }
+
+    // Save rule in the flags for the next line
+    flags = rule;
+}

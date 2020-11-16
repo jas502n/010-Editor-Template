@@ -1,0 +1,120 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: PHP.bt
+//   Authors: SweetScape Software
+//   Version: 1.0
+//   Purpose: Syntax highlighting for PHP files.
+//  Category: Syntax
+// File Mask: *.php
+//  ID Bytes: 
+//   History: 
+//   1.0   2018-10-03 SweetScape Software: Initial version.
+//------------------------------------------------
+RequiresVersion( 9 );
+
+// To save memory, allow a single copy of this template to provide 
+//  syntax highlighting for all open files that match the file mask.
+HighlightAllowInstanceSharing( true );
+
+// Get list of coloring styles
+local int commentStyle     = HighlightFindStyle( "tag-comment" );
+local int phpStyle         = HighlightFindStyle( "tag-php" );
+local int codeCommentStyle = HighlightFindStyle( "code-comment" );
+local int keywordStyle     = HighlightFindStyle( "code-keyword" );
+local int dataTypeStyle    = HighlightFindStyle( "code-data-type" );
+local int stringStyle      = HighlightFindStyle( "code-string" );
+
+// Types of rules we may be applying
+const int RULE_NONE                   = 0;
+const int RULE_MULTILINE_COMMENT      = 1;
+const int RULE_MULTILINE_CODE_COMMENT = 2;
+const int RULE_PHP                    = 3;
+const int RULE_STRING                 = 4;
+
+// Build list of keywords
+local TKeywordList keywordList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD,
+    "FALSE", "TRUE", "__halt_compiler", "abstract", "and", "array", "as", "break", 
+    "callable", "case", "catch", "class", "clone", "const", "continue", "declare", 
+    "default", "die", "do", "echo", "else", "elseif", "empty", "enddeclare", 
+    "endfor", "endforeach", "endif", "endswitch", "endwhile", "eval", "exit", 
+    "extends", "final", "for", "foreach", "function", "global", "goto", "if", 
+    "implements", "include", "include_once", "instanceof", "insteadof", "interface", 
+    "isset", "list", "namespace", "new", "or", "print", "private", "protected", 
+    "public", "require", "require_once", "return", "static", "switch", "throw", 
+    "trait", "try", "unset", "use", "var", "while", "xor" );
+
+// Build list of datatypes
+local TKeywordList dataTypeList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD,
+    "NULL", "array", "binary", "bool", "boolean", "float", "int", "integer", "null", 
+    "object", "resource", "string", "unicode" );
+
+// Main function to apply syntax highlighting to a line of text.
+//  flags is preserved between lines and allows us to do multi-line comments.
+void HighlightLineRealtime( int64 line, wchar_t text[], int foreColors[], int backColors[], int count, ushort &flags )
+{
+    int i, nexti, len, pos, bracketPos, style, rule = flags & 0xff, unused;
+    while( i < count )
+    {
+        // Check multi-line comment - could be continued from a previous line
+        if( (text[i] == '<' || rule == RULE_MULTILINE_COMMENT) && 
+            HighlightCheckMultiLineRule( text, count, "<!--", "-->", i, 
+            rule, RULE_NONE, RULE_MULTILINE_COMMENT, foreColors, backColors, commentStyle ) ) 
+            continue;
+
+        // Check start or end of tag rule - could be continued from a previous line
+        if( (text[i] == '<' || rule == RULE_PHP) &&
+            HighlightCheckTagRule( text, count, "<?", "?>", i, 
+            rule, RULE_NONE, RULE_PHP, foreColors, backColors, phpStyle, unused ) ) 
+            continue;
+
+        // Check multi-line comment - could be continued from a previous line
+        if( (text[i] == '/' || rule == RULE_MULTILINE_CODE_COMMENT) && 
+            HighlightCheckMultiLineRule( text, count, "/*", "*/", i, 
+            rule, RULE_PHP, RULE_MULTILINE_CODE_COMMENT, foreColors, backColors, codeCommentStyle ) ) 
+            continue;
+
+        // Check single-line comments
+        if( (text[i] == '/' && rule == RULE_PHP) && 
+            HighlightCheckCommentRule( text, count, "//", i, 
+            foreColors, backColors, codeCommentStyle ) ) 
+            continue;
+
+        // Check multi-line string inside a tag - could be continued from a previous line
+        if( (text[i] == '\"' || rule == RULE_STRING) &&
+            HighlightCheckMultiLineRule( text, count, "\"", "\"", i, 
+            rule, RULE_PHP, RULE_STRING, foreColors, backColors, stringStyle, HIGHLIGHT_CSTRING ) )
+            continue;
+
+        if( rule == RULE_PHP ) 
+        {
+            // Check character constant    
+            if( (text[i] == '\'') &&
+                HighlightCheckSingleLineRule( text, count, "\'", "\'", i, 
+                foreColors, backColors, stringStyle, HIGHLIGHT_CSTRING ) ) 
+                continue;
+    
+            // Check keywords
+            if( HighlightCheckKeywordRule( text, count, keywordList, i, 
+                foreColors, backColors, keywordStyle ) )
+                continue;
+    
+            // Check data types
+            if( HighlightCheckKeywordRule( text, count, dataTypeList, i, 
+                foreColors, backColors, dataTypeStyle ) )
+                continue;
+    
+            // Color all tokens inside a tag with phpStyle
+            nexti = HighlightGetNextToken( text, count, i );
+            HighlightApplyStyle( foreColors, backColors, i, nexti-i, phpStyle );
+            i = nexti;
+            continue;
+        }
+
+        // Nothing found - skip over whole words
+        i = HighlightGetNextToken( text, count, i );
+    }
+
+    // Save rule and foundName in the flags for the next line
+    flags = rule;
+}

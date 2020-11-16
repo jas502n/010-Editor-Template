@@ -1,0 +1,836 @@
+//------------------------------------------------
+//--- 010 Editor v2.0 Binary Template
+//
+//      File: SF2.bt
+//   Authors: gocha
+//   Version: 1.3
+//   Purpose: Defines a template for
+//            SF2 (SoundFont 2.04) files.
+//  Category: Audio
+// File Mask: *.sf2
+//  ID Bytes: 52 49 46 46 [+4] 73 66 62 6B //RIFF????sfbk
+//   History: 
+//   1.3   2016-05-04 gocha: - Add missing irom chunk
+//   1.2   2016-03-07 gocha: - Update definition of every enum types
+//                           - Update the type of SFModulator::index for MIDI CC# modulator
+//   1.1   2016-02-22 SweetScape Software: Updated header for repository submission.
+//   1.0   2015-02-22 gocha: Initial release.
+//
+// Tested with: Polyphone.
+//------------------------------------------------
+
+typedef CHAR ID[4];
+
+local int cGrayZone = 0xd9dadc;
+local int cOrange = 0xaae3f9;
+local int cSytrus = 0xaaf7ff;
+local int cGreenGreens = 0xaaecdf;
+local int cCureMarine = 0xffe1ce;
+local int cCureMarine_Alt = 0xfdf1dd;
+local int cPurpleMadness = 0xeec3dd;
+local int cPurpleMadness_Alt = 0xffe1fa;
+
+//-----------------------------------
+// Define structures used in SF2 files
+
+// SoundFont 2 RIFF File Format Type Definitions
+typedef enum <WORD> {
+    monoSample = 1,
+    rightSample = 2,
+    leftSample = 4,
+    linkedSample = 8,
+    RomMonoSample = 0x8001,
+    RomRightSample = 0x8002,
+    RomLeftSample = 0x8004,
+    RomLinkedSample = 0x8008,
+} SFSampleLink;
+
+typedef enum <WORD> {
+    startAddrsOffset = 0,
+    endAddrsOffset = 1,
+    startloopAddrsOffset = 2,
+    endloopAddrsOffset = 3,
+    startAddrsCoarseOffset = 4,
+    modLfoToPitch = 5,
+    vibLfoToPitch = 6,
+    modEnvToPitch = 7,
+    initialFilterFc = 8,
+    initialFilterQ = 9,
+    modLfoToFilterFc = 10,
+    modEnvToFilterFc = 11,
+    endAddrsCoarseOffset = 12,
+    modLfoToVolume = 13,
+    chorusEffectsSend = 15,
+    reverbEffectsSend = 16,
+    pan = 17,
+    delayModLFO = 21,
+    freqModLFO = 22,
+    delayVibLFO = 23,
+    freqVibLFO = 24,
+    delayModEnv = 25,
+    attackModEnv = 26,
+    holdModEnv = 27,
+    decayModEnv = 28,
+    sustainModEnv = 29,
+    releaseModEnv = 30,
+    keynumToModEnvHold = 31,
+    keynumToModEnvDecay = 32,
+    delayVolEnv = 33,
+    attackVolEnv = 34,
+    holdVolEnv = 35,
+    decayVolEnv = 36,
+    sustainVolEnv = 37,
+    releaseVolEnv = 38,
+    keynumToVolEnvHold = 39,
+    keynumToVolEnvDecay = 40,
+    instrument = 41,
+    keyRange = 43,
+    velRange = 44,
+    startloopAddrsCoarseOffset = 45,
+    keynum = 46,
+    velocity = 47,
+    initialAttenuation = 48,
+    endloopAddrsCoarseOffset = 50,
+    coarseTune = 51,
+    fineTune = 52,
+    sampleID = 53,
+    sampleModes = 54,
+    scaleTuning = 56,
+    exclusiveClass = 57,
+    overridingRootKey = 58,
+    endOper = 60,
+} SFGenerator;
+
+typedef enum <BYTE> {
+    noController = 0,
+    noteOnVelocity = 2,
+    noteOnKeyNumber = 3,
+    polyPressure = 10,
+    channelPressure = 13,
+    pitchWheel = 14,
+    pitchWheelSensitivity = 16,
+    link = 127,
+} SFGeneralController;
+
+typedef enum <BYTE> {
+    generalController = 0,
+    midiController = 1,
+} SFControllerPalette;
+
+typedef enum <BYTE> {
+    increase = 0,
+    decrease = 1,
+} SFControllerDirection;
+
+typedef enum <BYTE> {
+    unipolar = 0,
+    bipolar = 1,
+} SFControllerPolarity;
+
+typedef enum <BYTE> {
+    linearType = 0,
+    concaveType = 1,
+    convexType = 2,
+    switchType = 3,
+} SFControllerType;
+
+typedef struct {
+    union {
+        SFGeneralController general : 7;
+        BYTE midi : 7;
+    } index;
+    SFControllerPalette palette : 1;
+    SFControllerDirection direction : 1;
+    SFControllerPolarity polarity : 1;
+    SFControllerType type : 6;
+} SFModulator;
+
+typedef enum <WORD> {
+    linear = 0,
+    absoluteValue = 2,
+} SFTransform;
+
+typedef struct
+{
+    BYTE byLo;
+    BYTE byHi;
+} rangesType;
+
+typedef union
+{
+    rangesType ranges;
+    SHORT shAmount;
+    WORD wAmount;
+} genAmountType;
+
+// SoundFont 2 RIFF File Format Level 3
+typedef struct {
+    WORD wMajor;
+    WORD wMinor;
+} sfVersionTag;
+
+typedef struct {
+    CHAR achPresetName[20];
+    WORD wPreset;
+    WORD wBank;
+    WORD wPresetBagNdx;
+    DWORD dwLibrary;
+    DWORD dwGenre;
+    DWORD dwMorphology;
+} sfPresetHeader;
+
+typedef struct
+{
+    WORD wGenNdx;
+    WORD wModNdx;
+} sfPresetBag;
+
+typedef struct
+{
+    SFModulator sfModSrcOper;
+    SFGenerator sfModDestOper;
+    SHORT modAmount;
+    SFModulator sfModAmtSrcOper;
+    SFTransform sfModTransOper;
+} sfModList;
+
+typedef struct
+{
+    SFGenerator sfGenOper;
+    genAmountType genAmount;
+} sfGenList;
+
+typedef struct
+{
+    CHAR achInstName[20];
+    WORD wInstBagNdx;
+} sfInst;
+
+typedef struct
+{
+    WORD wInstGenNdx;
+    WORD wInstModNdx;
+} sfInstBag;
+
+typedef struct
+{
+    SFModulator sfModSrcOper;
+    SFGenerator sfModDestOper;
+    SHORT modAmount;
+    SFModulator sfModAmtSrcOper;
+    SFTransform sfModTransOper;
+} sfInstModList;
+
+typedef struct
+{
+    SFGenerator sfGenOper;
+    genAmountType genAmount;
+} sfInstGenList;
+
+typedef struct
+{
+    CHAR achSampleName[20];
+    DWORD dwStart;
+    DWORD dwEnd;
+    DWORD dwStartloop;
+    DWORD dwEndloop;
+    DWORD dwSampleRate;
+    BYTE byOriginalKey;
+    CHAR chCorrection;
+    WORD wSampleLink;
+    SFSampleLink sfSampleType;
+} sfSample;
+
+// SoundFont 2 RIFF File Format Level 2
+typedef struct {
+    ID        chunkID;
+    DWORD     chunkSize;
+    CHAR      text[chunkSize];
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} ZSTRCk;
+
+typedef struct {
+    ID             chunkID;
+    DWORD          chunkSize;
+    local quad pos = FTell();
+
+    if( FileSize() - pos >= sizeof( sfVersionTag ) ) {
+        sfVersionTag version;
+    }
+
+    local int unknownDataSize = chunkSize - (FTell() - pos);
+    if( unknownDataSize > 0 ) {
+        Printf( "Encountered unknown data in chunk '%s' of size %d at position 0x%LX.\n",
+            chunkID, unknownDataSize, FTell() );
+        UCHAR unknownData[unknownDataSize];
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} sfVersionTagCk;
+
+typedef struct {
+    ID        chunkID;
+    DWORD     chunkSize;
+
+    SHORT     samples[chunkSize / 2];
+
+    local int unknownDataSize = chunkSize - (FTell() - pos);
+    if( unknownDataSize > 0 ) {
+        Printf( "Encountered unknown data in chunk '%s' of size %d at position 0x%LX.\n",
+            chunkID, unknownDataSize, FTell() );
+        UCHAR unknownData[unknownDataSize];
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} smplCk;
+
+typedef struct {
+    ID        chunkID;
+    DWORD     chunkSize;
+
+    BYTE      samples[chunkSize];
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} sm24Ck;
+
+typedef struct {
+    ID             chunkID;
+    DWORD          chunkSize;
+    local quad pos = FTell();
+
+    while( chunkSize - (FTell() - pos) >= sizeof( sfPresetHeader ) ) {
+      sfPresetHeader header;
+    }
+
+    local int unknownDataSize = chunkSize - (FTell() - pos);
+    if( unknownDataSize > 0 ) {
+        Printf( "Encountered unknown data in chunk '%s' of size %d at position 0x%LX.\n",
+            chunkID, unknownDataSize, FTell() );
+        UCHAR unknownData[unknownDataSize];
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} phdrCk;
+
+typedef struct {
+    ID             chunkID;
+    DWORD          chunkSize;
+    local quad pos = FTell();
+
+    while( chunkSize - (FTell() - pos) >= sizeof( sfPresetBag ) ) {
+      sfPresetBag bag;
+    }
+
+    local int unknownDataSize = chunkSize - (FTell() - pos);
+    if( unknownDataSize > 0 ) {
+        Printf( "Encountered unknown data in chunk '%s' of size %d at position 0x%LX.\n",
+            chunkID, unknownDataSize, FTell() );
+        UCHAR unknownData[unknownDataSize];
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} pbagCk;
+
+typedef struct {
+    ID             chunkID;
+    DWORD          chunkSize;
+    local quad pos = FTell();
+
+    while( chunkSize - (FTell() - pos) >= sizeof( sfModList ) ) {
+      sfModList mod;
+    }
+
+    local int unknownDataSize = chunkSize - (FTell() - pos);
+    if( unknownDataSize > 0 ) {
+        Printf( "Encountered unknown data in chunk '%s' of size %d at position 0x%LX.\n",
+            chunkID, unknownDataSize, FTell() );
+        UCHAR unknownData[unknownDataSize];
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} pmodCk;
+
+typedef struct {
+    ID             chunkID;
+    DWORD          chunkSize;
+    local quad pos = FTell();
+
+    while( chunkSize - (FTell() - pos) >= sizeof( sfGenList ) ) {
+      sfGenList gen;
+    }
+
+    local int unknownDataSize = chunkSize - (FTell() - pos);
+    if( unknownDataSize > 0 ) {
+        Printf( "Encountered unknown data in chunk '%s' of size %d at position 0x%LX.\n",
+            chunkID, unknownDataSize, FTell() );
+        UCHAR unknownData[unknownDataSize];
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} pgenCk;
+
+typedef struct {
+    ID             chunkID;
+    DWORD          chunkSize;
+    local quad pos = FTell();
+
+    while( chunkSize - (FTell() - pos) >= sizeof( sfInst ) ) {
+      sfInst inst;
+    }
+
+    local int unknownDataSize = chunkSize - (FTell() - pos);
+    if( unknownDataSize > 0 ) {
+        Printf( "Encountered unknown data in chunk '%s' of size %d at position 0x%LX.\n",
+            chunkID, unknownDataSize, FTell() );
+        UCHAR unknownData[unknownDataSize];
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} instCk;
+
+typedef struct {
+    ID             chunkID;
+    DWORD          chunkSize;
+    local quad pos = FTell();
+
+    while( chunkSize - (FTell() - pos) >= sizeof( sfInstBag ) ) {
+      sfInstBag bag;
+    }
+
+    local int unknownDataSize = chunkSize - (FTell() - pos);
+    if( unknownDataSize > 0 ) {
+        Printf( "Encountered unknown data in chunk '%s' of size %d at position 0x%LX.\n",
+            chunkID, unknownDataSize, FTell() );
+        UCHAR unknownData[unknownDataSize];
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} ibagCk;
+
+typedef struct {
+    ID             chunkID;
+    DWORD          chunkSize;
+    local quad pos = FTell();
+
+    while( chunkSize - (FTell() - pos) >= sizeof( sfInstModList ) ) {
+      sfInstModList mod;
+    }
+
+    local int unknownDataSize = chunkSize - (FTell() - pos);
+    if( unknownDataSize > 0 ) {
+        Printf( "Encountered unknown data in chunk '%s' of size %d at position 0x%LX.\n",
+            chunkID, unknownDataSize, FTell() );
+        UCHAR unknownData[unknownDataSize];
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} imodCk;
+
+typedef struct {
+    ID             chunkID;
+    DWORD          chunkSize;
+    local quad pos = FTell();
+
+    while( chunkSize - (FTell() - pos) >= sizeof( sfInstGenList ) ) {
+      sfInstGenList gen;
+    }
+
+    local int unknownDataSize = chunkSize - (FTell() - pos);
+    if( unknownDataSize > 0 ) {
+        Printf( "Encountered unknown data in chunk '%s' of size %d at position 0x%LX.\n",
+            chunkID, unknownDataSize, FTell() );
+        UCHAR unknownData[unknownDataSize];
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} igenCk;
+
+typedef struct {
+    ID             chunkID;
+    DWORD          chunkSize;
+    local quad pos = FTell();
+
+    while( chunkSize - (FTell() - pos) >= sizeof( sfSample ) ) {
+      sfSample sample;
+    }
+
+    local int unknownDataSize = chunkSize - (FTell() - pos);
+    if( unknownDataSize > 0 ) {
+        Printf( "Encountered unknown data in chunk '%s' of size %d at position 0x%LX.\n",
+            chunkID, unknownDataSize, FTell() );
+        UCHAR unknownData[unknownDataSize];
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} shdrCk;
+
+// SoundFont 2 RIFF File Format Level 2
+typedef struct {
+    ID        chunkID;
+    DWORD     chunkSize;
+    CHAR      data[chunkSize];
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} UNKNOWNLISTSUBCHUNK;
+
+typedef struct {
+    ID        chunkID;
+    DWORD     chunkSize;
+    local quad pos = FTell();
+    ID        chunkType;
+
+    // Read the subchunks
+    local char tag[5];
+    local DWORD size;
+    while( FTell() - pos < chunkSize )
+    {
+        // Read the chunk tag
+        ReadBytes( tag, FTell(), 4 );
+        tag[4] = 0;
+
+        // Read the chunk size
+        size = ReadUInt( FTell() + 4 );
+        if( FTell() - pos + size > chunkSize ){
+            Printf( "Chunk '%s' of size %d at position 0x%LX exceeds the parent chunk size boundary.\n", tag, size, FTell() );
+            return -1;
+        }
+
+        // See which subchunk this is
+        switch( tag )
+        {
+            case "ifil":
+                SetBackColor( cOrange );
+                sfVersionTagCk ifil;
+                break;
+            case "isng":
+                SetBackColor( cOrange );
+                ZSTRCk isng;
+                break;
+            case "INAM":
+                SetBackColor( cOrange );
+                ZSTRCk INAM;
+                break;
+            case "irom":
+                SetBackColor( cOrange );
+                ZSTRCk irom;
+                break;
+            case "iver":
+                SetBackColor( cSytrus );
+                sfVersionTagCk iver;
+                break;
+            case "ICRD":
+                SetBackColor( cSytrus );
+                ZSTRCk ICRD;
+                break;
+            case "IENG":
+                SetBackColor( cSytrus );
+                ZSTRCk IENG;
+                break;
+            case "IPRD":
+                SetBackColor( cSytrus );
+                ZSTRCk IPRD;
+                break;
+            case "ICOP":
+                SetBackColor( cSytrus );
+                ZSTRCk ICOP;
+                break;
+            case "ICMT":
+                SetBackColor( cSytrus );
+                ZSTRCk ICMT;
+                break;
+            case "ISFT":
+                SetBackColor( cSytrus );
+                ZSTRCk ISFT;
+                break;
+            default:
+                // Unknown chunk
+                Printf( "Encountered unknown chunk '%s' of size %d at position 0x%LX.\n",
+                    tag, size, FTell() );
+                SetBackColor( cNone );
+                UNKNOWNLISTSUBCHUNK chunk;
+                break;
+        }
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} INFOCk;
+
+typedef struct {
+    ID        chunkID;
+    DWORD     chunkSize;
+    local quad pos = FTell();
+    ID        chunkType;
+
+    // Read the subchunks
+    local char tag[5];
+    local DWORD size;
+    while( FTell() - pos < chunkSize )
+    {
+        // Read the chunk tag
+        ReadBytes( tag, FTell(), 4 );
+        tag[4] = 0;
+
+        // Read the chunk size
+        size = ReadUInt( FTell() + 4 );
+        if( FTell() - pos + size > chunkSize ){
+            Printf( "Chunk '%s' of size %d at position 0x%LX exceeds the parent chunk size boundary.\n", tag, size, FTell() );
+            return -1;
+        }
+
+        // See which subchunk this is
+        switch( tag )
+        {
+            case "smpl":
+                SetBackColor( cGreenGreens );
+                smplCk smpl;
+                break;
+            case "sm24":
+                SetBackColor( cGreenGreens );
+                sm24Ck sm24;
+                break;
+            default:
+                // Unknown chunk
+                Printf( "Encountered unknown chunk '%s' of size %d at position 0x%LX.\n",
+                    tag, size, FTell() );
+                SetBackColor( cNone );
+                UNKNOWNLISTSUBCHUNK chunk;
+                break;
+        }
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} sdtaCk;
+
+typedef struct {
+    ID        chunkID;
+    DWORD     chunkSize;
+    local quad pos = FTell();
+    ID        chunkType;
+
+    // Read the subchunks
+    local char tag[5];
+    local DWORD size;
+    while( FTell() - pos < chunkSize )
+    {
+        // Read the chunk tag
+        ReadBytes( tag, FTell(), 4 );
+        tag[4] = 0;
+
+        // Read the chunk size
+        size = ReadUInt( FTell() + 4 );
+        if( FTell() - pos + size > chunkSize ){
+            Printf( "Chunk '%s' of size %d at position 0x%LX exceeds the parent chunk size boundary.\n", tag, size, FTell() );
+            return -1;
+        }
+
+        // See which subchunk this is
+        switch( tag )
+        {
+            case "phdr":
+                SetBackColor( cCureMarine );
+                phdrCk phdr;
+                break;
+            case "pbag":
+                SetBackColor( cCureMarine_Alt );
+                pbagCk pbag;
+                break;
+            case "pmod":
+                SetBackColor( cCureMarine );
+                pmodCk pmod;
+                break;
+            case "pgen":
+                SetBackColor( cCureMarine_Alt );
+                pgenCk pgen;
+                break;
+            case "inst":
+                SetBackColor( cPurpleMadness );
+                instCk inst;
+                break;
+            case "ibag":
+                SetBackColor( cPurpleMadness_Alt );
+                ibagCk ibag;
+                break;
+            case "imod":
+                SetBackColor( cPurpleMadness );
+                imodCk imod;
+                break;
+            case "igen":
+                SetBackColor( cPurpleMadness_Alt );
+                igenCk igen;
+                break;
+            case "shdr":
+                SetBackColor( cSytrus );
+                shdrCk shdr;
+                break;
+            default:
+                // Unknown chunk
+                Printf( "Encountered unknown chunk '%s' of size %d at position 0x%LX.\n",
+                    tag, size, FTell() );
+                SetBackColor( cNone );
+                UNKNOWNLISTSUBCHUNK subchunk;
+                break;
+        }
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} pdtaCk;
+
+// SoundFont 2 RIFF File Format Level 1
+typedef struct {
+    ID        chunkID;
+    DWORD     chunkSize;
+    local quad pos = FTell();
+    ID        chunkType;
+
+    // Read the subchunks
+    local char tag[5];
+    local DWORD size;
+    while( FTell() - pos < chunkSize )
+    {
+        // Read the chunk tag
+        ReadBytes( tag, FTell(), 4 );
+        tag[4] = 0;
+
+        // Read the chunk size
+        size = ReadUInt( FTell() + 4 );
+        if( FTell() - pos + size > chunkSize ){
+            Printf( "Chunk '%s' of size %d at position 0x%LX exceeds the parent chunk size boundary.\n", tag, size, FTell() );
+            return -1;
+        }
+
+        UNKNOWNLISTSUBCHUNK subchunk;
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} UNKNOWNLISTCHUNK;
+
+typedef struct {
+    ID        chunkID;
+    DWORD     chunkSize;
+    UCHAR     unknownData[chunkSize];
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} UNKNOWNCHUNK;
+
+// SoundFont 2 RIFF File Format Level 0
+typedef struct
+{
+    ID     groupID;
+    DWORD  size;
+    ID     riffType;
+} RIFFHEADER;
+
+
+
+//---------------------------------------------
+
+// Define the headers
+local quad riff_pos = FTell();
+LittleEndian();
+SetBackColor( cGrayZone );
+RIFFHEADER header;
+
+// Check for valid header
+if( header.groupID != "RIFF" || header.riffType != "sfbk" )
+{
+    Warning( "File is not a valid SF2 file. Template stopped." );
+    return -1;
+}
+
+// Read the file as a set of chunks
+local char tag[5];
+local DWORD size;
+local char list_tag[5];
+while( FTell() + 8 <= FileSize() && FTell() - riff_pos != header.size + 8 )
+{
+    // Read the chunk tag
+    ReadBytes( tag, FTell(), 4 );
+    tag[4] = 0;
+
+    // Read the chunk size
+    size = ReadUInt( FTell() + 4 );
+
+    // See which chunk this is
+    switch( tag )
+    {
+        case "LIST":
+            // Read the chunk tag
+            ReadBytes( list_tag, FTell() + 8, 4 );
+            list_tag[4] = 0;
+
+            switch( list_tag )
+            {
+                case "INFO":
+                    SetBackColor( cGrayZone );
+                    INFOCk INFO;
+                    break;
+                case "sdta":
+                    SetBackColor( cGrayZone );
+                    sdtaCk sdta;
+                    break;
+                case "pdta":
+                    SetBackColor( cGrayZone );
+                    pdtaCk pdta;
+                    break;
+                default:
+                    SetBackColor( cNone );
+                    UNKNOWNLISTCHUNK list;
+                    break;
+            }
+            break;
+        default:
+            // Unknown chunk
+            Printf( "Encountered unknown chunk '%s' of size %d at position 0x%LX.\n",
+                tag, size, FTell() );
+            SetBackColor( cNone );
+            UNKNOWNCHUNK unknown;
+            break;
+    }
+}
+
+// Verify the whole file size
+local quad actual_size = FTell() - riff_pos;
+if( actual_size != 8 + header.size )
+{
+    Printf( "RIFF file size mismatch (header value %Ld, actual size %Ld).\n", header.size, actual_size - 8 );
+    return -1;
+}

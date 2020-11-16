@@ -1,0 +1,194 @@
+//--------------------------------------
+//--- 010 Editor v4.0.3 Binary Template
+//
+//   File: Picolog_PLW.bt
+//   Authors: Benjamin Vernoux
+//   E-mail: bvernoux@gmail.com
+//   Version: 0.1
+//   Purpose: Template for PicoTech Picologger .PLW file.
+//   Category: Electronics
+//   File Mask: *.PLW
+//   ID Bytes: [+2] 50 69 63 6F 4C 6F 67 // ??PicoLog
+//   History: 
+//   0.1   2017-10-07 Benjamin Vernoux: Initial release
+//   Information source: https://www.picotech.com/support/topic340.html
+
+typedef unsigned char t_u8;
+typedef unsigned short t_u16;
+typedef unsigned int t_u32;
+typedef uint64 t_u64;
+typedef float t_f32;
+typedef double t_f64;
+
+#define PLW_SHORT_SIGNATURE_SIZE (7)
+#define PLW_EXTRA_SIGNATURE_SIZE (33)
+
+local t_u32 last_nb_samples;
+
+typedef enum <ushort>
+{
+    fs = 0,
+    ps = 1,
+    ns = 2,
+    us = 3,
+    ms = 4,
+    s  = 5,
+    min = 6,
+    h = 7,
+    UNIT_MAX = 8
+} t_unit <comment="unit U16">;
+
+/* Table to convert t_unit to 100ns(compliant with FILETIME format) */
+local t_f64 conv_t_unit_to_100ns[UNIT_MAX+1] =
+{
+    0.00000001, // fs => 100ns
+    0.00001, // ps => 100ns
+    0.01, // ns => 100ns
+    10.0, // us => 100ns
+    10000.0, // ms => 100ns
+    10000000.0, // s => 100ns
+    600000000.0, // min => 100ns
+    36000000000.0, // h => 100ns
+    0.0 // Invalid out of range
+};
+
+typedef struct
+{
+    local t_u16 nb_params;
+    local t_u16 nb_notes;
+    local t_u16 nb_spare;
+    local t_u64 start_datetime_filetime;
+    local t_u16 interval_units_val;
+
+    t_u16 hdr;
+    char short_signature[PLW_SHORT_SIGNATURE_SIZE] <format=hex,comment="PLW Signature = PicoLog">;
+    char extra_signature[PLW_EXTRA_SIGNATURE_SIZE] <format=hex,comment="">;
+
+    t_u32 version <format=decimal,comment="PLW file version">;
+    /* Find number of parameters, notes & spare depending on PLW file version */
+    switch(version)
+    {
+        case 1:
+        case 2:
+            nb_params = 50;
+            nb_notes = 200;
+            nb_spare = 78;
+        break;
+
+        case 3:
+        case 4:
+            nb_params = 250;
+            nb_notes = 1000;
+            nb_spare = 78;
+        break;
+
+        case 5:
+            nb_params = 250;
+            nb_notes = 1000;
+            nb_spare = 58;
+        break;
+
+        default:
+            Warning("Unknown PicoLog version.");
+            return -1;
+        break;
+    }
+
+    t_u32 nb_of_params <format=decimal,comment="Number of parameters">;
+    t_u16 parameters[nb_params] <format=hex,comment="Parameters">;
+    t_u32 nb_samples <format=decimal,comment="Number of samples">;
+    t_u32 num_of_samples <format=decimal,comment="Number of samples">;
+    t_u32 max_samples <format=decimal,comment="Maximum number samples">;
+    t_u32 interval <format=decimal,comment="Interval">;
+    t_unit interval_units <format=decimal,comment="Interval Units fs/ps/ns/us/ms/s/min/h">;
+    interval_units_val = interval_units;
+    if(interval_units_val > UNIT_MAX)
+        interval_units_val = UNIT_MAX;
+    t_u32 trigger_sample <format=decimal,comment="Trigger Sample">;
+    t_u16 triggered <format=decimal,comment="Triggered">;
+    t_u32 first_sample <format=decimal,comment="First Sample">;
+    t_u32 sample_bytes <format=decimal,comment="Sample frame nb bytes">;
+    t_u32 settings_bytes <format=decimal,comment="ASCII Settings size in bytes(starting from end of file minus this value)">;
+    t_u32 start_date <format=decimal,comment="Start Date(Days since 1 jan year 0)">;
+    t_u32 start_time <format=decimal,comment="Start Time(Seconds since start of day)">;
+
+    /* Convert Date from days (from 1 Jan 0) to FILETIME(Jan 1 1601) 1s unit format */
+    start_datetime_filetime = (((t_u64)start_date - (t_u64)584389) * (t_u64)(24*60*60));
+    /* Add Time 1s unit format */
+    start_datetime_filetime = start_datetime_filetime + (t_u64)start_time;
+    /* Convert Date/Time from 1s unit to 100ns unit format(compliant with FILETIME format) */
+    start_datetime_filetime = ((t_u64)start_datetime_filetime * (t_u64)(1000*10000));
+
+    t_u32 min_time <format=decimal,comment="Minimum Time">;
+    t_u32 max_time <format=decimal,comment="Maximum Time">;
+    char notes[nb_notes] <format=hex,comment="Notes">;
+    t_u32 current_time <format=decimal,comment="Current Time">;
+    if(version == 5)
+    {
+        t_u16 stop_after <format=decimal,comment="Stop After">;
+        t_unit max_time_unit <format=decimal,comment="Max Time Unit">;
+        t_u32 max_sample_time <format=decimal,comment="Max Sample Time">;
+        t_u32 start_time_ms_accuracy <format=decimal,comment="Start Time Millisecond Accuracy">;
+        t_u32 prev_time_ms_accuracy <format=decimal,comment="Previous Time Millisecond Accuracy">;
+        t_u32 nb_of_days <format=decimal,comment="Number of days">;
+    }
+    t_u8 spare[nb_spare] <format=hex,comment="Spare">;
+} t_hdr;
+
+typedef struct
+{
+    t_u32 time <format=decimal,comment="Time with unit defined in t_hdr.interval_units">;
+    t_f32 data[hdr.nb_of_params] <format=decimal>;
+} t_plw_frame <read=ReadPLW_Frame>;
+
+typedef struct
+{
+    t_plw_frame plw_frm[hdr.num_of_samples]<optimize=false>;
+    //t_plw_frame empty_frm[hdr.max_samples-hdr.num_of_samples]<optimize=false>;
+} t_plw_frames;
+
+string ReadPLW_Frame(t_plw_frame &entry )
+{
+    int i;
+    char val[24];
+    string str;
+    FILETIME ft;
+    int ret;
+
+    /* Add date/hour(already in 100ns unit) + time converted to 100ns unit(compliant with FILETIME format) */
+    ft = hdr.start_datetime_filetime + (t_u64)((t_f64)entry.time * (t_f64)conv_t_unit_to_100ns[hdr.interval_units_val]);
+    str = FileTimeToString(ft, "dd/MM/yyyy hh:mm:ss.zzz ");
+    if(hdr.nb_of_params > 1)
+    {
+        for(i = 0; i < hdr.nb_of_params; i++)
+        {
+            SPrintf(val, "%.03f ", entry.data[i]);
+            str += val;
+        }
+    }else
+    {
+        SPrintf(val, "%.03f", entry.data[0]);
+    }
+    return str;
+}
+
+LittleEndian(); 
+/* Check File Signature */
+local char local_signature[PLW_SHORT_SIGNATURE_SIZE];
+ReadBytes(local_signature, 2, PLW_SHORT_SIGNATURE_SIZE);
+if(Memcmp(local_signature, "PicoLog", PLW_SHORT_SIGNATURE_SIZE) != 0)
+{
+    Warning("Unknown file format. PicoLog Identifier not found.");
+    return -1;
+}
+t_hdr hdr;
+
+t_plw_frames samples;
+
+local int64 pos_ascii_settings;
+pos_ascii_settings = (FileSize() - hdr.settings_bytes);
+FSeek(pos_ascii_settings);
+while( !FEof() )
+{
+    string ascii_settings;
+}

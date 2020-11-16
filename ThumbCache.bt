@@ -1,0 +1,563 @@
+//------------------------------------------------
+//--- 010 Editor v8.0.1 Binary Template
+//
+//      File: ThumbCache.bt
+//   Authors: Denis Anisimov
+//    E-mail: support@tc4shell.com
+//   Version: 1.0
+//   Purpose: Parses Windows thumbnail cache files (thumbcache_idx.db, thumbcache_XXX.db).
+//  Category: Operating System
+// File Mask: thumbcache*.db,iconcache*.db
+//  ID Bytes: 43 4D 4D 4D, 49 4D 4D 4D, [+4] 49 4D 4D 4D
+//   History:
+//   1.0   2018-02-11 Denis Anisimov: Initial release
+//
+// Some details are decribed here:
+// https://github.com/libyal/libwtcdb/blob/master/documentation/Windows%20Explorer%20Thumbnail%20Cache%20database%20format.asciidoc
+// https://github.com/thumbcacheviewer/thumbcacheviewer/blob/master/thumbcache_viewer_cmd/thumbcache_viewer_cmd.cpp
+// Signatures:
+//   49 4D 4D 4D at offset 0 or offset 4 - thumbcache_idx.db
+//   43 4D 4D 4D at offset 0 - thumbcache_XXX.db
+//------------------------------------------------
+
+typedef enum <uint32>
+    {
+    WINDOWS_VISTA = 0x14,
+    WINDOWS_7     = 0x15,
+    WINDOWS_8     = 0x1A,
+    WINDOWS_8v2   = 0x1C,
+    WINDOWS_8v3   = 0x1E,
+    WINDOWS_8_1   = 0x1F,
+    WINDOWS_10    = 0x20,
+    } WINDOWS_VERSION <read=read_WINDOWS_VERSION>;
+
+string read_WINDOWS_VERSION (WINDOWS_VERSION Version)
+{
+    local string temp;
+    switch (Version)
+    {
+        case WINDOWS_VISTA: return "Windows Vista"; break;
+        case WINDOWS_7:     return "Windows 7"; break;
+        case WINDOWS_8:     return "Windows 8"; break;
+        case WINDOWS_8v2:   return "Windows 8 v2"; break;
+        case WINDOWS_8v3:   return "Windows 8 v3"; break;
+        case WINDOWS_8_1:   return "Windows 8.1"; break;
+        case WINDOWS_10:    return "Windows 10"; break;
+        default: SPrintf(temp, "Unknown version (0x%X)", Version); return temp;
+    }
+};
+
+// ----------------------------- CMMM ----------------------------- 
+
+const uint32 CMMMSignature = 0x4D4D4D43;
+
+typedef enum <uint32>
+    {
+    WINDOWS_VISTA_THUMBCACHE_32_DB   = 0x0,
+    WINDOWS_VISTA_THUMBCACHE_96_DB   = 0x1,
+    WINDOWS_VISTA_THUMBCACHE_256_DB  = 0x2,
+    WINDOWS_VISTA_THUMBCACHE_1024_DB = 0x3,
+    WINDOWS_VISTA_THUMBCACHE_SR_DB   = 0x4,
+    } WINDOWS_VISTA_THUMBCACHE_TYPE <read=read_WINDOWS_VISTA_THUMBCACHE_TYPE>;
+
+string read_WINDOWS_VISTA_THUMBCACHE_TYPE (WINDOWS_VISTA_THUMBCACHE_TYPE Type)
+{
+    local string temp;
+    switch (Type)
+    {
+        case WINDOWS_VISTA_THUMBCACHE_32_DB:   return "thumbcache_32.db"; break;
+        case WINDOWS_VISTA_THUMBCACHE_96_DB:   return "thumbcache_96.db"; break;
+        case WINDOWS_VISTA_THUMBCACHE_256_DB:  return "thumbcache_256.db"; break;
+        case WINDOWS_VISTA_THUMBCACHE_1024_DB: return "thumbcache_1024.db"; break;
+        case WINDOWS_VISTA_THUMBCACHE_SR_DB:   return "thumbcache_sr.db"; break;
+        default: SPrintf(temp, "Unknown type (0x%X)", Type); return temp;
+    }
+};
+
+typedef enum <uint32>
+    {
+    WINDOWS_8_THUMBCACHE_16_DB   = 0x0,
+    WINDOWS_8_THUMBCACHE_32_DB   = 0x1,
+    WINDOWS_8_THUMBCACHE_48_DB   = 0x2,
+    WINDOWS_8_THUMBCACHE_96_DB   = 0x3,
+    WINDOWS_8_THUMBCACHE_256_DB  = 0x4,
+    WINDOWS_8_THUMBCACHE_1024_DB = 0x5,
+    WINDOWS_8_THUMBCACHE_SR_DB   = 0x6,
+    WINDOWS_8_THUMBCACHE_WIDE_DB = 0x7,
+    WINDOWS_8_THUMBCACHE_EXIF_DB = 0x8,
+    } WINDOWS_8_THUMBCACHE_TYPE <read=read_WINDOWS_8_THUMBCACHE_TYPE>;
+
+string read_WINDOWS_8_THUMBCACHE_TYPE (WINDOWS_8_THUMBCACHE_TYPE Type)
+{
+    local string temp;
+    switch (Type)
+    {
+        case WINDOWS_8_THUMBCACHE_16_DB:   return "thumbcache_16.db"; break;
+        case WINDOWS_8_THUMBCACHE_32_DB:   return "thumbcache_32.db"; break;
+        case WINDOWS_8_THUMBCACHE_48_DB:   return "thumbcache_48.db"; break;
+        case WINDOWS_8_THUMBCACHE_96_DB:   return "thumbcache_96.db"; break;
+        case WINDOWS_8_THUMBCACHE_256_DB:  return "thumbcache_256.db"; break;
+        case WINDOWS_8_THUMBCACHE_1024_DB: return "thumbcache_1024.db"; break;
+        case WINDOWS_8_THUMBCACHE_SR_DB:   return "thumbcache_sr.db"; break;
+        case WINDOWS_8_THUMBCACHE_WIDE_DB: return "thumbcache_wide.db"; break;
+        case WINDOWS_8_THUMBCACHE_EXIF_DB: return "thumbcache_exif.db"; break;
+        default: SPrintf(temp, "Unknown type (0x%X)", Type); return temp;
+    }
+};
+
+typedef enum <uint32>
+    {
+    WINDOWS_8_1_THUMBCACHE_16_DB             = 0x0,
+    WINDOWS_8_1_THUMBCACHE_32_DB             = 0x1,
+    WINDOWS_8_1_THUMBCACHE_48_DB             = 0x2,
+    WINDOWS_8_1_THUMBCACHE_96_DB             = 0x3,
+    WINDOWS_8_1_THUMBCACHE_256_DB            = 0x4,
+    WINDOWS_8_1_THUMBCACHE_1024_DB           = 0x5,
+    WINDOWS_8_1_THUMBCACHE_1600_DB           = 0x6,
+    WINDOWS_8_1_THUMBCACHE_SR_DB             = 0x7,
+    WINDOWS_8_1_THUMBCACHE_WIDE_DB           = 0x8,
+    WINDOWS_8_1_THUMBCACHE_EXIF_DB           = 0x9,
+    WINDOWS_8_1_THUMBCACHE_WIDE_ALTERNATE_DB = 0xA,
+    } WINDOWS_8_1_THUMBCACHE_TYPE <read=read_WINDOWS_8_1_THUMBCACHE_TYPE>;
+
+string read_WINDOWS_8_1_THUMBCACHE_TYPE (WINDOWS_8_1_THUMBCACHE_TYPE Type)
+{
+    local string temp;
+    switch (Type)
+    {
+        case WINDOWS_8_1_THUMBCACHE_16_DB:             return "thumbcache_16.db"; break;
+        case WINDOWS_8_1_THUMBCACHE_32_DB:             return "thumbcache_32.db"; break;
+        case WINDOWS_8_1_THUMBCACHE_48_DB:             return "thumbcache_48.db"; break;
+        case WINDOWS_8_1_THUMBCACHE_96_DB:             return "thumbcache_96.db"; break;
+        case WINDOWS_8_1_THUMBCACHE_256_DB:            return "thumbcache_256.db"; break;
+        case WINDOWS_8_1_THUMBCACHE_1024_DB:           return "thumbcache_1024.db"; break;
+        case WINDOWS_8_1_THUMBCACHE_1600_DB:           return "thumbcache_1600.db"; break;
+        case WINDOWS_8_1_THUMBCACHE_SR_DB:             return "thumbcache_sr.db"; break;
+        case WINDOWS_8_1_THUMBCACHE_WIDE_DB:           return "thumbcache_wide.db"; break;
+        case WINDOWS_8_1_THUMBCACHE_EXIF_DB:           return "thumbcache_exif.db"; break;
+        case WINDOWS_8_1_THUMBCACHE_WIDE_ALTERNATE_DB: return "thumbcache_wide_alternate.db"; break;
+        default: SPrintf(temp, "Unknown type (0x%X)", Type); return temp;
+    }
+};
+
+typedef enum <uint32>
+    {
+    WINDOWS_10_THUMBCACHE_16_DB             = 0x0,
+    WINDOWS_10_THUMBCACHE_32_DB             = 0x1,
+    WINDOWS_10_THUMBCACHE_48_DB             = 0x2,
+    WINDOWS_10_THUMBCACHE_96_DB             = 0x3,
+    WINDOWS_10_THUMBCACHE_256_DB            = 0x4,
+    WINDOWS_10_THUMBCACHE_768_DB            = 0x5,
+    WINDOWS_10_THUMBCACHE_1280_DB           = 0x6,
+    WINDOWS_10_THUMBCACHE_1920_DB           = 0x7,
+    WINDOWS_10_THUMBCACHE_2560_DB           = 0x8,
+    WINDOWS_10_THUMBCACHE_WIDE_DB           = 0x9,
+    WINDOWS_10_THUMBCACHE_SR_DB             = 0xA,
+    WINDOWS_10_THUMBCACHE_EXIF_DB           = 0xB,
+    WINDOWS_10_THUMBCACHE_WIDE_ALTERNATE_DB = 0xC,
+    WINDOWS_10_THUMBCACHE_CUSTOM_STREAM_DB  = 0xD,
+    } WINDOWS_10_THUMBCACHE_TYPE <read=read_WINDOWS_10_THUMBCACHE_TYPE>;
+
+string read_WINDOWS_10_THUMBCACHE_TYPE (WINDOWS_10_THUMBCACHE_TYPE Type)
+{
+    local string temp;
+    switch (Type)
+    {
+        case WINDOWS_10_THUMBCACHE_16_DB:             return "thumbcache_16.db"; break;
+        case WINDOWS_10_THUMBCACHE_32_DB:             return "thumbcache_32.db"; break;
+        case WINDOWS_10_THUMBCACHE_48_DB:             return "thumbcache_48.db"; break;
+        case WINDOWS_10_THUMBCACHE_96_DB:             return "thumbcache_96.db"; break;
+        case WINDOWS_10_THUMBCACHE_256_DB:            return "thumbcache_256.db"; break;
+        case WINDOWS_10_THUMBCACHE_768_DB:            return "thumbcache_768.db"; break;
+        case WINDOWS_10_THUMBCACHE_1280_DB:           return "thumbcache_1280.db"; break;
+        case WINDOWS_10_THUMBCACHE_1920_DB:           return "thumbcache_1920.db"; break;
+        case WINDOWS_10_THUMBCACHE_2560_DB:           return "thumbcache_2560.db"; break;
+        case WINDOWS_10_THUMBCACHE_WIDE_DB:           return "thumbcache_wide.db"; break;
+        case WINDOWS_10_THUMBCACHE_SR_DB:             return "thumbcache_sr.db"; break;
+        case WINDOWS_10_THUMBCACHE_EXIF_DB:           return "thumbcache_exif.db"; break;
+        case WINDOWS_10_THUMBCACHE_WIDE_ALTERNATE_DB: return "thumbcache_wide_alternate.db"; break;
+        case WINDOWS_10_THUMBCACHE_CUSTOM_STREAM_DB:  return "thumbcache_custom_stream.db"; break;
+        default: SPrintf(temp, "Unknown type (0x%X)", Type); return temp;
+    }
+};
+
+typedef struct {
+    local int64 Save;
+    Save = FTell();
+    uint32 Signature <format=hex>;
+    if (Signature != CMMMSignature)
+        {
+        Warning( "Something wrong" );
+        return -1;
+        }
+    uint32 Size;
+    uint64 ID1 <format=hex>;
+    wchar_t Extension[4];
+    uint32 NameSize;
+    uint32 PaddingSize;
+    uint32 DataSize;
+    uint32 Unknown;
+    uint64 DataChecksum;
+    uint64 HeaderChecksum;
+    if (NameSize > 0)
+      wchar_t Name[NameSize / 2];
+    if (PaddingSize > 0)
+      byte Padding[PaddingSize];
+    if (DataSize > 0)
+      byte Data[DataSize];
+    FSeek(Save + Size);
+    }  WINDOWS_VISTA_CMMM_RECORD <read=Read_WINDOWS_VISTA_CMMM_RECORD>;
+
+string Read_WINDOWS_VISTA_CMMM_RECORD(WINDOWS_VISTA_CMMM_RECORD &entry)
+{
+    if (exists(entry.Name))
+        return entry.Name;
+    else
+        return "";
+};
+
+typedef struct {
+    local int64 Save;
+    Save = FTell();
+    uint32 Signature <format=hex>;
+    if (Signature != CMMMSignature)
+        {
+        Warning( "Something wrong" );
+        return -1;
+        }
+    uint32 Size;
+    uint64 ID1 <format=hex>;
+    uint32 NameSize;
+    uint32 PaddingSize;
+    uint32 DataSize;
+    uint32 Unknown;
+    uint64 DataChecksum <format=hex>;
+    uint64 HeaderChecksum <format=hex>;
+    if (NameSize > 0)
+      wchar_t Name[NameSize / 2];
+    if (PaddingSize > 0)
+      byte Padding[PaddingSize];
+    if (DataSize > 0)
+      byte Data[DataSize];
+    FSeek(Save + Size);
+    } WINDOWS_7_CMMM_RECORD <read=Read_WINDOWS_7_CMMM_RECORD>;
+
+string Read_WINDOWS_7_CMMM_RECORD(WINDOWS_7_CMMM_RECORD &entry)
+{
+    if (exists(entry.Name))
+        return entry.Name;
+    else
+        return "";
+};
+
+typedef struct {
+    local int64 Save;
+    Save = FTell();
+    uint32 Signature <format=hex>;
+    if (Signature != CMMMSignature)
+        {
+        Warning( "Something wrong" );
+        return -1;
+        }
+    uint32 Size;
+    uint64 ID1 <format=hex>;
+    uint32 NameSize;
+    uint32 PaddingSize;
+    uint32 DataSize;
+    uint32 Width;
+    uint32 Height;
+    uint32 Unknown3;
+    uint64 DataChecksum <format=hex>;
+    uint64 HeaderChecksum <format=hex>;
+    if (NameSize > 0)
+      wchar_t Name[NameSize / 2];
+    if (PaddingSize > 0)
+      byte Padding[PaddingSize];
+    if (DataSize > 0)
+      byte Data[DataSize];
+    FSeek(Save + Size);
+    } WINDOWS_10_CMMM_RECORD <read=Read_WINDOWS_10_CMMM_RECORD>;
+
+string Read_WINDOWS_10_CMMM_RECORD(WINDOWS_10_CMMM_RECORD &entry)
+{
+    if (exists(entry.Name))
+        return entry.Name;
+    else
+        return "";
+}
+
+void ProcessCMMMFile()
+{
+    uint32 Signature <format=hex>;
+    WINDOWS_VERSION Version;
+
+    if ((Version == WINDOWS_VISTA) || (Version == WINDOWS_7))
+        {
+        WINDOWS_VISTA_THUMBCACHE_TYPE Type;
+        uint32 HeaderSize;
+        uint32 OffsetToFirstEmpty <format=hex>;
+        uint32 Count;
+        }
+    else
+    if (Version == WINDOWS_8_1)
+        {
+        WINDOWS_8_1_THUMBCACHE_TYPE Type;
+        uint32 Unknown2 <format=hex>;
+        uint32 HeaderSize;
+        uint32 OffsetToFirstEmpty <format=hex>;
+        }
+    else
+    if (Version == WINDOWS_10)
+        {
+        WINDOWS_10_THUMBCACHE_TYPE Type;
+        uint32 Unknown2 <format=hex>;
+        uint32 HeaderSize;
+        uint32 OffsetToFirstEmpty <format=hex>;
+        }
+    else
+    {
+        Warning( "Not supported yet (no sample for analysis)" );
+        return -1;
+    };
+
+    FSeek(HeaderSize);
+
+    while (FEof() == 0)
+    {
+        switch (Version)
+        {
+            case WINDOWS_VISTA: WINDOWS_VISTA_CMMM_RECORD Record; break;
+            case WINDOWS_7:     WINDOWS_7_CMMM_RECORD Record; break;
+            case WINDOWS_8_1:   WINDOWS_10_CMMM_RECORD Record; break;
+            case WINDOWS_10:    WINDOWS_10_CMMM_RECORD Record; break;
+            default:
+                {
+                    Warning( "Not supported yet (no sample for analysis)" );
+                    return -1;
+                }
+        }
+    };
+};
+
+// ----------------------------- IMMM ----------------------------- 
+
+int IsValidOffset(uint32 AOffset)
+{
+    return ((AOffset != 0) && (AOffset != 0xFFFFFFFF));
+};
+
+string AddOffset(uint32 AOffset, string AName)
+{
+    local string temp;
+    if (IsValidOffset(AOffset))
+    {
+        SPrintf(temp, ", Offset%s: %Lx", AName, AOffset); 
+    };
+    return temp;
+};
+
+const uint32 IMMMSignature = 0x4D4D4D49;
+
+typedef struct {
+    uint64 ID <format=hex>;
+    FILETIME DateMofified;
+    uint32 Unknown <format=hex>;
+    uint32 Offset32 <format=hex>;
+    uint32 Offset96 <format=hex>;
+    uint32 Offset256 <format=hex>;
+    uint32 Offset1024 <format=hex>;
+    uint32 OffsetStr <format=hex>;
+    }  WINDOWS_VISTA_IMMM_RECORD <read=Read_WINDOWS_VISTA_IMMM_RECORD>;
+
+string Read_WINDOWS_VISTA_IMMM_RECORD(WINDOWS_VISTA_IMMM_RECORD &entry)
+{
+    local string temp;
+    if (entry.ID != 0)
+        SPrintf(temp, "%Lx", entry.ID); 
+    temp = temp + AddOffset(entry.Offset32, "32");
+    temp = temp + AddOffset(entry.Offset96, "96");
+    temp = temp + AddOffset(entry.Offset256, "256");
+    temp = temp + AddOffset(entry.Offset1024, "1024");
+    temp = temp + AddOffset(entry.OffsetStr, "Str");
+    return temp;
+};
+
+typedef struct {
+    uint64 ID <format=hex>;
+    uint32 Unknown <format=hex>;
+    uint32 Offset32 <format=hex>;
+    uint32 Offset96 <format=hex>;
+    uint32 Offset256 <format=hex>;
+    uint32 Offset1024 <format=hex>;
+    uint32 OffsetStr <format=hex>;
+    }  WINDOWS_7_IMMM_RECORD <read=Read_WINDOWS_7_IMMM_RECORD>;
+
+string Read_WINDOWS_7_IMMM_RECORD(WINDOWS_7_IMMM_RECORD &entry)
+{
+    local string temp;
+    if (entry.ID != 0)
+        SPrintf(temp, "%Lx", entry.ID); 
+    temp = temp + AddOffset(entry.Offset32, "32");
+    temp = temp + AddOffset(entry.Offset96, "96");
+    temp = temp + AddOffset(entry.Offset256, "256");
+    temp = temp + AddOffset(entry.Offset1024, "1024");
+    temp = temp + AddOffset(entry.OffsetStr, "Str");
+    return temp;
+};
+
+typedef struct {
+    uint64 ID <format=hex>;
+    uint32 Unknown1 <format=hex>;
+    uint32 Unknown2 <format=hex>;
+    uint32 Offset16 <format=hex>;
+    uint32 Offset32 <format=hex>;
+    uint32 Offset48 <format=hex>;
+    uint32 Offset96 <format=hex>;
+    uint32 Offset256 <format=hex>;
+    uint32 Offset1024 <format=hex>;
+    uint32 Offset1600 <format=hex>;
+    uint32 OffsetStr <format=hex>;
+    uint32 OffsetWide <format=hex>;
+    uint32 OffsetExif <format=hex>;
+    uint32 OffsetWideAlternate <format=hex>;
+    uint32 Unknown3 <format=hex>;
+    }  WINDOWS_8_1_IMMM_RECORD <read=Read_WINDOWS_8_1_IMMM_RECORD>;
+
+
+string Read_WINDOWS_8_1_IMMM_RECORD(WINDOWS_8_1_IMMM_RECORD &entry)
+{
+    local string temp;
+    if (entry.ID != 0)
+        SPrintf(temp, "%Lx", entry.ID); 
+    temp = temp + AddOffset(entry.Offset16, "16");
+    temp = temp + AddOffset(entry.Offset32, "32");
+    temp = temp + AddOffset(entry.Offset48, "48");
+    temp = temp + AddOffset(entry.Offset96, "96");
+    temp = temp + AddOffset(entry.Offset256, "256");
+    temp = temp + AddOffset(entry.Offset1024, "1024");
+    temp = temp + AddOffset(entry.Offset1600, "1600");
+    temp = temp + AddOffset(entry.OffsetStr, "Str");
+    temp = temp + AddOffset(entry.OffsetWide, "Wide");
+    temp = temp + AddOffset(entry.OffsetExif, "Exif");
+    temp = temp + AddOffset(entry.OffsetWideAlternate, "WideAlternate");
+    return temp;
+};
+
+typedef struct {
+    uint64 ID <format=hex>;
+    uint32 Unknown1 <format=hex>;
+    uint32 Unknown2 <format=hex>;
+    uint32 Offset16 <format=hex>;
+    uint32 Offset32 <format=hex>;
+    uint32 Offset48 <format=hex>;
+    uint32 Offset96 <format=hex>;
+    uint32 Offset256 <format=hex>;
+    uint32 Offset768 <format=hex>;
+    uint32 Offset1280 <format=hex>;
+    uint32 Offset1920 <format=hex>;
+    uint32 Offset2560 <format=hex>;
+    uint32 OffsetWide <format=hex>;
+    uint32 OffsetStr <format=hex>;
+    uint32 OffsetExif <format=hex>;
+    uint32 OffsetWideAlternate <format=hex>;
+    uint32 OffsetCustomStream <format=hex>;
+    }  WINDOWS_10_IMMM_RECORD <read=Read_WINDOWS_10_IMMM_RECORD>;
+
+
+string Read_WINDOWS_10_IMMM_RECORD(WINDOWS_10_IMMM_RECORD &entry)
+{
+    local string temp;
+    if (entry.ID != 0)
+        SPrintf(temp, "%Lx", entry.ID); 
+    temp = temp + AddOffset(entry.Offset16, "16");
+    temp = temp + AddOffset(entry.Offset32, "32");
+    temp = temp + AddOffset(entry.Offset48, "48");
+    temp = temp + AddOffset(entry.Offset96, "96");
+    temp = temp + AddOffset(entry.Offset256, "256");
+    temp = temp + AddOffset(entry.Offset768, "768");
+    temp = temp + AddOffset(entry.Offset1280, "1280");
+    temp = temp + AddOffset(entry.Offset1920, "1920");
+    temp = temp + AddOffset(entry.OffsetWide, "Wide");
+    temp = temp + AddOffset(entry.OffsetStr, "Str");
+    temp = temp + AddOffset(entry.OffsetExif, "Exif");
+    temp = temp + AddOffset(entry.OffsetWideAlternate, "WideAlternate");
+    temp = temp + AddOffset(entry.OffsetCustomStream, "Custom stream");
+    return temp;
+};
+
+
+
+void ProcessIMMMFile()
+{
+    uint32 Signature <format=hex>;
+    WINDOWS_VERSION Version;
+
+    if ((Version == WINDOWS_VISTA) || (Version == WINDOWS_7))
+        {
+        uint32 Unknown1 <format=hex>;
+        uint32 Count;
+        uint32 TotalCount;
+        uint32 Unknown2 <format=hex>;
+        }
+    else
+    if (Version == WINDOWS_8_1)
+        {
+        uint32 Unknown1[2] <format=hex>;
+        uint32 Count;
+        uint32 TotalCount;
+        uint32 Unknown2[23];
+        }
+    else
+    if (Version == WINDOWS_10)
+        {
+        uint32 Unknown1[2] <format=hex>;
+        uint32 Count;
+        uint32 TotalCount;
+        uint32 Unknown2[29];
+        }
+    else
+    {
+        Warning( "Not supported yet (no sample for analysis)" );
+        return -1;
+    };
+
+    
+    while (FEof() == 0)
+    {
+        switch (Version)
+        {
+            case WINDOWS_VISTA: WINDOWS_VISTA_IMMM_RECORD Record; break;
+            case WINDOWS_7:     WINDOWS_7_IMMM_RECORD Record; break;
+            case WINDOWS_8_1:   WINDOWS_8_1_IMMM_RECORD Record; break;
+            case WINDOWS_10:    WINDOWS_10_IMMM_RECORD Record; break;
+            default:
+                {
+                    Warning( "Not supported yet (no sample for analysis)" );
+                    return -1;
+                }
+        }
+    };
+};
+
+
+LittleEndian();
+
+if (ReadUInt() == CMMMSignature)
+    ProcessCMMMFile();
+else
+    {
+    if (ReadUInt() != IMMMSignature)
+        {
+        uint32 Unknown <format=hex>;
+        };
+
+    if (ReadUInt() == IMMMSignature)
+        ProcessIMMMFile();
+    else
+        {
+        Warning( "Cannot detect file type. Template stopped." );
+        return -1;
+        };
+    };
+
+

@@ -1,0 +1,3158 @@
+//------------------------------------------------
+//--- 010 Editor v3.2.2 Binary Template
+//
+//      File: OpenType.bt
+//   Authors: Dwayne Robinson and Alex McDonnell of Cisco Systems
+//   Version: 1.1
+//   Purpose: Displays hierarchy of an OpenType font. This
+//            template can also parse TrueType fonts (TTF).
+//  Category: Font
+// File Mask: *.otf
+//  ID Bytes: 4F 54 54 4F //OTTO
+//   History: 
+//   1.1    2017-03-10 A.M.: Added an Exit if an incorrect value is found for formatting in the ExtensionSubstFormat1 subtable from https://www.microsoft.com/typography/otspec/gsub.htm
+//   1.0    2013-08-20 D.R.: Initial release.
+//------------------------------------------------
+
+BigEndian();
+BitfieldRightToLeft();  
+
+// define missing types
+typedef char int8;
+typedef char char8;
+typedef wchar_t char16;
+typedef uchar uint8;
+
+// OpenType specific types
+typedef int32 fixed16_16 <read=fixed16_16Read, write=fixed16_16Write>;
+typedef int16 fixed2_14 <read=fixed2_14Read, write=fixed2_14Write>;
+typedef int64 long_date_time;
+
+string fixed16_16Read(fixed16_16 f)
+{
+    string s;   
+    SPrintf(s, "%lg", f / 65536.0 );
+    return s;
+}
+
+void fixed16_16Write(fixed16_16& f, string s)
+{
+    f = (fixed16_16)(Atof(s) * 65536);
+}
+
+string fixed2_14Read(fixed2_14 f)
+{
+    string s;   
+    SPrintf(s, "%lg", f / 16384.0 );
+    return s;
+}
+
+void fixed2_14Write(fixed2_14& f, string s)
+{
+    f = (fixed2_14)(Atof(s) * 16384);
+}
+
+struct TableRecord;
+struct TableRecordPass0;
+struct BaseTable; // Baseline
+struct CffTable;  // Compact font format
+struct CmapTable; // Character map
+struct ColrTable; // Color
+struct CpalTable; // Color palette
+struct CvtTable;  // Control value
+struct DsigTable; // Digital signature
+struct EblcTable; // Embedded bitmap locator
+struct EbdtTable; // Embedded bitmap data
+struct EbscTable; // Embedded bitmap scaling
+struct FvarTable; // Font variations table
+struct FmtxTable; // Font metrics table
+struct FpgmTable; // Font program
+struct GaspTable; // Grid-fitting And Scan-conversion Procedure
+struct GdefTable; // Glyph definition
+struct GvarTable; // Glyph variations
+struct GlyfTable; // Glyphs
+struct GposTable; // Glyph positioning
+struct GsubTable; // Glyph substitution
+struct JstfTable; // Justification
+struct HeadTable; // Head
+struct HdmxTable; // Horizontal device metrics
+struct HheaTable; // Horizontal header
+struct HmtxTable; // Horizontal metrics
+struct KernTable; // Kerning
+struct LocaTable; // Glyph locator offsets
+struct LtshTable; // Linear threshold
+struct MaxpTable; // Maximum profile
+struct MetaTable; // Metadata table
+struct NameTable; // Name
+struct OS_2Table; // OS/2 metrics
+struct PcltTable; // Printer Control Language Table
+struct PrepTable; // Control value program for transforms
+struct PostTable; // Postscript
+struct SbixTable; // Extended bitmaps
+struct SvgTable;  // Scalable vector graphics
+struct VheaTable; // Vertical header
+struct VmtxTable; // Vertical metrics
+struct VdmxTable; // Vertical device metrics
+struct VorgTable; // Vertical origin
+typedef EblcTable CblcTable; // Color embedded bitmap locator
+typedef EbdtTable CbdtTable; // Color embedded bitmap data
+struct MathTable; // Math table
+
+// todo:
+struct MergTable; // Glyph merging
+
+struct OpenTypeFont
+{
+    // TrueTypeHeader
+    fixed16_16 sfntVersion;
+    uint16 numTables;       // Number of tables. 
+    uint16 searchRange;     // (Maximum power of 2 <= numTables) x 16. 
+    uint16 entrySelector;   // Log2(maximum power of 2 <= numTables). 
+    uint16 rangeShift;      // NumTables x 16-searchRange.
+
+    // Globals
+    local uint32 hheaTable_numberOfMetrics = 0;
+    local uint32 vheaTable_numberOfMetrics = 0;
+    local uint32 maxpTable_numberOfGlyphs = 0;
+    local uint32 headTable_indexToLocFormat = 0;
+    local uint32 ebdtTable_baseOffset = 0;
+    local uint32 locaTable_baseOffset = 0;
+
+    // Preparse inter-table dependency info.
+    local int64 originalFilePosition = FTell();
+
+    TableRecordPass0 tableRecordsPass0(this)[numTables] <optimize=false, open=suppress, hidden=true>;
+
+    if (locaTable_baseOffset > 0)
+    {
+        // Preparse the loca table for the benefit of the glyf table later.
+        FSeek(locaTable_baseOffset);
+        LocaTable locaTable(font.maxpTable_numberOfGlyphs, font.headTable_indexToLocFormat) <hidden=true>;
+    }
+
+    // Parse actual tables now that we have all the needed info.
+    FSeek(originalFilePosition);
+    TableRecord tableRecords(this)[numTables] <optimize=false>;
+
+    //FSeek(FileSize()); // (span whole file, which doesn't hold true for TTC's)
+};
+
+struct OpenTypeFontCollectionRecord;
+
+struct OpenTypeFontCollection
+{
+    char8 tag[4]; // TrueType Collection ID string: 'ttcf'
+    fixed16_16 version; // Version of the TTC Header (1.0), 0x00010000 
+    uint32 numberOfFonts; // Number of fonts in TTC 
+    OpenTypeFontCollectionRecord offsetTable[numberOfFonts] <optimize=false, open=true>; // Array of offsets to the OffsetTable for each font from the beginning of the file 
+
+    if (version > 0x00010000)
+    {
+        uint32 dsigTag; // Tag indicating that a DSIG table exists, 0x44534947 ('DSIG') (null if no signature) 
+        uint32 dsigLength; // The length (in bytes) of the DSIG table (null if no signature) 
+        uint32 dsigOffset; // The offset (in bytes) of the DSIG table from the beginning of the TTC file (null if no signature) 
+    }
+};
+
+struct OpenTypeFontCollectionRecord
+{
+    uint32 offset;                  // Offset from beginning of TrueType font file. 
+
+    // Switch based on specific type of table.
+    local int64 originalFilePosition = FTell();
+    FSeek(offset);
+    OpenTypeFont font;
+    FSeek(originalFilePosition);
+};
+
+typedef struct (OpenTypeFont& font)
+{
+    char8 tag[4];                   // 4-byte identifier.
+    uint32 checkSum <format=hex>;   // CheckSum for this table.
+    uint32 offset;                  // Offset from beginning of TrueType font file.
+    uint32 length;                  // Length of this table in bytes.
+
+    // Switch based on specific type of table.
+    local int64 originalFilePosition = FTell();
+    FSeek(offset);
+    switch (tag)
+    {
+    case "cmap":
+        CmapTable table;
+        break;
+    case "cvt ":
+        CvtTable table(length);
+        break;
+    case "fpgm":
+        FpgmTable table(length);
+        break;
+    case "fmtx":
+        FmtxTable table;
+        break;
+    case "fvar":
+        FvarTable table;
+        break;
+    case "gasp":
+        GaspTable table;
+        break;
+    case "glyf":
+        GlyfTable table(font.maxpTable_numberOfGlyphs, font.locaTable);
+        break;
+    case "gvar":
+        GvarTable table;
+        break;
+    case "head":
+        HeadTable table;
+        break;
+    case "hhea":
+        HheaTable table;
+        break;
+    case "hdmx":
+        HdmxTable table(font.maxpTable_numberOfGlyphs);
+        break;
+    case "hmtx":
+        HmtxTable table(font.maxpTable_numberOfGlyphs, font.hheaTable_numberOfMetrics);
+        break;
+    case "kern":
+        KernTable table;
+        break;
+    case "loca":
+        LocaTable table(font.maxpTable_numberOfGlyphs, font.headTable_indexToLocFormat);
+        break;
+    case "maxp":
+        MaxpTable table;
+        break;
+    case "meta":
+        MetaTable table;
+        break;
+    case "name":
+        NameTable table;
+        break;
+    case "post":
+        PostTable table;
+        break;
+    case "prep":
+        PrepTable table(length);
+        break;
+    case "sbix":
+        SbixTable table(font.maxpTable_numberOfGlyphs);
+        break;
+    case "vhea":
+        VheaTable table;
+        break;
+    case "vmtx":
+        VmtxTable table(font.maxpTable_numberOfGlyphs, font.vheaTable_numberOfMetrics);
+        break;
+    case "BASE":
+        BaseTable table;
+        break;
+    case "CBLC":
+        EblcTable table;
+        break;
+    case "CFF ":
+        CffTable table;
+        break;
+    case "COLR":
+        ColrTable table;
+        break;
+    case "CPAL":
+        CpalTable table;
+        break;
+    case "DSIG":
+        DsigTable table;
+        break;
+    case "EBLC":
+        EblcTable table;
+        break;
+    case "EBDT":
+        EbdtTable table;
+        break;
+    case "EBSC":
+        EbscTable table;
+        break;
+    case "GDEF":
+        GdefTable table;
+        break;
+    case "GPOS":
+        GposTable table;
+        break;
+    case "GSUB":
+        GsubTable table;
+        break;
+    case "JSTF":
+        JstfTable table;
+        break;
+    case "LTSH":
+        LtshTable table;
+        break;
+    case "MATH":
+        MathTable table;
+        break;
+    case "OS/2":
+        OS_2Table table;
+        break;
+    case "PCLT":
+        PcltTable table;
+        break;
+    case "SVG ":
+        SvgTable table;
+        break;
+    case "VDMX":
+        VdmxTable table;
+        break;
+    case "VORG":
+        VorgTable table;
+        break;
+    }
+    FSeek(offset);
+    if (length > 0)
+    {
+        uint8 data[length];             // Point raw table data too (whether recognized or not)
+    }
+    FSeek(originalFilePosition);
+} TableRecord <read=ReadTableRecord>;
+
+string ReadTableRecord( struct TableRecord &s )
+{
+    return s.tag;
+}
+
+// For the sake of pre-parsing any tables for which other
+// tables have a dependency.
+struct TableRecordPass0(OpenTypeFont& font)
+{
+    char8 tag[4];                   // 4-byte identifier.
+    uint32 checkSum <format=hex>;   // CheckSum for this table.
+    uint32 offset;                  // Offset from beginning of TrueType font file.
+    uint32 length;                  // Length of this table.
+
+    // Switch based on specific type of table.
+    local int64 originalFilePosition = FTell();
+    FSeek(offset);
+    switch (tag)
+    {
+    case "EBDT":
+        font.ebdtTable_baseOffset = offset;
+        break;
+    case "loca":
+        font.locaTable_baseOffset = offset;
+        break;
+    case "hhea":
+        HheaTable table;
+        font.hheaTable_numberOfMetrics = table.numberOfMetrics;
+        break;
+    case "head":
+        HeadTable table;
+        font.headTable_indexToLocFormat = table.indexToLocFormat;
+        break;
+    case "vhea":
+        VheaTable table;
+        font.vheaTable_numberOfMetrics = table.numberOfMetrics;
+        break;
+    case "maxp":
+        MaxpTable table;
+        font.maxpTable_numberOfGlyphs = table.numberOfGlyphs;
+        break;
+    }
+    FSeek(originalFilePosition);
+};
+
+struct HeadTable
+{
+    fixed16_16 version; // 0x00010000 for version 1.0.
+    fixed16_16 fontRevision;                // Set by font manufacturer.
+    uint32 checkSumAdjustment <format=hex>; // To compute: set it to 0, sum the entire font as ULONG, then store 0xB1B0AFBA - sum.
+    uint32 magicNumber <format=hex>;        // Set to 0x5F0F3CF5.
+    // uint16 flags <format=binary>;
+    uint16 flagsBaselineAtY0 : 1;                   // Bit 0: Baseline for font at y=0;
+    uint16 flagsLeftSideBearingAtX0 : 1;            // Bit 1: Left sidebearing point at x=0;
+    uint16 flagsInstructionsDependOnPointSize : 1;  // Bit 2: Instructions may depend on point size;
+    uint16 flagsForceIntegerPpemValues : 1;         // Bit 3: Force ppem to integer values for all internal scaler math; may use fractional ppem sizes if this bit is clear;
+    uint16 flagsInstructionsAlterAdvanceWidth : 1;  // Bit 4: Instructions may alter advance width (the advance widths might not scale linearly);
+    uint16 flagsAppleReserved : 6;                  // Bits 5-10: These should be set according to Apple's specification . However, they are not implemented in OpenType.
+    uint16 flagsLosslessCompression : 1;            // Bit 11: Font data is 'lossless,' as a result of having been compressed and decompressed with the Agfa MicroType Express engine.
+    uint16 flagsFontConverted : 1;                  // Bit 12: Font converted (produce compatible metrics)
+    uint16 flagsClearTypeOptimized : 1;             // Bit 13: Font optimized for ClearType™. Note, fonts that rely on embedded bitmaps (EBDT) for rendering should not be considered optimized for ClearType, and therefore should keep this bit cleared.
+    uint16 flagsLastResortFont : 1;                 // Bit 14: Last Resort font. If set, indicates that the glyphs encoded in the cmap subtables are simply generic symbolic representations of code point ranges and don’t truly represent support for those code points. If unset, indicates that the glyphs encoded in the cmap subtables represent proper support for those code points.
+    uint16 flagsReserved : 1;                       // Bit 15: Reserved, set to 0
+
+    uint16 unitsPerEm;          // Valid range is from 16 to 16384. This value should be a power of 2 for fonts that have TrueType outlines.
+    long_date_time created;     // created Number of seconds since 12:00 midnight, January 1, 1904. 64-bit integer
+    long_date_time modified;    // modified Number of seconds since 12:00 midnight, January 1, 1904. 64-bit integer
+    int16 xMin; // For all glyph bounding boxes.
+    int16 yMin; // For all glyph bounding boxes.
+    int16 xMax; // For all glyph bounding boxes.
+    int16 yMax; // For all glyph bounding boxes.
+    //uint16 macStyle <format=binary>;
+    uint16 macStyleBold : 1;
+    uint16 macStyleItalic : 1;
+    uint16 macStyleUnderline : 1;
+    uint16 macStyleOutline : 1;
+    uint16 macStyleShadow : 1;
+    uint16 macStyleCondensed : 1;
+    uint16 macStyleExtended : 1;
+    uint16 macStyleReserved : 9;
+    // Bits 7-15: Reserved (set to 0).
+
+    uint16 lowestRecPPEM; // Smallest readable size in pixels.
+    int16 fontDirectionHint; // Deprecated (Set to 2).
+        // 0: Fully mixed directional glyphs;
+        // 1: Only strongly left to right;
+        // 2: Like 1 but also contains neutrals;
+        // -1: Only strongly right to left;
+        // -2: Like -1 but also contains neutrals. 1
+    int16 indexToLocFormat; // 0 for short offsets, 1 for long.
+    int16 glyphDataFormat; // 0 for current format.
+};
+
+struct HheaTable
+{
+    fixed16_16 version; // 0x00010000 for version 1.0. 
+    int16 ascender; // Typographic ascent. (Distance from baseline of highest ascender) 
+    int16 descender; // Typographic descent. (Distance from baseline of lowest descender) 
+    int16 lineGap; // Typographic line gap. Negative LineGap values are treated as zero in Windows 3.1, System 6, and System 7.
+    uint16 advanceWidthMax; // Maximum advance width value in 'hmtx' table. 
+    int16 minLeftSideBearing; // Minimum left sidebearing value in 'hmtx' table. 
+    int16 minRightSideBearing; // Minimum right sidebearing value; calculated as Min(aw - lsb - (xMax - xMin)). 
+    int16 xMaxExtent; // Max(lsb + (xMax - xMin)). 
+    int16 caretSlopeRise; // Used to calculate the slope of the cursor (rise/run); 1 for vertical. 
+    int16 caretSlopeRun; // 0 for vertical. 
+    int16 caretOffset; // The amount by which a slanted highlight on a glyph needs to be shifted to produce the best appearance. Set to 0 for non-slanted fonts 
+    int16 reserved; //set to 0 
+    int16 reserved; // set to 0 
+    int16 reserved; // set to 0 
+    int16 reserved; // set to 0 
+    int16 metricDataFormat; // 0 for current format. 
+    uint16 numberOfMetrics; // Number of hMetric entries in 'hmtx' table 
+};
+
+struct HmtxTableLongHorzMetric
+{
+	uint16 advanceWidth;
+	int16 leftSideBearing;
+};
+
+struct HmtxTable(uint32 numberOfGlyphs, uint32 numberOfMetrics)
+{
+    HmtxTableLongHorzMetric longHorzMetrics[numberOfMetrics] <open=true>; // Paired advance width and left side bearing values for each glyph. The value numOfHMetrics comes from the 'hhea' table. If the font is monospaced, only one entry need be in the array, but that entry is required. The last entry applies to all subsequent glyphs. 
+    if (numberOfGlyphs > numberOfMetrics)
+    {
+        int16 leftSideBearing[numberOfGlyphs - numberOfMetrics]; // Here the advanceWidth is assumed to be the same as the advanceWidth for the last entry above. The number of entries in this array is derived from numGlyphs (from 'maxp' table) minus numberOfHMetrics. This generally is used with a run of monospaced glyphs (e.g., Kanji fonts or Courier fonts). Only one run is allowed and it must be at the end. This allows a monospaced font to vary the left side bearing values for each glyph. 
+    }
+};
+
+struct HdmxTableRecord(uint32 numberOfGlyphs, uint32 deviceRecordSize)
+{
+    uint8 pixelSize; // Pixel size for following widths (as ppem).
+    uint8 maxWidth; // Maximum width.
+    if (deviceRecordSize >= 2)
+    {
+        local uint32 maxNumberOfGlyphs <hidden=true> = deviceRecordSize-2;
+        uint8 widths[Min(numberOfGlyphs, maxNumberOfGlyphs)]; // Array of widths (numGlyphs is from the 'maxp' table).
+        if (numberOfGlyphs < maxNumberOfGlyphs)
+        {
+            uint8 padding[maxNumberOfGlyphs - numberOfGlyphs];
+        }
+    }
+};
+
+struct HdmxTable(uint32 numberOfGlyphs)
+{
+    uint16 version; // Table version number (0)
+    uint16 numberOfRecords; // Number of device records.
+    uint32 deviceRecordSize; // Size of a device record, long aligned.
+    HdmxTableRecord records(numberOfGlyphs, deviceRecordSize)[numberOfRecords] <optimize=false>; // Array of device records.
+};
+
+struct VheaTable
+{
+    fixed16_16 version; // Version number of the vertical header table; 0x00011000 for version 1.1 
+                        // Note the representation of a non-zero fractional part, in Fixed numbers. 
+    int16 vertTypoAscender; // The vertical typographic ascender for this font. It is the distance in FUnits from the ideographic em-box center baseline for the vertical axis to the right of the ideographic em-box and is usually set to (head.unitsPerEm)/2. For example, a font with an em of 1000 fUnits will set this field to 500. See the baseline section of the OpenType Tag Registry for a description of the ideographic em-box. 
+    int16 vertTypoDescender; // The vertical typographic descender for this font. It is the distance in FUnits from the ideographic em-box center baseline for the horizontal axis to the left of the ideographic em-box and is usually set to (head.unitsPerEm)/2. For example, a font with an em of 1000 fUnits will set this field to 500. 
+    int16 vertTypoLineGap; // The vertical typographic gap for this font. An application can determine the recommended line spacing for single spaced vertical text for an OpenType font by the following expression: ideo embox width + vhea.vertTypoLineGap 
+    int16 advanceHeightMax; // The maximum advance height measurement -in FUnits found in the font. This value must be consistent with the entries in the vertical metrics table. 
+    int16 minTop; // SideBearing The minimum top sidebearing measurement found in the font, in FUnits. This value must be consistent with the entries in the vertical metrics table. 
+    int16 minBottom; // SideBearing The minimum bottom sidebearing measurement found in the font, in FUnits. 
+                     // This value must be consistent with the entries in the vertical metrics table. 
+    int16 yMaxExtent; // Defined as yMaxExtent=minTopSideBearing+(yMax-yMin) 
+    int16 caretSlopeRise; // The value of the caretSlopeRise field divided by the value of the caretSlopeRun Field determines the slope of the caret. A value of 0 for the rise and a value of 1 for the run specifies a horizontal caret. A value of 1 for the rise and a value of 0 for the run specifies a vertical caret. Intermediate values are desirable for fonts whose glyphs are oblique or italic. For a vertical font, a horizontal caret is best. 
+    int16 caretSlopeRun; // See the caretSlopeRise field. Value=1 for nonslanted vertical fonts. 
+    int16 caretOffset; // The amount by which the highlight on a slanted glyph needs to be shifted away from the glyph in order to produce the best appearance. Set value equal to 0 for nonslanted fonts. 
+    int16 reserved; // Set to 0. 
+    int16 reserved; // Set to 0. 
+    int16 reserved; // Set to 0. 
+    int16 reserved; // Set to 0. 
+    int16 metricDataFormat; // Set to 0. 
+    uint16 numberOfMetrics; // Number of advance heights in the vertical metrics table. 
+};
+
+struct VdmxTableRatio
+{
+    uint8 characterSet; // Character set (see below).
+    uint8 xRatio; // Value to use for x-Ratio
+    uint8 yStartRatio; // Starting y-Ratio value.
+    uint8 yEndRatio; // Ending y-Ratio value.
+};
+
+struct VdmxTableRecord
+{
+    uint16 yPelHeight;  // yPelHeight to which values apply.
+    int16  yMax;        // Maximum value (in pels) for this yPelHeight.
+    int16  yMin;        // Minimum value (in pels) for this yPelHeight.
+};
+
+struct VdmxTableGroup
+{
+    uint16 recordCount;                     // Number of height records in this group
+    uint8 startingPelHeight;                // Starting yPelHeight
+    uint8 endingPelHeight;                  // Ending yPelHeight
+    VdmxTableRecord records[recordCount];   // The VDMX records
+};
+
+struct VdmxTable // http://www.microsoft.com/typography/otspec/vdmx.htm
+{
+    uint16 version; // Version number (0 or 1).
+    uint16 groupCount; // Number of VDMX groups present
+    uint16 ratioCount; // Number of aspect ratio groupings
+    VdmxTableRatio ratios[ratioCount]; // Ratio ranges (see below for more info)
+    uint16 groupOffsets[groupCount]; // Offset from start of this table to the VDMX group for this ratio range.
+
+    local int64 originalFilePosition = FTell();
+    local uint32 i <hidden=true>;
+    for (i = 0; i < groupCount; i++)
+    {
+        FSeek(startof(this) + groupOffsets[i]);
+        VdmxTableGroup groups;
+    }
+    FSeek(originalFilePosition);
+};
+
+struct VmtxTableLongVertMetric
+{
+	uint16 advanceHeight;
+	int16 topSideBearing;
+};
+
+struct VmtxTable(uint32 numberOfGlyphs, uint32 numberOfMetrics)
+{
+    VmtxTableLongVertMetric longVertMetrics[numberOfMetrics] <open=true>; // Paired advance width and left side bearing values for each glyph. The value numOfHMetrics comes from the 'hhea' table. If the font is monospaced, only one entry need be in the array, but that entry is required. The last entry applies to all subsequent glyphs. 
+    if (numberOfGlyphs > numberOfMetrics)
+    {
+        int16 topSideBearing[numberOfGlyphs - numberOfMetrics]; // Here the advanceWidth is assumed to be the same as the advanceWidth for the last entry above. The number of entries in this array is derived from numGlyphs (from 'maxp' table) minus numberOfHMetrics. This generally is used with a run of monospaced glyphs (e.g., Kanji fonts or Courier fonts). Only one run is allowed and it must be at the end. This allows a monospaced font to vary the left side bearing values for each glyph. 
+    }
+};
+
+struct VorgTable // http://www.microsoft.com/typography/otspec/vorg.htm
+{
+    struct VerticalOriginYMetrics
+    {
+        uint16 glyphIndex; // Glyph index. 
+        int16 vertOriginY; // Y coordinate, in the font's design coordinate system, of the vertical origin of glyph with index glyphIndex. 
+    };
+
+    uint16 majorVersion; // Major version (starting at 1). Set to 1. 
+    uint16 minorVersion; // Minor version (starting at 0). Set to 0. 
+    int16 defaultVerticalOriginY; // The y coordinate of a glyph's vertical origin, in the font's design coordinate system, to be used if no entry is present for the glyph in the vertOriginYMetrics array. 
+    uint16 verticalOriginYMetricsCount; // Number of elements in the vertOriginYMetrics array. 
+    VerticalOriginYMetrics verticalOriginYMetrics[verticalOriginYMetricsCount];
+};
+
+struct LocaTable(uint32 numberOfGlyphs, uint32 indexToLocFormat)
+{
+    switch (indexToLocFormat)
+    {
+    case 0:
+        uint16 offsets[numberOfGlyphs+1];
+        break;
+    case 1:
+        uint32 offsets[numberOfGlyphs+1];
+        break;
+    }
+
+    local uint32 byteOffsets[numberOfGlyphs+1];
+
+    local uint32 i <hidden=true>;
+    for (i = 0; i < numberOfGlyphs + 1; ++i)
+    {
+        switch (indexToLocFormat)
+        {
+        case 0:
+            byteOffsets[i] = offsets[i] * 2;
+            break;
+        case 1:
+            byteOffsets[i] = offsets[i];
+            break;
+        }
+    }
+};
+
+struct GlyfTableEntry(uint32 tableEntryByteSize)
+{
+    int16 numberOfContours; // If the number of contours is greater than or equal to zero, this is a single glyph; if negative, this is a composite glyph.
+    int16 xMin; // Minimum x for coordinate data.
+    int16 yMin; // Minimum y for coordinate data.
+    int16 xMax; // Maximum x for coordinate data.
+    int16 yMax; // Maximum y for coordinate data.
+
+    if (numberOfContours > 0)
+    {
+        uint16 endPtsOfContours[numberOfContours]; // Array of last points of each contour; n is the number of contours.
+        uint16 instructionLength; // Total number of bytes for instructions.
+        if (instructionLength > 0) // avoid warning
+        {
+            uint8 instructions[instructionLength]; // Array of instructions for each glyph; n is the number of instructions.
+        }
+        // variable length - http://www.microsoft.com/typography/otspec/glyf.htm
+        // uint8 flags[n]; // Array of flags for each coordinate in outline; n is the number of flags.   
+        // uint8 or uint16 xCoordinates[ ]; // First coordinates relative to (0,0); others are relative to previous point.
+        // uint8 or uint16 yCoordinates[ ]; // First coordinates relative to (0,0); others are relative to previous point.
+    }
+    else if (numberOfContours == -1)
+    {
+        uint16 flags; // component flag
+        uint16 glyphIndex; // glyph index of component
+        // variable length - http://www.microsoft.com/typography/otspec/glyf.htm
+        // VARIABLE argument1; // x-offset for component or point number; type depends on bits 0 and 1 in component flags
+        // VARIABLE argument2; // y-offset for component or point number; type depends on bits 0 and 1 in component flags
+    }
+
+    local int32 dataSize = startof(this) + tableEntryByteSize - FTell();
+    if (dataSize > 0)
+    {
+        uint8 flagsAndCoordinates[dataSize];
+    }
+};
+
+struct GlyfTable(uint32 numberOfGlyphs, LocaTable& locaTable)
+{
+    local uint32 glyfTableBaseOffset <hidden=true> = FTell();
+    local uint32 i <hidden=true>;
+    local uint32 glyphTableEntryOffset <hidden=true>;
+    local uint32 nextGlyphTableEntryOffset <hidden=true>;
+    for (i = 0; i < numberOfGlyphs; ++i)
+    {
+        glyphTableEntryOffset = locaTable.byteOffsets[i];
+        nextGlyphTableEntryOffset = locaTable.byteOffsets[i+1];
+        FSeek(glyfTableBaseOffset + glyphTableEntryOffset);
+        GlyfTableEntry glyphData(nextGlyphTableEntryOffset - glyphTableEntryOffset);
+    }
+};
+
+struct CvtTable(uint32 tableByteSize)
+{
+    uint16 values[tableByteSize / 2] <optimize=true, open=true>;
+};
+
+struct FpgmTable(uint32 tableByteSize)
+{
+    uint8 instructions[tableByteSize] <optimize=true, open=true>;
+};
+
+struct FmtxTable
+{
+    fixed16_16 version; // Version (set to 0x00020000). 
+    uint32 glyphIndex; // The glyph whose points represent the metrics. 
+    uint8 horizontalBefore; // Point number for the horizontal ascent. 
+    uint8 horizontalAfter; // Point number for the horizontal descent. 
+    uint8 horizontalCaretHead; // Point number for the horizontal caret head. 
+    uint8 horizontalCaretBase; // Point number for the horizontal caret base. 
+    uint8 verticalBefore; // Point number for the vertical ascent. 
+    uint8 verticalAfter; // Point number for the vertical descent. 
+    uint8 verticalCaretHead; // Point number for the vertical caret head. 
+    uint8 verticalCaretBase; // Point number for the vertical caret base. 
+};
+
+struct FvarTable
+{
+    fixed16_16 version; // Set to 1.0 (0x10000). 
+    uint16 offsetToData; // Offset in bytes from the beginning of the table to the beginning of the first axis data. 
+    uint16 countSizePairs; // Axis + instance = 2. 
+    uint16 axisCount; // The number of style axes in this font. 
+    uint16 axisSize; // The number of bytes in each gxFontVariationAxis record. Set to 20 bytes. 
+    uint16 instanceCount; // The number of named instances for the font found in the sfntInstance array. 
+    uint16 instanceSize; // The number of bytes in each gxFontInstance array. InstanceSize = axisCount * sizeof(gxShortFrac). 
+
+    struct VariationAxis
+    {
+        char8 tag[4]; // Axis name.
+        fixed16_16 minValue; // The minimum style coordinate for the axis.
+        fixed16_16 defaultValue; // The default style coordinate for the axis.
+        fixed16_16 maxValue; // The maximum style coordinate for the axis.
+        uint16 flags; // Set to zero.
+        uint16 nameID; // The designation in the 'name' table.
+        local uint32 unknownDataSize = axisSize - FTell() + startof(this);
+        if (unknownDataSize > 0)
+        {
+            uint8 unknownData[axisSize - FTell() + startof(this)];
+        }
+    };
+
+    VariationAxis axis[axisCount] <optimize=true>; // The font variation axis array. 
+
+    struct Instance
+    {
+        uint16 nameID; // The name of the defined instance coordinate. Similar to the nameID in the variation axis record, this identifies a name in the font's 'name' table. 
+        uint16 flags; // Set to zero. 
+        fixed16_16 coordinates[axisCount]; // This is the coordinate of the defined instance. 
+    };
+
+    Instance instance[instanceCount] <optimize=true>; // The instance array. 
+};
+
+struct GvarTable
+{
+    uint16 version; // Version number of the glyph variations table (1 for the current version).
+    uint16 reserved; // Currently unused; set to 0.
+    uint16 axisCount; // The number of style axes for this font. This must be the same number as axisCount in the 'fvar' table.
+    uint16 sharedCoordinatesCount; // The number of shared coordinates.
+    uint32 offsetToCoordinates; // Byte offset from the beginning of this table to the list of shared style coordinates.
+    uint16 glyphCount; // The number of glyphs in this font; this should match the number of the glyphs store elsewhere in the font.
+    uint16 flags; // Bit-field that gives the format of the offset array that follows. If the flag is 0, the type is uint16. If the flag is 1, the type is unit 32.
+    uint32 offsetToData; // Byte offset from the beginning of this table to the first glyph glyphVariationData.
+    if (flags & 1)
+    {
+        uint16 offsets[glyphCount+1]; // Byte offsets from the beginning of the glyphVariationData array to the glyphVariationData for each glyph in the font. The format of this field is set by the flags field.
+    }
+    else
+    {
+        uint32 offsets[glyphCount+1]; // Byte offsets from the beginning of the glyphVariationData array to the glyphVariationData for each glyph in the font. The format of this field is set by the flags field.
+    }
+    // todo::: Support more.
+};
+
+struct PrepTable(uint32 tableByteSize)
+{
+    uint8 instructions[tableByteSize] <optimize=true, open=true>;
+};
+
+typedef enum <uint16>
+{
+    PlatformIdUnicode = 0,
+    PlatformIdMacintosh = 1,
+    PlatformIdISO = 2, // deprecated
+    PlatformIdWindows = 3,
+    PlatformIdCustom = 4
+} PlatformId;
+
+typedef enum <uint16>
+{
+    UnicodeEncodingId1_0 = 0, // Unicode 1.0 semantics
+    UnicodeEncodingId1_1 = 1, // Unicode 1.1 semantics
+    UnicodeEncodingIdIso10646 = 2, // ISO/IEC 10646 semantics
+    UnicodeEncodingId2_0Basic = 3, // Unicode 2.0 and onwards semantics, Unicode BMP only (cmap subtable formats 0, 4, 6).
+    UnicodeEncodingId2_0Full = 4, // Unicode 2.0 and onwards semantics, Unicode full repertoire (cmap subtable formats 0, 4, 6, 10, 12).
+    UnicodeEncodingIdUVS = 5, // Unicode Variation Sequences (cmap subtable format 14).
+    UnicodeEncodingIdFull = 6, // Unicode full repertoire (cmap subtable formats 0, 4, 6, 10, 12, 13).
+} UnicodeEncodingId;
+
+typedef enum <uint16>
+{
+    WindowsEncodingIdSymbol = 0,
+    WindowsEncodingIdUnicodeBMP = 1, // (UCS-2) 
+    WindowsEncodingIdShiftJIS = 2,
+    WindowsEncodingIdPRC = 3, // Chinese
+    WindowsEncodingIdBig5 = 4, // Chinese
+    WindowsEncodingIdWansung = 5, // Chinese
+    WindowsEncodingIdJohab = 6, // Korean
+    WindowsEncodingIdReserved1 = 7,
+    WindowsEncodingIdReserved2 = 8,
+    WindowsEncodingIdReserved3 = 9,
+    WindowsEncodingIdUnicodeUTF16 = 10, // Not "UCS-4" like the spec says
+} WindowsEncodingId;
+
+typedef enum <uint16>
+{
+    IsoEncodingId7bitAscii = 0, // 8 bit, 7 bits used, top bit=0
+    IsoEncodingIdISO10646 = 1, // UCS-2
+    IsoEncodingIdISO8859_1 = 2, // 8 bit, all bits used
+} IsoEncodingId;
+
+typedef enum <uint16>
+{
+    NameIdCopyrightNotice       = 0,
+    NameIdFontFamilyName        = 1,
+    NameIdFontSubfamilyName     = 2,
+    NameIdUniqueFontIdentifier  = 3,
+    NameIdFullFontName          = 4,
+    NameIdVersionString         = 5,
+    NameIdPostscriptName        = 6,
+    NameIdTrademark             = 7,
+    NameIdManufacturerName      = 8,
+    NameIdDesigner              = 9,
+    NameIdDescription           = 10,
+    NameIdUrlVendor             = 11,
+    NameIdUrlDesigner           = 12,
+    NameIdLicenseDescription    = 13,
+    NameIdLicenseInfoUrl        = 14,
+    NameIdReserved              = 15,
+    NameIdPreferredFamily       = 16,
+    NameIdPreferredSubfamily    = 17,
+    NameIdMacCompatibleFullName = 18,
+    NameIdSampleText            = 19,
+    NameIdPostScriptCidName     = 20,
+    NameIdWwsFamilyName         = 21,
+    NameIdWwsSubfamilyName      = 22,
+} NameId;
+
+uint8 IsUnicodePlatformEncoding(uint32 platformId, uint32 encodingId)
+{
+    if (platformId == PlatformIdUnicode)
+        return true;
+
+    if (platformId == PlatformIdMacintosh)
+        return false;
+
+    if (platformId == PlatformIdWindows)
+    {
+        // * = treated as UTF-16
+        //
+        // 3 0 Symbol *
+        // 3 1 Unicode BMP (UCS-2) *
+        // 3 2 ShiftJIS * (treat as UTF-16 instead since fonts were built so)
+        // 3 3 PRC
+        // 3 4 Big5
+        // 3 5 Wansung
+        // 3 6 Johab
+        // 3 7 Reserved
+        // 3 8 Reserved
+        // 3 9 Reserved
+        // 3 10 Unicode UCS-4 *
+
+        switch (encodingId)
+        {
+        case WindowsEncodingIdSymbol:
+        case WindowsEncodingIdUnicodeBMP:
+        case WindowsEncodingIdShiftJIS:
+        case WindowsEncodingIdUnicodeUTF16:
+            return true;
+        }
+
+        // These are DBCS requiring either one or two characters.
+        switch (encodingId)
+        {
+        case WindowsEncodingIdPRC:
+        case WindowsEncodingIdBig5:
+        case WindowsEncodingIdWansung:
+        case WindowsEncodingIdJohab:
+            return false;
+        }
+
+        // Any other encoding we expect to have two bytes per character.
+        return true;
+    }
+
+    if (platformId == PlatformIdISO)
+    {
+        switch (encodingId)
+        {
+        case IsoEncodingIdISO10646:
+            return true;
+        }
+
+        return false;
+    }
+
+    // PlatformIdCustom is considered non-Unicode.
+
+    // Either old ASCII or some other crazy encoding.
+    return false;
+}
+
+void EncodingId(PlatformId platformId)
+{
+    switch (platformId)
+    {
+    case PlatformIdUnicode:
+        UnicodeEncodingId encodingId; // Platform-specific encoding ID.
+        break;
+    case PlatformIdWindows:
+        WindowsEncodingId encodingId; // Platform-specific encoding ID.
+        break;
+    case PlatformIdISO:
+        IsoEncodingId encodingId; // Platform-specific encoding ID.
+        break;
+    default:
+        uint16 encodingId; // Platform-specific encoding ID. 
+        break;
+    };
+};
+
+struct NameTableNameRecord(uint32 stringStorageOffset)
+{
+    PlatformId platformId; // Platform ID. 
+    EncodingId(platformId);
+    uint16 languageId; // Language ID. 
+    NameId nameId; // Name ID. 
+    uint16 length; // String length (in bytes). 
+    uint16 offset; // String offset from start of storage area (in bytes). 
+
+    local int64 originalFilePosition = FTell();
+    FSeek(stringStorageOffset + offset);
+
+    // Display Unicode if it's Unicode, otherwise as raw bytes.
+    if (IsUnicodePlatformEncoding(platformId, encodingId))
+    {
+        if (length >= 2)
+        {
+            char16 stringData[length / 2];
+        }
+    }
+    else
+    {
+        if (length > 0) // Advertising.ttf had an empty entry.
+        {
+            char8 stringData[length];
+        }
+    }
+    FSeek(originalFilePosition);
+};
+
+struct NameTableLangRecord(uint32 stringStorageOffset)
+{
+    uint16 length; // Language-tag string length (in bytes)
+    uint16 offset; // Language-tag string offset from start of storage area (in bytes).
+
+    local int64 originalFilePosition = FTell();
+    FSeek(stringStorageOffset + offset);
+    // Language records must (thankfully) be encoded consistently as UTF-16
+    char16 stringData[length / 2];
+    FSeek(originalFilePosition);
+};
+
+struct NameTable
+{
+    uint16 format; // Format selector.
+    uint16 nameRecordCount; // Number of name records.
+    uint16 stringOffset; // Offset to start of string storage (from start of table).
+    NameTableNameRecord nameRecord(startof(this) + stringOffset)[nameRecordCount] <optimize=false>; // The name records where count is the number of records.
+    if (format >= 1)
+    {
+        uint16 langTagRecordCount; // Number of language-tag records.
+        NameTableLangRecord langTagRecord(startof(this) + stringOffset)[langTagRecordCount] <optimize=false>; // The language-tag records where langTagCount is the number of records.
+    }
+    // (Variable) Storage for the actual string
+};
+
+struct CmapFormat4Subheader
+{
+    uint16 firstCodeFirst; // valid low byte for this subHeader.
+    uint16 entryCount; // Number of valid low bytes for this subHeader.
+    int16  idDelta; // See text below.
+    uint16 idRangeOffset; // See text below.
+};
+
+struct CmapVariationSelectorRecord
+{
+    uint32 varSelector : 24; // Variation selector
+    uint32 defaultUVSOffset; // Offset to Default UVS Table. May be 0.
+    uint32 nonDefaultUVSOffset; // Offset to Non-Default UVS Table. May be 0.
+};
+
+struct CmapVariationSelectorValueRange
+{
+    uint32 startUnicodeValue : 24; // First value in this range
+    uint8 additionalCount; // Number of additional values in this range
+};
+
+struct CmapVariationSelectorTableDefault
+{
+    uint32 unicodeValueRangesCount; // Number of ranges that follow
+    CmapVariationSelectorValueRange valueRange[unicodeValueRangesCount];
+};
+
+struct CmapVariationSelectorMapping
+{
+    uint32 unicodeValue : 24; // Base Unicode value of the UVS
+    uint16 glyphID; // Glyph ID of the UVS
+};
+
+struct CmapVariationSelectorTableNonDefault
+{
+    uint32 uvsMappingsCount; // Number of UVS Mappings that follow
+    CmapVariationSelectorMapping mapping[uvsMappingsCount];
+};
+
+
+struct CmapSubtableGroup // 8,12,13
+{
+    uint32 startCharCode; // First character code in this group
+    uint32 endCharCode; // Last character code in this group
+    uint32 glyphID; // Glyph index to be used for all the characters in the group's range.
+};
+
+// Slight difference for start and end char for format 8.
+// startCharCode - First character code in this group; note that if this group is for one or more 16-bit character codes (which is determined from the is32 array), this 32-bit value will have the high 16-bits set to zero
+// endCharCode - Last character code in this group; same condition as listed above for the startCharCode
+typedef CmapSubtableGroup CmapFormat8Group;
+
+typedef CmapSubtableGroup CmapFormat12Group;
+
+typedef CmapSubtableGroup CmapFormat13Group;
+
+struct CmapTableSubtable
+{
+    uint16 format;
+
+    switch (format)
+    {
+    case 0: // Byte encoding table
+        uint16 length; // This is the length in bytes of the subtable.
+        uint16 language; // Please see "Note on the language field in 'cmap' subtables" in this document.
+        uint8 glyphIdArray[256]; // An array that maps character codes to glyph index values.
+        break;
+
+    case 2: // High-byte mapping through table
+        uint16 length; // This is the length in bytes of the subtable.
+        uint16 language; // Please see "Note on the language field in 'cmap' subtables" in this document.
+        uint16 subHeaderKeys[256]; // Array that maps high bytes to subHeaders: value is subHeader index * 8.
+        // todo:
+        //CmapFormat4Subheader subheaders[ ]; // Variable-length array of subHeader structures.
+        //uint16 glyphIndexArray[ ]Variable-length array containing subarrays used for mapping the low byte of 2-byte characters.
+        break;
+
+    case 4: // Segment mapping to delta values
+        uint16 length; // This is the length in bytes of the subtable.
+        uint16 language; // Please see "Note on the language field in 'cmap' subtables" in this document.
+        uint16 segmentCountX2; // 2 x segCount.
+        local uint16 segmentCount = segmentCountX2 / 2;
+        uint16 searchRange; // 2 x (2**floor(log2(segmentCount)))
+        uint16 entrySelector; // log2(searchRange/2)
+        uint16 rangeShift; // 2 x segmentCount - searchRange
+        uint16 endCount[segmentCount]; // End characterCode for each segment, last=0xFFFF.
+        uint16 reservedPad; // Set to 0.
+        uint16 startCount[segmentCount]; // Start character code for each segment.
+        int16  idDelta[segmentCount]; // Delta for all character codes in segment.
+        uint16 idRangeOffset[segmentCount]; // Offsets into glyphIdArray or 0
+        // todo:
+        //uint16 glyphIdArray[ ]; // Glyph index array (arbitrary length)
+        break;
+
+    case 6: // Trimmed table mapping
+        uint16 length; // This is the length in bytes of the subtable.
+        uint16 language; // Please see "Note on the language field in 'cmap' subtables" in this document.
+        uint16 firstCode; // First character code of subrange.
+        uint16 entryCount; // Number of character codes in subrange.
+        uint16 glyphIdArray[entryCount]; // Array of glyph index values for character codes in the range.
+        break;
+
+    case 8: // mixed 16-bit and 32-bit coverage
+        uint16 reserved; // Reserved; set to 0
+        uint32 length; // Byte length of this subtable (including the header)
+        uint32 language; // Please see "Note on the language field in 'cmap' subtables" in this document.
+        uint8  is32[8192]; // Tightly packed array of bits (8K bytes total) indicating whether the particular 16-bit (index) value is the start of a 32-bit character code
+        uint32 groupCount; // Number of groupings which follow
+        CmapFormat8Group group[groupCount];
+        break;
+
+    case 10: // Trimmed array
+        uint16 reserved; // Reserved; set to 0
+        uint32 length; // Byte length of this subtable (including the header)
+        uint32 language; // Please see "Note on the language field in 'cmap' subtables" in this document.
+        uint32 startCharCode; // First character code covered
+        uint32 numberOfChars; // Number of character codes covered
+        //todo:
+        //uint16 glyphs[]; // Array of glyph indices for the character codes covered
+        break;
+
+    case 12: // Segmented coverage
+        uint16 reserved; // Reserved; set to 0
+        uint32 length; // Byte length of this subtable (including the header)
+        uint32 language; // Please see "Note on the language field in 'cmap' subtables" in this document.
+        uint32 groupCount; // Number of groupings which follow
+        CmapFormat12Group group[groupCount];
+        break;
+
+    case 13: // Many-to-one range mappings
+        uint16 reserved; // Reserved; set to 0
+        uint32 length; // Byte length of this subtable (including the header)
+        uint32 language; // Please see "Note on the language field in 'cmap' subtables" in this document.
+        uint32 groupCount; // Number of groupings which follow
+        CmapFormat12Group group[groupCount];
+        break;
+
+    case 14: // Unicode Variation Sequences
+        uint32 length; // Byte length of this subtable (including this header)
+        uint32 recordCount; // Number of variation Selector Records
+        CmapVariationSelectorRecord record[recordCount];
+        break;
+    }
+};
+
+
+struct CmapTableRecord(uint32 tableOffset)
+{
+    PlatformId platformId; // Platform ID. 
+    EncodingId(platformId);
+    uint32 offset; // Byte offset from beginning of table to the subtable for this encoding.
+
+    local int64 originalFilePosition = FTell();
+    FSeek(tableOffset + offset);
+    CmapTableSubtable subtable;
+    FSeek(originalFilePosition);
+};
+
+struct CmapTable
+{
+    uint16 version; // version number (0).
+    uint16 recordCount; // Number of encoding tables that follow.
+    CmapTableRecord record(startof(this)) [recordCount] <optimize=false>;
+};
+
+struct MaxpTable
+{
+    fixed16_16 version; // 0x00010000 for version 1.0. 
+    uint16 numberOfGlyphs; // The number of glyphs in the font. 
+    if (version >= 0x00010000)
+    {
+        uint16 maxPoints; // Maximum points in a non-composite glyph. 
+        uint16 maxContours; // Maximum contours in a non-composite glyph. 
+        uint16 maxCompositePoints; // Maximum points in a composite glyph. 
+        uint16 maxCompositeContours; // Maximum contours in a composite glyph. 
+        uint16 maxZones; // 1 if instructions do not use the twilight zone (Z0), or 2 if instructions do use Z0; should be set to 2 in most cases. 
+        uint16 maxTwilightPoints; // Maximum points used in Z0. 
+        uint16 maxStorage; // Number of Storage Area locations. 
+        uint16 maxFunctionDefs; // Number of FDEFs. 
+        uint16 maxInstructionDefs; // Number of IDEFs. 
+        uint16 maxStackElements; // Maximum stack depth2. 
+        uint16 maxSizeOfInstructions; // Maximum byte count for glyph instructions. 
+        uint16 maxComponentElements; // Maximum number of components referenced at “top level” for any composite glyph. 
+        uint16 maxComponentDepth; // Maximum levels of recursion; 1 for simple components. 
+    }
+};
+
+// https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6meta.html
+struct MetaTable
+{
+    uint32 version; // The version of the table format, currently 1
+    uint32 flags; // Flags, currently unused and set to 0
+    uint32 dataOffset; // Offset from the beginning of the table to the data
+    uint32 dataMapsCount; // The number of data maps in the table
+
+    // Each maps a four-character tag to a range of data within the table.
+    // Note the Apple documentation claims that the dataOffset in each name
+    // map is relative to the data section, but that doesn't match their
+    // actual fonts, for which the dataOffset is relative to the beginning
+    // of the meta table.
+    struct DataMap(uint32 metaTableOffset)
+    {
+        char8 tag[4];        // 4-byte identifier indicating the type of metadata
+        uint32 dataOffset;   // Byte offset from the beginning of the meta table to the data for this tag
+        uint32 dataLength;   // Length of the data. The data is not required to be padded to any byte boundary.
+
+        if (dataLength > 0)
+        {
+            local int64 originalFilePosition = FTell();
+            FSeek(metaTableOffset + dataOffset);
+            uint8 data[dataLength];
+            FSeek(originalFilePosition);
+        }
+    };
+
+    // Following the header is a series of data maps.
+    DataMap dataMap(startof(this)) [dataMapsCount] <optimize=false>;
+};
+
+// todo:
+//struct MergTable
+//{
+//};
+
+// todo: *partial support
+struct MathTable // http://www.microsoft.com/typography/otspec/math.htm
+{
+    fixed16_16 version; // Version of the MATH table, currently set to 0x00010000 
+    uint16 mathConstantsOffset; // Offset to MathConstants table - from the beginning of MATH table. 
+    uint16 mathGlyphInfoOffset; // Offset to MathGlyphInfo table - from the beginning of MATH table. 
+    uint16 mathVariantsOffset; // Offset to MathVariants table - from the beginning of MATH table. 
+};
+
+struct PostTable
+{
+    fixed16_16 version; // 0x00010000 for version 1.0
+                        // 0x00020000 for version 2.0
+                        // 0x00025000 for version 2.5 (deprecated)
+                        // 0x00030000 for version 3.0
+    fixed16_16 italicAngle;
+        // Italic angle in counter-clockwise degrees from the vertical. Zero
+        // for upright text, negative for text that leans to the right (forward).
+    int16 underlinePosition;
+        // This is the suggested distance of the top of the underline from the
+        // baseline (negative values indicate below baseline). The PostScript
+        // definition of this FontInfo dictionary key (the y coordinate of the
+        // center of the stroke) is not used for historical reasons. The value
+        // of the PostScript key may be calculated by subtracting half the
+        // underlineThickness from the value of this field.
+    int16 underlineThickness; // Suggested values for the underline thickness.
+    uint32 isFixedPitch; // Set to 0 if the font is proportionally spaced, non-zero if the font is not proportionally spaced (i.e. monospaced).
+    uint32 minMemType42; // Minimum memory usage when an OpenType font is downloaded.
+    uint32 maxMemType42; // Maximum memory usage when an OpenType font is downloaded.
+    uint32 minMemType1; // Minimum memory usage when an OpenType font is downloaded as a Type 1 font.
+    uint32 maxMemType1; // Maximum memory usage when an OpenType font is downloaded as a Type 1 font.
+
+    // Version 1 or 3 end here
+
+    if (version == 0x00020000)
+    {
+        uint16 numberOfGlyphs; // Number of glyphs (this should be the same as numGlyphs in 'maxp' table). 
+        uint16 glyphNameIndex[numberOfGlyphs]; // This is not an offset, but is the ordinal number of the glyph in 'post' string tables. 
+        //CHAR names[numberNewGlyphs] Glyph names with length bytes [variable] (a Pascal string). 
+    }
+    if (version == 0x00025000) // deprecated
+    {
+        uint16 numberOfGlyphs; // Number of glyphs
+        int8 offset[numberOfGlyphs]; // Difference between graphic index and standard order of glyph
+    }
+};
+
+struct SbixTable(uint32 numberOfGlyphs) // https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6sbix.html
+{
+    typedef enum <uint16>
+    {
+        FlagsDrawBitmapsAndOutlines = 0x2, // else draw only bitmaps
+    } Flags;
+
+    struct StrikeRecordData
+    {
+        int16 originOffsetX;  // The x-value of the point in the glyph relative to its lower-left corner which corresponds to the origin of the glyph on the screen, that is the point on the baseline at the left edge of the glyph.
+        int16 originOffsetY;  // The y-value of the point in the glyph relative to its lower-left corner which corresponds to the origin of the glyph on the screen, that is the point on the baseline at the left edge of the glyph.
+        char8 graphicType[4]; // Indicates the type of graphic and relieves clients of the need to parse the graphic data in order to determine the data type. Currently, only 'jpg ', 'pdf ', 'png ', and 'tiff' are defined.
+        uint8 data[1];        // The actual embedded graphic data. The total length is inferred from sequential glyphDataOffsets.
+    };
+
+    struct StrikeRecordDataOffset(uint32 strikeRecordOffset)
+    {
+        uint32 offset;
+        if (offset > 0)
+        {
+            local int64 originalFilePosition = FTell();
+            FSeek(strikeRecordOffset + offset);
+            StrikeRecordData strikeRecordData;
+            FSeek(originalFilePosition);
+        }
+    };
+
+    struct StrikeRecord(uint32 numberOfGlyphs)
+    {
+        uint16 ppem; // The PPEM for which this strike was designed (e.g., 9, 12, 24)
+        uint16 resolution; // The screen resolution (in dpi) for which this strike was designed (e.g., 72)
+        StrikeRecordDataOffset glyphDataOffset(startof(this))[numberOfGlyphs] <optimize=false>; // Offset from the beginning of the strike data record to data for the individual glyph
+        uint32 glyphDataOffset;
+    };
+
+    struct StrikeRecordOffset(uint32 tableOffset, uint32 numberOfGlyphs)
+    {
+        uint32 offset;
+        if (offset > 0)
+        {
+            local int64 originalFilePosition = FTell();
+            FSeek(tableOffset + offset);
+            StrikeRecord strikeRecord(numberOfGlyphs);
+            FSeek(originalFilePosition);
+        }
+    };
+
+    uint16 version; // Version number (set to 1)
+    Flags flags; // See below
+    uint32 strikesCount; // Number of bitmap strikes to follow
+    StrikeRecordOffset strikesOffsets(startof(this), numberOfGlyphs)[strikesCount] <optimize=false, open=true>; // Offset from begining of table to data for the individual strike
+};
+
+struct EblcSbitLineMetrics
+{
+    int8 ascender;
+    int8 descender;
+    uint8 widthMax;
+    int8 caretSlopeNumerator;
+    int8 caretSlopeDenominator;
+    int8 caretOffset;
+    int8 minOriginSB;
+    int8 minAdvanceSB;
+    int8 maxBeforeBL;
+    int8 minAfterBL;
+    int8 pad1;
+    int8 pad2;
+};
+
+struct EblcIndexSubtable;
+struct EblcIndexSubtableArrayEntry;
+
+struct EblcBitmapSizeTable(uint32 eblcTableOffset)
+{
+    uint32 indexSubtableArrayOffset; // offset to index subtable from beginning of EBLC.
+    uint32 indexTablesSize; // number of bytes in corresponding index subtables and array
+    uint32 numberOfIndexSubTables; // an index subtable for each range or format change
+    uint32 colorReference; // not used; set to 0.
+    EblcSbitLineMetrics horizontalMetrics; // line metrics for text rendered horizontally
+    EblcSbitLineMetrics verticalMetrics; // line metrics for text rendered vertically
+    uint16 startGlyphIndex; // lowest glyph index for this size
+    uint16 endGlyphIndex; // highest glyph index for this size
+    uint8 ppemX; // horizontal pixels per Em
+    uint8 ppemY; // vertical pixels per Em
+    uint8 bitDepth; // the Microsoft rasterizer v.1.7 or greater supports the following bitDepth values, as described below: 1, 2, 4, and 8. CBLC uses 32 bit.
+    uint8 flags; // vertical or horizontal (see bitmapFlags)
+
+    local int64 originalFilePosition = FTell();
+    FSeek(eblcTableOffset + indexSubtableArrayOffset);
+    EblcIndexSubtableArrayEntry array(eblcTableOffset + indexSubtableArrayOffset)[numberOfIndexSubTables] <optimize=false>;
+    FSeek(originalFilePosition);
+};
+
+struct EblcBigGlyphMetrics
+{
+    uint8 height;
+    int8  width;
+    int8  horiBearingX;
+    int8  horiBearingY;
+    uint8 horiAdvance;
+    int8  vertBearingX;
+    int8  vertBearingY;
+    uint8 vertAdvance;
+};
+
+struct EblcSmallGlyphMetrics
+{
+    uint8 height;
+    int8  width;
+    int8  bearingX;
+    int8  bearingY;
+    uint8 advance;
+};
+
+struct EblcIndexSubtableArrayEntry(uint32 indexSubTableArrayOffset)
+{
+    uint16 firstGlyphIndex; // first glyph code of this range
+    uint16 lastGlyphIndex;  // last glyph code of this range (inclusive)
+    uint32 additionalOffsetToIndexSubtable; // add to indexSubTableArrayOffset to get offset from beginning of 'EBLC'
+
+    // Point to the subtable.
+    local int64 originalFilePosition = FTell();
+    FSeek(indexSubTableArrayOffset + additionalOffsetToIndexSubtable);
+    EblcIndexSubtable subtable(firstGlyphIndex, lastGlyphIndex);
+    FSeek(originalFilePosition);
+};
+
+struct EblcIndexSubtable4CodeOffsetPair
+{
+    uint16 glyphCode; // code of glyph present
+    uint16 offset; //location in EBDT
+};
+
+struct EblcIndexSubtable(uint32 firstGlyphIndex, uint32 lastGlyphIndex) // align 4 bytes
+{
+    // EblcIndexSubtableHeader
+    uint16 indexFormat; // format of this indexSubTable
+    uint16 imageFormat; // format of 'EBDT' image data
+    uint32 imageDataOffset; // offset to image data in 'EBDT' table
+
+    // Variable size data structure beyond this.
+    switch (indexFormat)
+    {
+    case 1: // variable metrics glyphs with 4 byte offsets
+        {
+            uint32 offsetArray[lastGlyphIndex - firstGlyphIndex + 1 + 1];
+            // glyphData = offsetArray[glyphIndex] + imageDataOffset
+            // sizeOfArray = (lastGlyph-firstGlyph+1)+1+1 pad if needed
+        };
+        break;
+    case 2: // all glyphs have identical metrics
+        {
+            uint32 imageSize; // all the glyphs are of the same size
+            EblcBigGlyphMetrics metrics <open=true>; // bigMetrics all glyphs have the same metrics; glyph data may be compressed, byte-aligned, or bit-aligned
+        };
+        break;
+    case 3: // variable metrics glyphs with 2 byte offsets
+        {
+            uint16 offsetArray[lastGlyphIndex - firstGlyphIndex + 1 + 1];
+            //glyphData = offsetArray[glyphIndex]+imageDataOffset
+            //sizeOfArray = (lastGlyph-firstGlyph+1)+1+1 pad if needed
+        };
+        break;
+    case 4: // variable metrics glyphs with sparse glyph codes
+        {
+            uint32 glyphCount; // array length
+            EblcIndexSubtable4CodeOffsetPair glyphArray[glyphCount+1] <optimize=true>; // one per glyph; sizeOfArray=numGlyphs+1
+        };
+        break;
+    case 5: // constant metrics glyphs with sparse glyph codes
+        {
+            uint32 imageSize; // all glyphs have the same data size
+            EblcBigGlyphMetrics metrics <open=true>; // all glyphs have the same metrics
+            uint32 glyphCount; // array length
+            uint16 glyphCodeArray[glyphCount]; // one per glyph, sorted by glyph code; sizeOfArray=numGlyphs
+        };
+        break;
+    }
+};
+
+struct EblcTable
+{
+    // struct EblcTableHeader
+    fixed16_16 version;
+    uint32 numberSizes;
+
+    EblcBitmapSizeTable sizeTables(startof(this))[numberSizes] <optimize=false>;
+};
+
+struct EbdtTable
+{
+    fixed16_16 version; // Initially defined as 0x00020000
+    // Remainder is bitmap data.
+};
+
+struct EbscTable
+{
+    fixed16_16 version; // initially defined as 0x00020000
+    uint32 sizeCount;
+
+    // Each strike is defined by one bitmapScaleTable.
+    struct BitmapScaleTable
+    {
+        EblcSbitLineMetrics horizontalMetrics; // line metrics for text rendered horizontally
+        EblcSbitLineMetrics verticalMetrics; // line metrics for text rendered vertically
+        uint8 ppemX;            // target horizontal pixels per Em
+        uint8 ppemY;            // target vertical pixels per Em
+        uint8 substitutePpemX;  // use bitmaps of this size
+        uint8 substitutePpemY;  // use bitmaps of this size
+    };
+
+    BitmapScaleTable scaleTables[sizeCount];
+};
+
+struct CffTable
+{
+    // Only support the header. The rest of the format is complex enough
+    // that it could warrant its own complete template definition.
+    uint8 major; // format major version (starting at 1)
+    uint8 minor; // format minor version (started at 0)
+    uint8 headerSize; // in bytes
+    uint8 offsetSize; // size in bytes of offset fields
+
+    // remainder...
+};
+
+struct KernSubtable;
+
+struct KernTable
+{
+    uint16 versionMajor;
+    if (versionMajor > 0)
+    {
+        uint16 versionMinor;
+        uint32 tableCount;
+    }
+    else
+    {
+        uint16 tableCount;
+    }
+
+    KernSubtable kernSubtables[tableCount] <optimize=false>;
+};
+
+struct KernSubtable
+{
+    uint16  version;
+    uint16  byteLength;                 // including this header
+    uint8   format;                     // format of the subtable
+    uint8   coverage;                   // what type of information is in this header
+
+    enum CoverageFlags
+    {
+        CoverageFlagsHorizontal     = 0x01,     // Contains horizontal data, 0 if vertical
+        CoverageFlagsMinimum        = 0x02,     // The table has minimum values, 0 if kerning values
+        CoverageFlagsCrossStream    = 0x04,     // Kerning is perpendicular to the flow of the text
+        CoverageFlagsOverride       = 0x08,     // Replaces value currently being accumulated
+        CoverageFlagsReserved1      = 0xF0,     // Zeroed
+        // Notice bits 8-15 in the OT spec are actually the format,
+        // which is defined as a separate field here for clarity.
+    };
+
+    struct KerningPair
+    {
+        uint16  firstGlyph;             // The left one in LTR
+        uint16  secondGlyph;            // The right one in LTR
+        int16   value;                  // Adjustment between them (> 0 further, < 0 closer)
+    };
+
+    switch (version)
+    {
+    case 0: // Adjustments for glyph pairs.
+        uint16  pairCount;
+        uint16  searchRange;
+        uint16  entrySelector;
+        uint16  rangeShift;
+        if (pairCount > 0)
+        {
+            KerningPair kerningPairs[pairCount] <open=true>; // Array of kerning pairs
+        }
+
+        break;
+    }
+
+    local int32 byteLengthUsed = FTell() - startof(this);
+    local int32 remainingDataSize = byteLength - byteLengthUsed;
+    if (remainingDataSize > 0)
+    {
+        uint8 data[remainingDataSize]; // raw table data
+    }
+};
+
+struct OS_2Table // http://www.microsoft.com/typography/otspec/os2.htm
+{
+    uint16 version; // 0x0004 
+    int16 xAvgCharWidth;
+    uint16 weightClass;
+    uint16 widthClass;
+    uint16 typeFlags <format=hex>;
+    int16 ySubscriptXSize;
+    int16 ySubscriptYSize;
+    int16 ySubscriptXOffset;
+    int16 ySubscriptYOffset;
+    int16 ySuperscriptXSize;
+    int16 ySuperscriptYSize;
+    int16 ySuperscriptXOffset;
+    int16 ySuperscriptYOffset;
+    int16 yStrikeoutSize;
+    int16 yStrikeoutPosition;
+    int16 familyClass;
+    uint8 panose[10];
+    uint32 unicodeRange <format=binary>; // Bits 0-31
+    uint32 unicodeRange <format=binary>; // Bits 32-63
+    uint32 unicodeRange <format=binary>; // Bits 64-95
+    uint32 unicodeRange <format=binary>; // Bits 96-127
+    char8 vendorID[4];
+    uint16 selectionFlags <format=hex>;
+    uint16 firstCharIndex;
+    uint16 lastCharIndex;
+    int16 typoAscender;
+    int16 typoDescender;
+    int16 typoLineGap;
+    uint16 winAscent;
+    uint16 winDescent;
+    if (version >= 1)
+    {
+        uint32 codePageRange1 <format=binary>; // Bits 0-31
+        uint32 codePageRange2 <format=binary>; // Bits 32-63
+    }
+    if (version >= 2)
+    {
+        int16 xHeight;
+        int16 capHeight;
+        uint16 defaultChar;
+        uint16 breakChar;
+        uint16 maxContext;
+    }
+};
+
+struct PcltTable // http://www.microsoft.com/typography/otspec/pclt.htm
+{
+    fixed16_16 version;
+    // uint32 fontNumber;
+    uint32 fontNumberVendorDetail : 24;
+    uint32 fontNumberVendor : 7;
+    uint32 fontNumberConverted : 1;
+    uint16 pitch;
+    uint16 xHeight;
+    // uint16 style;
+    uint16 stylePosture : 2;
+    uint16 styleWidth : 3;
+    uint16 styleStructure : 5;
+    uint16 styleReserved : 6;
+    // uint16 typeFamily;
+    uint16 typeFamilyCodes : 12;
+    uint16 typeFamilyVendor : 4;
+    uint16 capHeight;
+    // uint16 symbolSet;
+    uint16 symbolSetId : 5;
+    uint16 symbolSetNumber : 11;
+    char8  typeface[16];
+    int8   characterComplement[8];
+    char8  fileName[6];
+    int8   strokeWeight;
+    int8   widthType;
+    // uint8 serifStyle;
+    uint8  serifStyleShape : 6;
+    uint8  serifStyleSans : 2;
+    uint8  reserved; // padding
+};
+
+
+struct ScriptList;
+struct ScriptRecord;
+struct BaseScript;
+struct FeatureList;
+struct LanguageList;
+struct LookupList;
+struct FeatureLookupList;
+struct JstfScriptTable;
+struct JstfExtenderGlyph;
+struct LookupListOffset;
+struct LookupTableList;
+struct LookupTableListSubtableOffset;
+struct CoverageTable;
+struct CoverageTableFormat1;
+struct CoverageTableFormat2;
+struct CoverageRangeRecord; 
+struct CoverageOffsetList;
+struct SingleSubstitutionSubtable;
+struct SingleSubstitutionSubtableFormat1;
+struct SingleSubstitutionSubtableFormat2;
+struct MultipleSubstitutionSubtable;
+struct MultipleSubstitutionSubtableFormat1;
+struct AlternateSubstitutionSubtable;
+struct AlternateSubstitutionSubtableFormat1;
+struct LigatureSubstitutionSubtable;
+struct LigatureSubstitutionSubtableFormat1;
+struct ContextLookupRecord;
+typedef ContextLookupRecord PosLookupRecord; // They're really the same thing, but in GPOS
+typedef ContextLookupRecord SubstLookupRecord; // They're really the same thing, but in GSUB
+struct ContextSubtable;
+struct GlyphContextSubtable;
+struct ClassContextSubtable;
+struct CoverageContextSubtable;
+struct ChainingSubtable;
+struct GlyphChainingSubtable;
+struct ClassChainingSubtable;
+struct ExtensionLookupSubtable;
+struct ReverseChainingSubtable;
+struct SinglePositioningSubtable;
+struct PairPositioningSubtable;
+struct CursivePositioningSubtable;
+struct MarkToBasePositioningSubtable;
+struct MarkToLigaturePositioningSubtable;
+struct MarkToMarkPositioningSubtable;
+struct AttachmentPoint;
+struct AttachmentList;
+struct LigatureCaretList;
+struct LigatureGlyph;
+struct CaretValue;
+struct MarkGlyphSets;
+struct ClassDefinition;
+
+
+// Header portion of the 'GSUB' (glyph substitution) table.
+struct GsubTable
+{
+    fixed16_16 version;
+    uint16  scriptListOffset;
+    uint16  featureListOffset;
+    uint16  lookupListOffset;
+
+    local int64 originalFilePosition = FTell();
+    if (scriptListOffset != 0)
+    {
+        FSeek(startof(this) + scriptListOffset);
+        ScriptList scriptList("GSUB");
+    }
+    if (featureListOffset != 0)
+    {
+        FSeek(startof(this) + featureListOffset);
+        FeatureList featureList;
+    }
+    if (lookupListOffset != 0)
+    {
+        FSeek(startof(this) + lookupListOffset);
+        LookupList lookupList("GSUB");
+    }
+    FSeek(originalFilePosition);
+};
+
+// Header portion of the 'GPOS' (glyph positioning) table.
+struct GposTable
+{
+    fixed16_16 version;
+    uint16  scriptListOffset;
+    uint16  featureListOffset;
+    uint16  lookupListOffset;
+
+    local int64 originalFilePosition = FTell();
+    if (scriptListOffset != 0)
+    {
+        FSeek(startof(this) + scriptListOffset);
+        ScriptList scriptList("GPOS");
+    }
+    if (featureListOffset != 0)
+    {
+        FSeek(startof(this) + featureListOffset);
+        FeatureList featureList;
+    }
+    if (lookupListOffset != 0)
+    {
+        FSeek(startof(this) + lookupListOffset);
+        LookupList lookupList("GPOS");
+    }
+    FSeek(originalFilePosition);
+};
+
+struct GdefTable // http://www.microsoft.com/typography/otspec/gdef.htm
+{
+    fixed16_16 version;                     // Version of the GDEF table-currently 0x00010002
+    uint16 glyphClassDefinitionOffset;      // Offset to class definition table for glyph type - from beginning of GDEF header (may be NULL)
+    uint16 attachmentListOffset;            // Offset to list of glyphs with attachment points - from beginning of GDEF header (may be NULL)
+    uint16 ligatureCaretListOffset;         // Offset to list of positioning points for ligature carets - from beginning of GDEF header (may be NULL)
+    uint16 markAttachClassDefinitionsOffset;// Offset to class definition table for mark attachment type - from beginning of GDEF header (may be NULL)
+    if (version >= 0x00010002)
+    {
+        uint16 markGlyphSetsOffset;         // Offset to the table of mark set definitions - from beginning of GDEF header (may be NULL)
+    }
+
+    local int64 originalFilePosition = FTell();
+    if (glyphClassDefinitionOffset != 0)
+    {
+        FSeek(startof(this) + glyphClassDefinitionOffset);
+        ClassDefinition glyphClassDefinition;
+    }
+    if (attachmentListOffset != 0)
+    {
+        FSeek(startof(this) + attachmentListOffset);
+        AttachmentList attachmentList;
+    }
+    if (ligatureCaretListOffset != 0)
+    {
+        FSeek(startof(this) + ligatureCaretListOffset);
+        LigatureCaretList ligatureCaretList;
+    }
+    if (markAttachClassDefinitionsOffset != 0)
+    {
+        FSeek(startof(this) + markAttachClassDefinitionsOffset);
+        ClassDefinition markAttachClassDefinitions;
+    }
+    if (version >= 0x00010002 && markGlyphSetsOffset != 0)
+    {
+        FSeek(startof(this) + markGlyphSetsOffset);
+        MarkGlyphSets markGlyphSets;
+    }
+    FSeek(originalFilePosition);
+};
+
+
+// Header portion of the 'JSTF' (justification) table.
+struct JstfTable
+{
+    fixed16_16 version;
+
+    uint16 scriptCount;                // Number of ScriptRecords in this table
+    ScriptRecord scriptRecords(startof(this), "JSTF")[scriptCount] <open=true, optimize=false>; // Array of ScriptRecords - alphabetic by ScriptTag
+};
+
+
+// The following may be used by GPOS, GSUB, BASE.
+
+// Single script entry.
+struct ScriptRecord(uint32 scriptListFilePosition, string tableType)
+{
+    char8   tag[4];                     // 4-byte script tag identifier
+    uint16  offset;                     // Offset to script's LanguageList or BaseScript table - from beginning of ScriptList
+
+    local int64 originalFilePosition = FTell();
+    FSeek(scriptListFilePosition + offset);
+    switch (tableType)
+    {
+    case "BASE":
+        BaseScript baseScript;
+        break;
+    case "GSUB":
+    case "GPOS":
+        LanguageList languageList;
+        break;
+    case "JSTF":
+        JstfScriptTable scriptTable;
+        break;
+    }
+    FSeek(originalFilePosition);
+};
+
+// List of scripts.
+struct ScriptList(string tableType)
+{
+    uint16   scriptCount;                // Number of ScriptRecords in this table
+    if (scriptCount > 0)
+    {
+        ScriptRecord scriptRecords(startof(this), tableType)[scriptCount] <open=true, optimize=false>; // Array of ScriptRecords - alphabetic by ScriptTag
+    }
+};
+
+// Single feature entry.
+struct FeatureRecord(uint32 featureListFilePosition)
+{
+    char8   tag[4];                     // 4-byte script tag identifier
+    uint16  offset;                     // Offset to Feature Lookup List - from beginning of FeatureList
+
+    local int64 originalFilePosition = FTell();
+    FSeek(featureListFilePosition + offset);
+    FeatureLookupList featureLookupList;
+    FSeek(originalFilePosition);
+};
+
+// List of features.
+struct FeatureList
+{
+    uint16   featureCount;               // Number of FeatureRecords in this table
+    if (featureCount > 0)
+    {
+        FeatureRecord featureRecords(startof(this))[featureCount] <open=true, optimize=false>; // Array of FeatureRecords - zero-based
+    }
+};
+
+// Feature table that defines a feature and a list of its lookup indices.
+struct FeatureLookupList
+{
+    uint16 featureParams;               // = NULL (reserved for offset to FeatureParams)
+    uint16 lookupCount;                 // Number of LookupList indices for this feature
+    if (lookupCount > 0)
+    {
+        uint16 lookupIndices[lookupCount];  // Array of LookupList indices for this feature - zero-based (first lookup is LookupListIndex = 0)
+    }
+};
+
+// Single language/system entry.
+struct LanguageRecord 
+{
+    char8   tag[4];                     // 4-byte script tag identifier
+    uint16  offset;                     // Offset to language feature list table - from beginning of Script table
+};
+
+// List of language/system records, pointed to from the script list.
+struct LanguageList
+{
+    uint16  defaultFeatureOffset;       // Offset to default language feature list - from beginning of LanguageList - may be NULL
+    uint16  languageCount;              // Number of LanguageRecords for this script - excluding the default language
+    if (languageCount > 0)
+    {
+        LanguageRecord languageRecords[languageCount] <open=true>; // Array of LanguageRecords - listed alphabetically by language tag
+    }
+};
+
+// List of feature indices for a given language/system.
+struct LanguageFeatureList
+{
+    uint16 lookupOrderOffset;           // NULL (reserved for an offset to a reordering table)
+    uint16 requiredFeature;             // Index of a feature required for this language system - if no required features = 0xFFFF
+    uint16 featureCount;                // Number of FeatureIndex values for this language system - excludes the required feature
+    uint16 featureIndices[featureCount];// Array of indices into the FeatureList - in arbitrary order (ecount=FeatureCount)
+};
+
+// List of lookup records.
+struct LookupList(string tableType)
+{
+    uint16 lookupCount;                 // Number of lookups in this table
+    if (lookupCount > 0)
+    {
+         LookupListOffset lookupOffsets(startof(this), tableType)[lookupCount] <open=true, optimize=false>;  // Array of offsets to Lookup subtable lists - from beginning of LookupList - zero based (first lookup is Lookup index = 0)
+    }
+};
+
+struct LookupListOffset(uint32 lookupListFilePosition, string tableType)
+{
+    uint16 lookupOffset;
+    local int64 originalFilePosition = FTell();
+    FSeek(lookupListFilePosition + lookupOffset);
+    LookupTableList lookupTableList(tableType);
+    FSeek(originalFilePosition);
+};
+
+// Table for extender glyphs and language records.
+struct JstfScriptTable
+{
+    uint16 extenderGlyphOffset;
+    uint16 defaultLanguageOffset;
+    uint16 languageCount;
+    if (extenderGlyphOffset!= 0)
+    {
+        local int64 originalFilePosition = FTell();
+        FSeek(startof(this) + extenderGlyphOffset);
+        JstfExtenderGlyph extenderGlyph;
+        FSeek(originalFilePosition);
+    }
+    if (languageCount > 0)
+    {
+        LanguageRecord languageRecords[languageCount] <open=true>; // Array of LanguageRecords - listed alphabetically by language tag
+    }
+};
+
+struct JstfExtenderGlyph
+{
+    uint16 glyphCount;                  // Number of Extender Glyphs in this script
+    uint16 extenderGlyph[glyphCount];   // GlyphIDs - in increasing numerical order
+};
+
+// Lookup table with list of subtables.
+struct LookupTableList(string tableType)
+{
+    uint16  lookupType;	                // Different enumerations for GSUB and GPOS
+    uint16  lookupFlag;	                // Lookup qualifiers
+    uint16  subtableCount;	            // Number of Subtables for this lookup
+    LookupTableListSubtableOffset subtableOffsets(lookupType, startof(this), tableType)[subtableCount] <optimize=false>;// Array of offsets to SubTables - from beginning of LookupTableList record
+
+    // The different types of lookups supported in the GSUB/GPOS table.
+    enum Type
+    {
+        TypeSingleSub = 1,
+        TypeMultipleSub = 2,
+        TypeAlternateSub = 3,
+        TypeLigatureSub = 4,
+        TypeContextualSub = 5,
+        TypeChainingSub = 6,
+        TypeExtensionLookupSub = 7,
+        TypeReverseChainingSub = 8,
+
+        TypeSinglePos = 1,
+        TypePairPos = 2,
+        TypeCursivePos = 3,
+        TypeMarkToBasePos = 4,
+        TypeMarkToLigaturePos = 5,
+        TypeMarkToMarkPos = 6,
+        TypeContextualPos = 7,
+        TypeChainingPos = 8,
+        TypeExtensionLookupPos = 9
+    };
+};
+
+struct LookupTableListSubtableOffset(uint16 lookupType, uint32 lookupTableListFilePosition, string tableType)
+{
+    uint16 offset;
+    local int64 originalFilePosition = FTell();
+    FSeek(lookupTableListFilePosition + offset);
+    switch (tableType)
+    {
+    case "GSUB":
+        if (lookupType == 7) // TypeExtensionLookupSub = 7,
+        {
+            ExtensionLookupSubtable extensionLookup;
+            lookupType = extensionLookup.extensionLookupType; // Lookup type of subtable referenced by ExtensionOffset (i.e. the extension subtable).
+            FSeek(startof(extensionLookup) + extensionLookup.extensionOffset); // Offset to the extension subtable, of lookup type ExtensionLookupType, relative to the start of the ExtensionSubstFormat1 subtable.
+        }
+        switch (lookupType)
+        {
+        case 1: // TypeSingleSub = 1,
+            SingleSubstitutionSubtable lookup <optimize=false>;
+            break;
+        case 2: // TypeMultipleSub = 2,
+            MultipleSubstitutionSubtable lookup <optimize=false>;
+            break;
+        case 3: // TypeAlternateSub = 3,
+            AlternateSubstitutionSubtable lookup <optimize=false>;
+            break;
+        case 4: // TypeLigatureSub = 4,
+            LigatureSubstitutionSubtable lookup <optimize=false>;
+            break;
+        case 5: // TypeContextualSub = 5,
+            ContextSubtable lookup <optimize=false>;
+            break;
+        case 6: // TypeChainingSub = 6,
+            ChainingSubtable lookup <optimize=false>;
+            break;
+        case 7: // TypeExtensionLookupSub = 7,
+            // Already defined above.
+            break;
+        case 8: // TypeReverseChainingSub = 8,
+            ReverseChainingSubtable lookup <optimize=false>;
+            break;
+        }
+        break;
+
+    case "GPOS":
+        if (lookupType == 9) // TypeExtensionLookupPos = 9,
+        {
+            ExtensionLookupSubtable extensionLookup;
+            lookupType = extensionLookup.extensionLookupType; // Lookup type of subtable referenced by ExtensionOffset (i.e. the extension subtable).
+            FSeek(startof(extensionLookup) + extensionLookup.extensionOffset); // Offset to the extension subtable, of lookup type ExtensionLookupType, relative to the start of the ExtensionSubstFormat1 subtable.
+        }
+        switch (lookupType)
+        {
+        case 1: // TypeSinglePos = 1,
+            SinglePositioningSubtable lookup <optimize=false>;
+            break;
+        case 2: // TypePairPos = 2,
+            PairPositioningSubtable lookup <optimize=false>;
+            break;
+        case 3: // TypeCursivePos = 3,
+            CursivePositioningSubtable lookup <optimize=false>;
+            break;
+        case 4: // TypeMarkToBasePos = 4,
+            MarkToBasePositioningSubtable lookup <optimize=false>;
+            break;
+        case 5: // TypeMarkToLigaturePos = 5,
+            MarkToLigaturePositioningSubtable lookup <optimize=false>;
+            break;
+        case 6: // TypeMarkToMarkPos = 6,
+            MarkToMarkPositioningSubtable lookup <optimize=false>;
+            break;
+        case 7: // TypeContextualPos = 7,
+            ContextSubtable lookup <optimize=false>;
+            break;
+        case 8: // TypeChainingPos = 8,
+            ChainingSubtable lookup <optimize=false>;
+            break;
+        case 9: // TypeExtensionLookupPos = 9
+            // Already defined above.
+            break;
+        }
+        break;
+    }
+
+    FSeek(originalFilePosition);
+};
+
+// A Coverage table identifies the glyphs affected by a lookup.
+struct CoverageTable
+{
+    uint16	format;                     // Format identifier (1 or 2)
+    switch (format)
+    {
+    case 1: // CoverageTableFormat1
+        uint16  glyphCount;             // Number of glyphs in the GlyphArray
+        if (glyphCount > 0)             // Empty glyph count in Arial's GDEF
+        {
+            uint16  glyphArray[glyphCount]; // Array of GlyphIDs - in numerical order
+        }
+        break;
+    case 2: // CoverageTableFormat2
+        uint16  rangeCount;	            // Number of RangeRecords
+        CoverageRangeRecord rangeRecords[rangeCount];// Array of glyph ranges - ordered by Start GlyphID
+        break;
+    }
+};
+
+struct ClassDefinition
+{
+    struct RangeRecord
+    {
+        uint16 start; // First GlyphID in the range
+        uint16 end;   // Last GlyphID in the range
+        uint16 class; // Applied to all glyphs in the range
+    };
+
+    uint16 format;                      // Format identifier-format (1 or 2)
+    switch (format)
+    {
+    case 1: // ClassDefinitionFormat1
+        uint16 startGlyph;              // First GlyphID of the ClassValueArray
+        uint16 glyphCount;              // Size of the ClassValueArray
+        uint16 classValueArray[glyphCount]; // Array of Class Values-one per GlyphID
+        break;
+    case 2: // ClassDefinitionFormat2
+        uint16 rangeCount;              // Number of ClassRangeRecords
+        RangeRecord rangeRecords[rangeCount]; // Array of ClassRangeRecords-ordered by Start GlyphID
+        break;
+    }
+};
+
+// Range of glyphs.
+struct CoverageRangeRecord 
+{
+    uint16  startGlyph;                 // First GlyphID in the range
+    uint16  endGlyph;                   // Last GlyphID in the range (inclusive, not the STL-like one-past end)
+    uint16  startCoverageIndex;         // Coverage Index of first GlyphID in range
+};
+
+// List of offsets to coverage tables.
+// (this type is not specifically listed in the OpenType specification, but
+//  it is used for coverage based chaining substitution, lookup 6 format 3)
+struct CoverageOffsetList
+{
+    uint16  coverageCount;                  // Number of coverage tables
+    uint16  coverageOffsets[coverageCount]; // Offsets to coverage tables
+};
+
+// GSUB lookup type 1.
+struct SingleSubstitutionSubtable
+{
+    uint16  format;                     // Format identifier
+    uint16  coverageOffset;             // Offset to Coverage table - from beginning of Substitution table
+
+    local int64 originalFilePosition = FTell();
+    FSeek(startof(this) + coverageOffset);
+    CoverageTable coverageTable;
+    FSeek(originalFilePosition);
+
+    switch (format)
+    {
+    case 1:
+        uint16  deltaGlyphID;           // Add to original GlyphID to get substitute GlyphID
+        break;
+    case 2:
+        uint16  glyphCount;             // Number of GlyphIDs in the Substitute array
+        uint16  substitutes[glyphCount];// Array of substitute GlyphIDs - ordered by Coverage Index
+        break;
+    }
+};
+
+// GSUB lookup type 2.
+struct MultipleSubstitutionSubtable
+{
+    uint16  format;                     // Format identifier
+    uint16  coverageOffset;             // Offset to Coverage table - from beginning of Substitution table
+
+    local int64 originalFilePosition = FTell();
+    FSeek(startof(this) + coverageOffset);
+    CoverageTable coverageTable;
+    FSeek(originalFilePosition);
+
+    switch (format)
+    {
+    case 1: // MultipleSubstitutionSubtableFormat1
+        // Multiple output glyphs.
+        uint16  sequenceCount;                  // Number of Sequence table offsets in the Sequence array
+        uint16  sequenceOffsets[sequenceCount]; // Array of offsets to Sequence tables - from beginning of Substitution table - ordered by Coverage Index
+    
+        struct Sequence
+        {
+            uint16 glyphCount;                  // Number of GlyphIDs in the Substitute array. This should always be greater than 0.
+            uint16 glyphSubstitutes[glyphCount];// String of GlyphIDs to substitute
+        };
+        break;
+    }
+};
+
+// GSUB lookup type 3.
+struct AlternateSubstitutionSubtable
+{
+    uint16  format;                     // Format identifier
+    uint16  coverageOffset;             // Offset to Coverage table - from beginning of Substitution table
+
+    local int64 originalFilePosition = FTell();
+    FSeek(startof(this) + coverageOffset);
+    CoverageTable coverageTable;
+    FSeek(originalFilePosition);
+
+    switch (format)
+    {
+    case 1: // AlternateSubstitutionSubtableFormat1
+        uint16  alternateSetCount;                      // Number of AlternateSet tables
+        uint16  alternateSetOffsets[alternateSetCount]; // Array of offsets to AlternateSet tables - from beginning of Substitution table - ordered by Coverage Index
+    
+        struct AlternateSet
+        {
+            uint16  glyphCount;                         // Number of GlyphIDs in the Alternate array
+            uint16  glyphAlternates[glyphCount];        // Array of alternate GlyphIDs - in arbitrary order
+        };
+        break;
+    }
+};
+
+// GSUB lookup type 4.
+struct LigatureSubstitutionSubtable
+{
+    uint16  format;                             // Format identifier
+    uint16  coverageOffset;                     // Offset to Coverage table - from beginning of Substitution table
+
+    local int64 originalFilePosition = FTell();
+    FSeek(startof(this) + coverageOffset);
+    CoverageTable coverageTable;
+    FSeek(originalFilePosition);
+
+    // Glyph components for one ligature.
+    struct Ligature
+    {
+        uint16  ligatureGlyph;                  // GlyphID of ligature to substitute
+        uint16  componentCount;                 // Number of components in the ligature
+        if (componentCount > 1)
+        {
+            uint16  components[componentCount - 1]; // Array of component GlyphIDs - start with the second component - ordered in writing direction
+        }
+    };
+
+    struct LigatureOffset(uint32 ligatureSetFilePosition)
+    {
+        uint16 offset;
+
+        local int64 originalFilePosition = FTell();
+        FSeek(ligatureSetFilePosition + offset);
+        Ligature ligature;
+        FSeek(originalFilePosition);
+    };
+
+    // All ligatures beginning with the same glyph.
+    struct LigatureSet
+    {
+        uint16  ligatureCount;                  // Number of Ligature tables
+        LigatureOffset ligatureOffsets(startof(this))[ligatureCount] <optimize=false>; // Array of offsets to Ligature tables - from beginning of LigatureSet table - ordered by preference
+    };
+
+    struct LigatureSetOffset(uint32 ligatureSubstitutionSubtableFilePosition)
+    {
+        uint16 offset;
+        local int64 originalFilePosition = FTell();
+        FSeek(ligatureSubstitutionSubtableFilePosition + offset);
+        LigatureSet ligatureSet;
+        FSeek(originalFilePosition);
+    };
+
+    switch (format)
+    {
+    case 1: // LigatureSubstitutionSubtableFormat1
+        // All ligature substitutions in a script.
+        uint16  ligatureSetCount;                       // Number of LigatureSet tables
+        LigatureSetOffset ligatureSetOffsets(startof(this))[ligatureSetCount] <optimize=false>;   // Array of offsets to LigatureSet tables - from beginning of Substitution table - ordered by Coverage Index
+        break;
+    }
+};
+
+struct ContextLookupRecord
+{        
+    uint16  sequenceIndex;              // Index to input glyph sequence - first glyph = 0
+    uint16  lookupListIndex;            // Lookup to apply to that position - zero - based
+};
+
+typedef ContextLookupRecord PosLookupRecord;
+typedef ContextLookupRecord SubstLookupRecord;
+
+// GSUB lookup type 5, GPOS lookup type 7.
+struct ContextSubtable
+{
+    uint16  format;                     // Format identifier
+
+    local int64 originalFilePosition = 0;
+
+    switch (format)
+    {
+    case 1: // GlyphContextSubtable
+        // GSUB lookup type 5, GPOS lookup type 7 : format 1
+        // Simple context glyph substitution / positioning.
+        // All contexts beginning with the same glyph.
+        struct RuleSet
+        {
+            uint16 subRuleCount;                    // Number of SubRule tables
+            uint16 subRuleOffsets[SubRuleCount];    // Array of offsets to Rule tables - from beginning of RuleSet table - ordered by preference
+        };
+    
+        // One simple context definition.
+        struct Rule
+        {
+            uint16  glyphCount;                     // Total number of glyphs in input glyph sequence - includes the first glyph
+            uint16  lookupCount;                    // Number of ContextLookupRecords
+            uint16  inputGlyphs[glyphCount - 1];    // Array of input GlyphIDs - start with second glyph
+            ContextLookupRecord lookupRecords[lookupCount]; // Array of ContextLookupRecords - in design order
+        };
+
+        uint16  coverageOffset;                     // Offset to Coverage table - from beginning of Substitution/Positioning table
+        uint16  ruleSetCount;                       // Number of RuleSet tables - must equal GlyphCount in Coverage table
+        uint16  ruleSetOffsets[ruleSetCount];       // Array of offsets to SubRuleSet tables - from beginning of Substitution/Positioning table - ordered by Coverage Index
+
+        originalFilePosition = FTell();
+        FSeek(startof(this) + coverageOffset);
+        CoverageTable coverageTable;
+        FSeek(originalFilePosition);
+
+        break;
+
+    case 2: // ClassContextSubtable
+        // GSUB lookup type 5, GPOS lookup type 7 : format 2
+        // Class-based context glyph substitution.
+        struct ClassSet
+        {
+            uint16  classRuleCount;                         // Number of SubClassRule tables
+            uint16  classRuleOffsets[subClassRuleCount];    // Array of offsets to SubClassRule tables - from beginning of SubClassSet - ordered by preference
+        };
+
+        // Context definition for one class.
+        struct ClassRule
+        {
+            uint16  glyphCount;                     // Total number of classes specified for the context in the rule - includes the first class
+            uint16  lookupCount;                    // Number of ContextLookupRecords
+            if (glyphCount > 1)
+            {
+                uint16  classes[glyphCount - 1];        // Array of classes - beginning with the second class - to be matched to the input glyph class sequence
+            }
+            if (lookupCount > 0)
+            {
+                ContextLookupRecord lookupRecords[lookupCount]; // Array of Substitution lookups - in design order
+            }
+        };
+
+        uint16  coverageOffset;                     // Offset to Coverage table - from beginning of Substitution/Positioning table
+        uint16  classDefOffset;                     // Offset to glyph ClassDef table - from beginning of Substitution/Positioning table
+        uint16  classSetCount;                      // Number of ClassSet tables
+        uint16  classSetOffsets[classSetCount];     // Array of offsets to SubClassSet tables - from beginning of Substitution/Positioning table - ordered by class - may be NULL
+
+        originalFilePosition = FTell();
+
+        FSeek(startof(this) + coverageOffset);
+        CoverageTable coverageTable;
+
+        FSeek(startof(this) + classDefOffset);
+        ClassDefinition classDefinition;
+
+        FSeek(originalFilePosition);
+
+        break;
+
+    case 3: // CoverageContextSubtable
+        // GSUB lookup type 5, GPOS lookup type 7 : format 3
+        // Coverage-based context glyph substitution.
+        uint16  glyphCount;                     // Number of glyphs in the input glyph sequence
+        uint16  lookupCount;                    // Number of ContextLookupRecords
+        uint16  coverageOffsets[glyphCount];    // Array of offsets to Coverage table - from beginning of Substitution/Positioning table - in glyph sequence order
+
+        originalFilePosition = FTell();
+        local uint32 i <hidden=true>;
+        for (i = 0; i < glyphCount; i++)
+        {
+            FSeek(startof(this) + coverageOffsets[i]);
+            CoverageTable coverageTables;
+        }
+        FSeek(originalFilePosition);
+
+        ContextLookupRecord lookupRecords[lookupCount]; // Array of ContextLookupRecords - in design order
+        break;
+    }
+};
+
+// GSUB lookup type 6, GPOS lookup type 8
+struct ChainingSubtable
+{
+    uint16  format;                     // Format identifier
+
+    local int64 originalFilePosition = 0;
+
+    switch (format)
+    {
+    case 1: // GlyphChainingSubtable
+        // GSUB lookup type 6, GPOS lookup type 8 : format 1
+        // Simple context glyph substitution.
+    
+        struct ChainRule
+        {
+            uint16  backtrackGlyphCount;                    // Total number of glyphs in the backtrack sequence (number of glyphs to be matched before the first glyph)
+            uint16  backtrackGlyphs[backtrackGlyphCount];   // Array of backtracking GlyphID's (to be matched before the input sequence)
+            uint16  inputGlyphCount;                        // Total number of glyphs in the input sequence (includes the first glyph)
+            uint16  inputGlyphs[inputGlyphCount - 1];       // Array of input GlyphIDs (start with second glyph)
+            uint16  lookaheadGlyphCount;                    // Total number of glyphs in the look ahead sequence (number of glyphs to be matched after the input sequence)
+            uint16  lookAheadGlyphs[lookAheadGlyphCount];   // Array of lookahead GlyphID's (to be matched after the input sequence)
+            uint16  lookupCount;                            // Number of ContextLookupRecords
+            ContextLookupRecord lookupRecords[lookupCount]; // Array of ContextLookupRecords (in design order)
+        };
+
+        // All contexts beginning with the same glyph 
+        struct ChainRuleSet
+        {
+            uint16  chainRuleCount;                         // Number of ChainRule tables
+            // todo: ChainRule array
+            uint16  chainRuleOffsets[chainRuleCount];       // Array of offsets to ChainRule tables - from beginning of ChainRuleSet table - ordered by preference
+        };
+
+        uint16  coverageOffset;                             // Offset to Coverage table - from beginning of Substitution/Positioning table
+        uint16  chainRuleSetCount;                          // Number of ChainRuleSet tables - must equal GlyphCount in Coverage table
+        // todo: ChainRuleSet array
+        uint16  chainRuleSetOffsets[chainRuleSetCount];     // Array of offsets to ChainRuleSet tables - from beginning of Substitution/Positioning table - ordered by Coverage Index
+
+        originalFilePosition = FTell();
+        FSeek(startof(this) + coverageOffset);
+        CoverageTable coverageTable;
+        FSeek(originalFilePosition);
+        break;
+
+    case 2: // ClassChainingSubtable
+        // GSUB lookup type 6, GPOS lookup type 8 : format 2
+        // Class-based chaining context glyph substitution.
+
+        struct ChainClassRule
+        {
+            uint16  backtrackGlyphCount;                    // Total number of glyphs in the backtrack sequence (number of glyphs to be matched before the first glyph)
+            uint16  backtrackGlyphs[backtrackGlyphCount];   // Array of backtracking classes(to be matched before the input sequence)
+            uint16  inputGlyphCount;                        // Total number of classes in the input sequence (includes the first class)
+            uint16  inputGlyphs[inputGlyphCount - 1];       // Array of input classes(start with second class; to be matched with the input glyph sequence)
+            uint16  lookaheadGlyphCount;                    // Total number of classes in the look ahead sequence (number of classes to be matched after the input sequence)
+            uint16  lookAheadGlyphs[lookAheadGlyphCount];   // Array of lookahead classes(to be matched after the input sequence)
+            uint16  lookupCount;                            // Number of ContextLookupRecords
+            ContextLookupRecord lookupRecords[lookupCount]; // Array of ContextLookupRecords (in design order)
+        };
+
+        struct ChainClassSet
+        {
+            uint16  chainClassRuleCount;                        // Number of ChainClassRule tables
+            uint16  chainClassRuleOffsets[chainClassRuleCount]; // Array of offsets to ChainClassRule tables - from beginning of ChainClassSet - ordered by preference
+        };
+
+        uint16  coverageOffset;                             // Offset to Coverage table - from beginning of Substitution/Positioning table
+        uint16  backtrackClassDefOffset;                    // Offset to glyph ClassDef table containing backtrack sequence data - from beginning of Substitution/Positioning table
+        uint16  inputClassDefOffset;                        // Offset to glyph ClassDef table containing input sequence data - from beginning of Substitution/Positioning table
+        uint16  lookaheadClassDefOffset;                    // Offset to glyph ClassDef table containing lookahead sequence data - from beginning of Substitution/Positioning table
+        uint16  chainClassSetCount;                         // Number of ChainClassSet tables
+        uint16  chainClassSetOffsets[chainClassSetCount];   // Array of offsets to ChainClassSet tables - from beginning of Substitution/Positioning table - ordered by input class - may be NULL
+
+        originalFilePosition = FTell();
+
+        FSeek(startof(this) + coverageOffset);
+        CoverageTable coverageTable;
+
+        if (backtrackClassDefOffset != 0)
+        {
+            FSeek(startof(this) + backtrackClassDefOffset);
+            ClassDefinition backtrackClassDefinition;
+        }
+        if (inputClassDefOffset != 0)
+        {
+            FSeek(startof(this) + inputClassDefOffset);
+            ClassDefinition inputClassDefinition;
+        }
+        if (lookaheadClassDefOffset != 0)
+        {
+            FSeek(startof(this) + lookaheadClassDefOffset);
+            ClassDefinition lookaheadClassDefinition;
+        }
+
+        FSeek(originalFilePosition);
+
+        break;
+
+    case 3: // CoverageChainingSubtable
+        // GSUB lookup type 6, GPOS lookup type 8 : format 3
+        // Coverage-based chaining context glyph substitution.
+        uint16  backtrackGlyphCount;                            // Number of glyphs in the backtracking sequence
+        if (backtrackGlyphCount > 0)
+        {
+            uint16  backtrackCoverageOffsets[backtrackGlyphCount];  // Array of offsets to coverage tables in backtracking sequence, in glyph sequence order
+        }
+        uint16  inputGlyphCount;                                // Number of glyphs in input sequence
+        if (inputGlyphCount)
+        {
+            uint16  inputCoverageOffsets[inputGlyphCount];          // Array of offsets to coverage tables in input sequence, in glyph sequence order
+        }
+
+        originalFilePosition = FTell();
+        local uint32 i <hidden=true>;
+        for (i = 0; i < inputGlyphCount; ++i)
+        {
+            FSeek(startof(this) + inputCoverageOffsets[i]);
+            CoverageTable coverageTables;
+        }
+        FSeek(originalFilePosition);
+
+        uint16  lookaheadGlyphCount;	                        // Number of glyphs in lookahead sequence
+        if (lookaheadGlyphCount > 0)
+        {
+            uint16  lookaheadCoverageOffsets[lookaheadGlyphCount];  // Array of offsets to coverage tables in lookahead sequence, in glyph sequence order
+        }
+        uint16  lookupCount;                                    // Number of ContextLookupRecords
+        if (lookupCount > 0)
+        {
+            ContextLookupRecord lookupRecords[lookupCount];         // Array of ContextLookupRecords, in design order
+        }
+        break;
+    }
+};
+
+// GSUB lookup type 7, GPOS lookup type 9
+struct ExtensionLookupSubtable
+{
+    uint16  format;                     // Format identifier
+
+    switch (format)
+    {
+    case 1: // ExtensionLookupSubtableFormat1
+        uint16  extensionLookupType;        // Lookup type of subtable referenced by ExtensionOffset (i.e. the extension subtable).
+        uint32  extensionOffset;            // Offset to the extension subtable, of lookup type ExtensionLookupType, relative to the start of the ExtensionSubstFormat1 subtable.
+        break;
+	default:
+		Printf("ExtensionLookupSubtable Format value of %d encountered, Expected value for this is always 1, fatal error\n\n", format);
+		Exit(format);
+    }
+};
+
+// GSUB lookup type 8
+struct ReverseChainingSubtable
+{
+    uint16  format;                     // Format identifier
+    uint16  coverageOffset;             // Offset to Coverage table - from beginning of Substitution/Positioning table
+
+    local int64 originalFilePosition = FTell();
+    FSeek(startof(this) + coverageOffset);
+    CoverageTable coverageTable;
+    FSeek(originalFilePosition);
+
+    switch (format)
+    {
+    case 1: // ReverseChainingSubtableFormat1
+        // Coverage-based Reverse Chaining Contextual Single Glyph substitution.
+        uint16  backtrackGlyphCount;                            // Number of glyphs in the backtracking sequence
+        uint16  backtrackCoverageOffsets[backtrackGlyphCount];  // Array of offsets to coverage tables in backtracking sequence, in glyph sequence order
+        uint16  lookaheadGlyphCount;                            // Number of glyphs in lookahead sequence
+        uint16  lookaheadCoverageOffsets[lookaheadGlyphCount];  // Array of offsets to coverage tables in lookahead sequence, in glyph sequence order
+        uint16  glyphCount;                                     // Number of GlyphIDs in the Substitute array
+        uint16  substituteGlyphs[glyphCount];                   // Array of substitute GlyphIDs - ordered by Coverage Index
+        break;
+    }
+};
+
+typedef enum <uint16>
+{
+    // Name                       Mask       Description
+    ValueRecordFormatNull       = 0x0000, // Completely empty for a given axis
+    ValueRecordFormatXPlacement = 0x0001, // Includes horizontal adjustment for placement
+	ValueRecordFormatYPlacement = 0x0002, // Includes vertical adjustment for placement
+	ValueRecordFormatXAdvance   = 0x0004, // Includes horizontal adjustment for advance
+	ValueRecordFormatYAdvance   = 0x0008, // Includes vertical adjustment for advance
+	ValueRecordFormatXPlaDevice = 0x0010, // Includes horizontal Device table for placement
+	ValueRecordFormatYPlaDevice = 0x0020, // Includes vertical Device table for placement
+	ValueRecordFormatXAdvDevice = 0x0040, // Includes horizontal Device table for advance
+	ValueRecordFormatYAdvDevice = 0x0080, // Includes vertical Device table for advance
+    ValueRecordFormatReserved   = 0xF000, // For future use (set to zero)
+} ValueRecordFormat;
+
+struct ValueRecord(ValueRecordFormat valueFormat)
+{
+    // ValueRecord (all fields are optional)Value   Type    Description
+    if (valueFormat & ValueRecordFormatXPlacement)  int16   XPlacement; // Horizontal adjustment for placement-in design units
+    if (valueFormat & ValueRecordFormatYPlacement)  int16   YPlacement; // Vertical adjustment for placement-in design units
+    if (valueFormat & ValueRecordFormatXAdvance)    int16   XAdvance;   // Horizontal adjustment for advance-in design units (only used for horizontal writing)
+    if (valueFormat & ValueRecordFormatYAdvance)    int16   YAdvance;   // Vertical adjustment for advance-in design units (only used for vertical writing)
+    if (valueFormat & ValueRecordFormatXPlaDevice)  int16   XPlaDevice; // Offset to Device table for horizontal placement-measured from beginning of PosTable (may be NULL)
+    if (valueFormat & ValueRecordFormatYPlaDevice)  int16   YPlaDevice; // Offset to Device table for vertical placement-measured from beginning of PosTable (may be NULL)
+    if (valueFormat & ValueRecordFormatXAdvDevice)  int16   XAdvDevice; // Offset to Device table for horizontal advance-measured from beginning of PosTable (may be NULL)
+    if (valueFormat & ValueRecordFormatYAdvDevice)  int16   YAdvDevice; // Offset to Device table for vertical advance-measured from beginning of PosTable (may be NULL)
+};
+
+// GPOS lookup type 1.
+struct SinglePositioningSubtable
+{
+    uint16  format;                     // Format identifier
+    uint16  coverageOffset;             // Offset to Coverage table - from beginning of SinglePos table
+    uint16  valueFormat;                // Defines the types of data in the ValueRecord
+
+    local int64 originalFilePosition = FTell();
+    FSeek(startof(this) + coverageOffset);
+    CoverageTable coverageTable;
+    FSeek(originalFilePosition);
+
+    switch (format)
+    {
+    case 1: // SinglePositioningSubtableFormat1
+        // Single positioning value.
+        ValueRecord value(valueFormat);     // (variable size record) Defines positioning value(s) - applied to all glyphs in the Coverage table
+        break;
+
+    case 2: // SinglePositioningSubtableFormat2
+        // Array of positioning values.
+        uint16  valueCount;                 // Number of ValueRecords
+        ValueRecord valueRecords(valueFormat)[valueCount] <optimize=false>; // (variable size records) Array of ValueRecords - positioning values applied to glyphs
+        break;
+    }
+};
+
+// GPOS lookup type 2.
+struct PairPositioningSubtable 
+{
+    uint16  format;                     // Format identifier
+    uint16  coverageOffset;             // Offset to Coverage table - from beginning of PairPos subtable - for the first glyph in each pair
+
+    local int64 originalFilePosition = FTell();
+    FSeek(startof(this) + coverageOffset);
+    CoverageTable coverageTable;
+    FSeek(originalFilePosition);
+
+    switch (format)
+    {
+    case 1: // PairPositioningSubtableFormat1
+        // Adjustments for glyph pairs.
+        struct PairValueRecord(ValueRecordFormat valueFormat1, ValueRecordFormat valueFormat2)
+        {
+            uint16  secondGlyph;                // GlyphID of second glyph in the pair - first glyph is listed in the Coverage table
+            if (valueFormat1 != ValueRecordFormatNull) ValueRecord value1(valueFormat1);   // Positioning data for the first glyph in the pair
+            if (valueFormat2 != ValueRecordFormatNull) ValueRecord value2(valueFormat2);   // Positioning data for the second glyph in the pair
+        };
+
+        struct PairSet(ValueRecordFormat valueFormat1, ValueRecordFormat valueFormat2)
+        {
+            uint16  pairValueCount;         // Number of PairValueRecords
+            PairValueRecord pairValueRecords(valueFormat1, valueFormat2)[pairValueCount]; // Array of PairValueRecords - ordered by GlyphID of the second glyph
+        };
+
+        uint16  valueFormat1;               // Defines the types of data in ValueRecord1 - for the first glyph in the pair - may be zero (0)
+        uint16  valueFormat2;               // Defines the types of data in ValueRecord2 - for the second glyph in the pair - may be zero (0)
+        uint16  pairSetCount;               // Number of PairSet tables
+        uint16  pairSetOffsets[pairSetCount]; // Array of offsets to PairSet tables - from beginning of PairPos subtable - ordered by Coverage Index
+
+        break;
+
+    case 2: // PairPositioningSubtableFormat2
+        // Class pair adjustment.
+        struct Class2Record(ValueRecordFormat valueFormat1, ValueRecordFormat valueFormat2)
+        {
+            if (valueFormat1 != ValueRecordFormatNull) ValueRecord value1(valueFormat1);    // Positioning for first glyph - empty if ValueFormat1 = 0
+            if (valueFormat2 != ValueRecordFormatNull) ValueRecord value2(valueFormat2);    // Positioning for second glyph - empty if ValueFormat2 = 0
+        };
+
+        struct Class1Record(ValueRecordFormat valueFormat1, ValueRecordFormat valueFormat2)
+        {
+            Class2Record class2Records(valueFormat1, valueFormat2)[class2Count] <optimize=false>; // Array of Class2 records - ordered by Class2
+        };
+
+        uint16  valueFormat1;               // ValueRecord definition - for the first glyph of the pair - may be zero (0)
+        uint16  valueFormat2;               // ValueRecord definition - for the second glyph of the pair - may be zero (0)
+        uint16  classDef1Offset;            // Offset to ClassDef table - from beginning of PairPos subtable - for the first glyph of the pair
+        uint16  classDef2Offset;            // Offset to ClassDef table - from beginning of PairPos subtable - for the second glyph of the pair
+        uint16  class1Count;                // Number of classes in ClassDef1 table - includes Class0
+        uint16  class2Count;                // Number of classes in ClassDef2 table - includes Class0
+        Class1Record class1Records(valueFormat1, valueFormat2)[class1Count] <optimize=false>; // Array of Class1 records - ordered by Class1
+    
+        break;
+    }
+};
+
+
+// GPOS lookup type 3.
+struct CursivePositioningSubtable
+{
+    uint16  format;                     // Format identifier
+    uint16  coverageOffset;             // Offset to Coverage table - from beginning of CursivePos subtable
+
+    local int64 originalFilePosition = FTell();
+    FSeek(startof(this) + coverageOffset);
+    CoverageTable coverageTable;
+    FSeek(originalFilePosition);
+
+    switch (format)
+    {
+    case 1: // CursivePositioningSubtableFormat1
+        // Cursive attachment.
+        struct EntryExitRecord 
+        {
+            uint16  entryAnchorOffset;      // Offset to EntryAnchor table - from beginning of CursivePos subtable - may be NULL
+            uint16  exitAnchorOffset;       // Offset to ExitAnchor table - from beginning of CursivePos subtable - may be NULL
+        };
+
+        uint16  entryExitCount;             // Number of EntryExit records
+        EntryExitRecord entryExitRecords[entryExitCount]; // Array of EntryExit records - in Coverage Index order
+    
+        break;
+    }
+};
+
+// GPOS lookup type 4.
+struct MarkToBasePositioningSubtable
+{
+    uint16  format;                     // Format identifier
+
+    switch (format)
+    {
+    case 1: // MarkToBasePositioningSubtableFormat1
+        // MarkToBase attachment point.
+        struct BaseRecord 
+        {
+            // Array of offsets (one per class) to Anchor tables - from beginning of BaseArray table - ordered by class-zero-based
+            uint16  baseAnchorOffsets[classCount];
+        };
+
+        struct BaseArray
+        {
+            uint16  baseCount;              // Number of BaseRecords
+            BaseRecord baseRecords[baseCount]; // Array of BaseRecords - in order of BaseCoverage Index
+        };
+        uint16  markCoverageOffset;         // Offset to MarkCoverage table - from beginning of MarkBasePos subtable
+        uint16  baseCoverageOffset;         // Offset to BaseCoverage table - from beginning of MarkBasePos subtable
+
+        local int64 originalFilePosition = FTell();
+        FSeek(startof(this) + markCoverageOffset);
+        CoverageTable markCoverageTable;
+        FSeek(startof(this) + baseCoverageOffset);
+        CoverageTable baseCoverageTable;
+        FSeek(originalFilePosition);
+
+        uint16  classCount;                 // Number of classes defined for marks
+        uint16  markArrayOffset;            // Offset to MarkArray table - from beginning of MarkBasePos subtable
+        uint16  baseArrayOffset;            // Offset to BaseArray table - from beginning of MarkBasePos subtable
+
+        break;
+    }
+};
+
+// GPOS lookup type 5.
+struct MarkToLigaturePositioningSubtable
+{
+    uint16  format;                     // Format identifier
+
+    switch (format)
+    {
+    case 1: // MarkToLigaturePositioningSubtableFormat1
+        // MarkToLigature attachment.
+        struct ComponentRecord 
+        {
+            uint16  ligatureAnchorOffsets[classCount];  // Array of offsets (one per class) to Anchor tables - from beginning of LigatureAttach table - ordered by class - NULL if a component does not have an attachment for a class-zero-based array
+        };
+
+        // todo: LigatureAttach array
+        struct LigatureArray
+        {
+            uint16  ligatureCount;          // Number of LigatureAttach table offsets
+            uint16  ligatureAttachOffsets[ligatureCount]; // Array of offsets to LigatureAttach tables - from beginning of LigatureArray table - ordered by LigatureCoverage Index
+        };
+    
+        struct LigatureAttach
+        {
+            uint16  componentCount;         // Number of ComponentRecords in this ligature
+            ComponentRecord componentRecords[componentCount]; // Array of Component records - ordered in writing direction
+        };
+
+        uint16  markCoverageOffset;	        // Offset to Mark Coverage table - from beginning of MarkLigPos subtable
+        uint16  ligatureCoverageOffset;     // Offset to Ligature Coverage table - from beginning of MarkLigPos subtable
+
+        local int64 originalFilePosition = FTell();
+        FSeek(startof(this) + markCoverageOffset);
+        CoverageTable markCoverageTable;
+        FSeek(startof(this) + ligatureCoverageOffset);
+        CoverageTable baseCoverageTable;
+        FSeek(originalFilePosition);
+
+        uint16  classCount;                 // Number of defined mark classes
+        uint16  markArrayOffset;            // Offset to MarkArray table - from beginning of MarkLigPos subtable
+        uint16  ligatureArrayOffset;        // Offset to LigatureArray table - from beginning of MarkLigPos subtable
+
+        break;
+    }
+};
+
+// GPOS lookup type 6.
+struct MarkToMarkPositioningSubtable
+{
+    uint16  format;                     // Format identifier
+
+    switch (format)
+    {
+    case 1: // MarkToMarkPositioningSubtableFormat1
+        // MarkToMark attachment.
+
+        struct Mark2Record 
+        {
+            uint16  mark2AnchorOffsets[classCount]; // Array of offsets (one per class) to Anchor tables - from beginning of Mark2Array table-zero-based array
+        };
+
+        struct Mark2Array
+        {
+            uint16  mark2Count;             // Number of Mark2 records
+            Mark2Record mark2Records[mark2Count]; // Array of Mark2 records - in Coverage order
+        };
+
+        uint16  mark1CoverageOffset;        // Offset to Combining Mark Coverage table - from beginning of MarkMarkPos subtable
+        uint16  mark2CoverageOffset;        // Offset to Base Mark Coverage table - from beginning of MarkMarkPos subtable
+
+        local int64 originalFilePosition = FTell();
+        FSeek(startof(this) + mark1CoverageOffset);
+        CoverageTable markCoverageTable;
+        FSeek(startof(this) + mark2CoverageOffset);
+        CoverageTable baseCoverageTable;
+        FSeek(originalFilePosition);
+
+        uint16  classCount;	                // Number of Combining Mark classes defined
+        uint16  mark1ArrayOffset;	        // Offset to MarkArray table for Mark1 - from beginning of MarkMarkPos subtable
+        uint16  mark2ArrayOffset;	        // Offset to Mark2Array table for Mark2 - from beginning of MarkMarkPos subtable
+
+        break;
+    }
+};
+
+struct AttachmentList // http://www.microsoft.com/typography/otspec/gdef.htm
+{
+    uint16 coverageOffset;                      // Offset to Coverage table - from beginning of AttachList table
+    uint16 glyphCount;                          // Number of glyphs with attachment points.
+    uint16 attachmentPointOffsets[glyphCount];  // Array of offsets to AttachPoint tables - from beginning of AttachList table - in Coverage Index order
+
+    local int64 originalFilePosition = FTell();
+
+    FSeek(startof(this) + coverageOffset);
+    CoverageTable coverageTable;
+
+    local uint32 i <hidden=true>;
+    for (i = 0; i < glyphCount; ++i)
+    {
+        FSeek(startof(this) + attachmentPointOffsets[i]);
+        AttachmentPoint attachmentPoints;
+    }
+
+    FSeek(originalFilePosition);
+};
+
+struct AttachmentPoint
+{
+    uint16 pointCount;              // Number of attachment points on this glyph
+    uint16 pointIndex[pointCount];  // Array of contour point indices - in increasing numerical order
+};
+
+struct LigatureCaretList
+{
+    uint16 coverageOffset;                          // Offset to Coverage table - from beginning of LigCaretList table
+    uint16 ligatureGlyphCount;                      // Number of ligature glyphs
+    if (ligatureGlyphCount > 0)                     // Zero in Arial
+    {
+        uint16 ligatureGlyphOffsets[ligatureGlyphCount];// Array of offsets to LigGlyph tables - from beginning of LigCaretList table-in Coverage Index order
+    }
+
+    local int64 originalFilePosition = FTell();
+
+    FSeek(startof(this) + coverageOffset);
+    CoverageTable coverageTable;
+
+    local uint32 i <hidden=true>;
+    for (i = 0; i < ligatureGlyphCount; ++i)
+    {
+        FSeek(startof(this) + ligatureGlyphOffsets[i]);
+        LigatureGlyph ligatureGlyphs;
+    }
+
+    FSeek(originalFilePosition);
+};
+
+struct LigatureGlyph
+{
+    uint16 caretValueCount;                     // Number of CaretValues for this ligature (components - 1)
+    uint16 caretValueOffsets[caretValueCount];  // Array of offsets to CaretValue tables - from beginning of LigGlyph table - in increasing coordinate order
+
+    local int64 originalFilePosition = FTell();
+    local uint32 i <hidden=true>;
+    for (i = 0; i < caretValueCount; ++i)
+    {
+        FSeek(startof(this) + caretValueOffsets[i]);
+        CaretValue caretValues;
+    }
+    FSeek(originalFilePosition);
+};
+
+struct CaretValue
+{
+    uint16 format; // Format identifier-format = 1..3
+    switch (format)
+    {
+    case 1:
+        int16 coordinate;           // X or Y value, in design units
+        break;
+    case 2:
+        uint16 caretValuePoint;     // Contour point index on glyph
+        break;
+    case 3:
+        int16 coordinate;           // X or Y value, in design units
+        uint16 deviceTableOffset;   // Offset to Device table for X or Y value - from beginning of CaretValue table
+        break;
+    }
+};
+
+struct MarkGlyphSets
+{
+    uint16 format; // Format identifier == 1
+    switch (format)
+    {
+    case 1:
+        uint16 markSetCount; // Number of mark sets defined
+        uint32 coverageOffsets[markSetCount]; // Array of offsets to mark set coverage tables.
+
+        local int64 originalFilePosition = FTell();
+        local uint32 i <hidden=true>;
+        for (i = 0; i < markSetCount; ++i)
+        {
+            FSeek(startof(this) + coverageOffsets[i]);
+            CoverageTable coverageTables;
+        }
+        FSeek(originalFilePosition);
+        break;
+    }
+};
+
+struct BaseAxisTable;
+struct BaseTagList;
+struct BaseValues;
+struct BaseMinMax;
+struct BaseCoordinate;
+
+struct BaseTable
+{
+    fixed16_16 version;                 // Version of the BASE table - initially 0x00010000
+    uint16  horizontalAxisOffset;       // Offset to horizontal Axis table from beginning of BASE table - may be NULL
+    uint16  verticalAxisOffset;         // Offset to vertical Axis table from beginning of BASE table - may be NULL
+
+    local int64 originalFilePosition = FTell();
+
+    if (horizontalAxisOffset > 0)
+    {
+        FSeek(startof(this) + horizontalAxisOffset);
+        BaseAxisTable horizontalAxis;
+    }
+
+    if (verticalAxisOffset > 0)
+    {
+        FSeek(startof(this) + verticalAxisOffset);
+        BaseAxisTable verticalAxis;
+    }
+
+    FSeek(originalFilePosition);
+};
+
+struct BaseAxisTable
+{
+    uint16  baseTagListOffset;          // Offset to BaseTagList table from beginning of Axis table - may be NULL
+    uint16  scriptListOffset;           // Offset to ScriptList table from beginning of Axis table
+
+    local int64 originalFilePosition = FTell();
+
+    if (baseTagListOffset > 0)
+    {
+        FSeek(startof(this) + baseTagListOffset);
+        BaseTagList baseTagList;
+    }
+
+    FSeek(startof(this) + scriptListOffset);
+    ScriptList scriptList("BASE");
+
+    FSeek(originalFilePosition);
+};
+
+struct BaseTag // wrapper since an array of char tag's isn't supported by the parser
+{
+    char8   tag[4];
+};
+
+struct BaseTagList
+{
+    uint16  baseTagCount;               // Number of baseline identification tags in this text direction - may be zero (0) 
+    BaseTag tags[baseTagCount] <open=true>; // Array of 4-byte baseline identification tags-must be in alphabetical order 
+};
+
+struct BaseScript
+{
+    uint16  baseValuesOffset;           // Offset to BaseValues table from beginning of BaseScript table - may be NULL 
+    uint16  defaultMinMaxOffset;        // Offset to MinMax table from beginning of BaseScript table - may be NULL 
+    uint16  languageCount;              // Number of language records defined - may be zero (0) 
+    if (languageCount > 0)
+    {
+        LanguageRecord languageRecords[languageCount]; // Array of language records - in alphabetical order by tag. The offset in the language record points to a MinMax
+    }
+
+    local int64 originalFilePosition = FTell();
+
+    if (baseValuesOffset > 0)
+    {
+        FSeek(startof(this) + baseValuesOffset);
+        BaseValues baseValues;
+    }
+    if (defaultMinMaxOffset > 0)
+    {
+        FSeek(startof(this) + defaultMinMaxOffset);
+        BaseMinMax minMax;
+    }
+
+    FSeek(originalFilePosition);
+};
+
+struct BaseValues
+{
+    uint16  defaultIndex;               // Index number of default baseline for this script - equals index position of baseline tag in BaselineArray of the BaseTagList 
+    uint16  baseCoordinateCount;        // Number of base coordinate tables defined - should equal BaseTagCount in the BaseTagList 
+    uint16  baseCoordinateOffsets[baseCoordinateCount]; // Array of offsets to BaseCoord from beginning of BaseValues table - order matches BaselineTag array in the BaseTagList 
+
+    local int64 originalFilePosition = FTell();
+    local uint32 i <hidden=true>;
+    for (i = 0; i < baseCoordinateCount; ++i)
+    {
+        FSeek(startof(this) + baseCoordinateOffsets[i]);
+        BaseCoordinate baseCoordinates;
+    }
+    FSeek(originalFilePosition);
+};
+
+struct FeatureMinMaxRecord
+{
+    char8  tag[4];                      // 4-byte feature identification tag - must match FeatureTag in FeatureList 
+    uint16 minCoordinateOffset;         // Offset to BaseCoord table - defines minimum extent value from beginning of MinMax table - may be NULL 
+    uint16 maxCoordinateOffset;         // Offset to BaseCoord table - defines maximum extent value from beginning of MinMax table - may be NULL 
+};
+
+struct BaseMinMax
+{
+    uint16 minCoordinateOffset;         // Offset to BaseCoord table - defines minimum extent value from the beginning of MinMax table - may be NULL
+    uint16 maxCoordinateOffset;         // Offset to BaseCoord table - defines maximum extent value from the beginning of MinMax table - may be NULL 
+    uint16 featureMinMaxCount;          // Number of FeatMinMaxRecords - may be zero (0) 
+    if (featureMinMaxCount > 0)
+    {
+        FeatureMinMaxRecord featureMinMaxRecords[featureMinMaxCount]; // Array of FeatMinMaxRecords in alphabetical order, by FeatureTableTag 
+    }
+};
+
+struct BaseCoordinate
+{
+    uint16 format;
+
+    switch (format)
+    {
+    case 1:
+        int16  coordinate;                  // X or Y value, in design units 
+        break;
+    case 2:
+        int16  coordinate;                  // X or Y value, in design units 
+        uint16 referenceGlyphId;            // Glyph ID of control glyph 
+        uint16 baseCoordinatePoint;         // Index of contour point on the reference glyph
+        break;
+    case 3:
+        int16 coordinate;                   // X or Y value, in design units 
+        uint16 deviceTableOffset;           // Offset to Device table for X or Y value 
+        break;
+    }
+};
+
+struct DsigTableBlock
+{
+    uint16 reserved1; // Reserved for later use; 0 for now 
+    uint16 reserved2; // Reserved for later use; 0 for now 
+    uint32 signatureLength; // (in bytes) of the PKCS#7 packet in pbSignature 
+    char8  signature[signatureLength]; // PKCS#7 packet 
+};
+
+struct DsigTableRecord(uint32 dsigTableOffset)
+{
+    uint32 format; // format of the signature 
+    uint32 length; // Length of signature in bytes 
+    uint32 offset; // Offset to the signature block from the beginning of the table 
+
+    local int64 originalFilePosition = FTell();
+    FSeek(dsigTableOffset + offset);
+    DsigTableBlock block;
+    FSeek(originalFilePosition);
+};
+
+struct DsigTable
+{
+    uint32 version; // Version number of the DSIG table (0x00000001) 
+    uint16 numberOfSignatures; // Number of signatures in the table 
+    uint16 permissionFlags;
+        // Bit 0: cannot be resigned (no counter signatures from a 3rd party)
+        // Bits 1-7: Reserved (Set to 0) 
+
+    if (numberOfSignatures > 0)
+    {
+        DsigTableRecord records(startof(this))[numberOfSignatures] <optimize=false>;
+    }
+};
+
+struct LtshTable // Linear Threshold
+{
+    uint16 version; // Version number (starts at 0).
+    uint16 numberOfGlyphs; // Number of glyphs (from “numGlyphs” in 'maxp' table).
+    uint8  yPels[numberOfGlyphs]; // The vertical pel height at which the glyph can be assumed to scale linearly. On a per glyph basis.
+};
+
+
+struct CpalTable
+{
+    uint16 version;                 // Table version number (0).
+    uint16 paletteEntriesCount;     // Number of palette entries in each palette
+    uint16 palettesCount;           // Number of palettes in the table
+    uint16 colorRecordsCount;       // Total number of color records, combined for all palettes.
+    uint32 colorRecordsOffset;      // Offset from the beginning of CPAL table to the first ColorRecord.
+    uint16 colorRecordIndices[palettesCount]; // Index of each palette's first color record in the combined color record array.
+
+    struct ColorRecord
+    {
+        uint8 blue;     // Blue value (B0)
+        uint8 green;    // Green value (B1)
+        uint8 red;      // Red value (B2)
+        uint8 alpha;    // Alpha value (B3)
+    };
+
+    local int64 originalFilePosition = FTell();
+    FSeek(startof(this) + colorRecordsOffset);
+    ColorRecord	colorRecords[colorRecordsCount]; // Color records for all palettes
+    FSeek(originalFilePosition);
+};
+
+struct ColrTable
+{
+    uint16 version;                 // version	Table version number (0).
+    uint16 baseGlyphRecordsCount;   // Number of Base Glyph Records
+    uint32 baseGlyphRecordsOffset;  // Offset (from beginning of COLR table) to Base Glyph records.
+    uint32 layerRecordsOffset;      // Offset (from beginning of COLR table) to Layer Records
+    uint16 layerRecordsCount;       // Number of Layer Records
+
+    struct BaseGlyphRecord
+    {
+        uint16 glyphId;             // Glyph ID of reference glyph, reference only not rendered for color
+        uint16 layersFirstIndex;    // Index (from beginning of the Layer Records) to the layer record. There will be numLayers consecutive entries for this base glyph.
+        uint16 layersCount;         // Number of color layers associated with this glyph
+    };
+    
+    struct LayerRecord
+    {
+        uint16 glyphId;             // Glyph ID of layer glyph (must be in z-order from bottom to top)
+        uint16 paletteIndex;        // Index value to use in the appropriate palette. This value must be less than numPaletteEntries. Each palette entry is 16 bits. A palette index of 0xFFFF is a special case indicating that the text foreground color should be used. 
+    };
+
+    local int64 originalFilePosition = FTell();
+    FSeek(startof(this) + baseGlyphRecordsOffset);
+    BaseGlyphRecord baseGlyphRecords[baseGlyphRecordsCount];
+    FSeek(startof(this) + layerRecordsOffset);
+    LayerRecord layerRecords[layerRecordsCount];
+    FSeek(originalFilePosition);
+};
+
+struct SvgTable
+{
+    uint16 version;                 // Table version (starting at 0). Set to 0.
+    uint32 indexOffset;             // Offset (relative to the start of the SVG table) to the SVG Documents Index. Must be non-zero.
+    uint32 reserved;                // Set to 0. 
+
+    struct Entry(uint32 svgTableIndexOffset)
+    {
+        uint16 firstGlyphId;        // The first glyph ID in the range described by this index entry.
+        uint16 lastGlyphId;         // The last glyph ID in the range described by this index entry. Must be >= startGlyphID.
+        uint32 offset;              // Offset from the beginning of the SVG Document Index to an SVG document. Must be non-zero.
+        uint32 length;              // Length of the SVG document. Must be non-zero.
+
+        local int64 originalFilePosition = FTell();
+        FSeek(svgTableIndexOffset + offset);
+        char8 data[length];
+        FSeek(originalFilePosition);
+    };
+
+    struct Index
+    {
+        uint16 entriesCount;        // Number of SVG Document Index Entries. Must be non-zero.
+        Entry entries(startof(this))[entriesCount] <optimize=false>;// Array of SVG Document Index Entries.
+    };
+    
+    local int64 originalFilePosition = FTell();
+    FSeek(startof(this) + indexOffset);
+    Index index;
+    FSeek(originalFilePosition);
+};
+
+struct GaspTable
+{
+    uint16 version;         // Version number (set to 0 or 1)
+    uint16 gaspRangesCount; // Number of records to follow
+
+    typedef enum <uint16>
+    {
+        // The set of bit flags may be extended in the future.
+        // The first two bit flags operate independently of the following two bit flags.
+        // If font smoothing is enabled, then the first two bit flags are used.
+        // If ClearType is enabled, then the following two bit flags are used.
+        GaspBehaviorGridFit            = 0x0001, // Use gridfitting - medium sizes, typically 9<=ppem<=16
+        GaspBehaviorDoGray             = 0x0002, // Use grayscale rendering - small sizes, typically ppem<9
+        GaspBehaviorSymmetricGridFit   = 0x0004, // Use gridfitting with ClearType symmetric smoothing. Only supported in version 1 gasp - typically always enabled.
+        GaspBehaviorSymmetricSmoothing = 0x0008, // Use smoothing along multiple axes with ClearType®. Only supported in version 1 gasp - larger screen sizes, typically ppem>15, most commonly used with the gridfit flag.
+    } GaspBehavior;
+
+    struct GaspRange
+    {
+        uint16 maxPPEM;            // Upper limit of range, in PPEM
+        // GaspBehavior gaspBehavior <format=binary>; // Flags describing desired rasterizer behavior.
+        uint16 gaspBehaviorGridFit            : 1; // Bit 0: Use gridfitting - medium sizes, typically 9<=ppem<=16
+        uint16 gaspBehaviorDoGray             : 1; // Bit 1: Use grayscale rendering - small sizes, typically ppem<9
+        uint16 gaspBehaviorSymmetricGridFit   : 1; // Bit 2: Use gridfitting with ClearType symmetric smoothing. Only supported in version 1 gasp - typically always enabled.
+        uint16 gaspBehaviorSymmetricSmoothing : 1; // Bit 3: Use smoothing along multiple axes with ClearType®. Only supported in version 1 gasp - larger screen sizes, typically ppem>15, most commonly used with the gridfit flag.
+    };
+    GaspRange gaspRanges[gaspRangesCount]; // Sorted by ppem
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+// Check tag to see whether collection or direct font.
+local int64 originalFilePosition = FTell();
+char8 tag[4] <hidden=true>;
+FSeek(originalFilePosition);
+
+if (tag == "ttcf")
+{
+    OpenTypeFontCollection fontCollection <open=true>;
+}
+else
+{
+    OpenTypeFont font <open=true>;
+}

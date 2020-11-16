@@ -1,0 +1,816 @@
+//------------------------------------------------
+//--- 010 Editor v7.0.2 Binary Template
+//
+//      File: MXF.bt
+//   Authors: Stefan Riediger
+//   Version: 0.2
+//   Purpose: Parse MXF files (Material Exchange Format, SMPTE 377M, SMPTE EG41, SMPTE EG42)
+//  Category: Video
+// File Mask: *.mxf
+//  ID Bytes: 06 0E 2B 34
+//   History: 
+// 0.2   2016-10-30 SR: Initial Release
+//------------------------------------------------
+
+// Dictionary
+//
+
+const UCHAR ulMXF_GC_Frame_wrapped_MPEG_ES_VideoStream_0_SID[16]                  = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x02, 0x0D, 0x01, 0x03, 0x01, 0x02, 0x04, 0x60, 0x01};
+const UCHAR ulMXF_GC_Frame_wrapped_AES3_audio_data[16]                            = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x03, 0x01, 0x02, 0x06, 0x03, 0x00};
+const UCHAR ulMXF_GC_Generic_Essence_Multiple_Mappings[16]                        = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x03, 0x0D, 0x01, 0x03, 0x01, 0x02, 0x7F, 0x01, 0x00};
+const UCHAR ulMXF_GC_Frame_wrapped_SMPTE_D_10_625x50I_30Mbps_DefinedTemplate[16]  = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x03, 0x0D, 0x01, 0x03, 0x01, 0x02, 0x7F, 0x01, 0x00};
+const UCHAR ulMXF_GC_Frame_wrapped_SMPTE_D_10_625x50I_40Mbps_DefinedTemplate[16]  = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x03, 0x01, 0x02, 0x01, 0x03, 0x01};
+const UCHAR ulMXF_GC_Frame_wrapped_SMPTE_D_10_625x50I_50Mbps_DefinedTemplate[16]  = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x03, 0x01, 0x02, 0x01, 0x01, 0x01};
+const UCHAR ulMXF_GC_Frame_wrapped_DV_based_625x50I_25Mbps[16]                    = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x03, 0x01, 0x02, 0x02, 0x41, 0x01};
+const UCHAR ulMXF_GC_Frame_wrapped_DV_based_625x50I_50Mbps[16]                    = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x03, 0x01, 0x02, 0x02, 0x51, 0x01};
+const UCHAR ulMXF_GC_AVC_Byte_Stream_With_VideoStream_0_SID_Frame_wrapped[16]     = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x0A, 0x0D, 0x01, 0x03, 0x01, 0x02, 0x10, 0x60, 0x01};
+const UCHAR ulMXF_GC_DV_DIF_Essence[16]                                           = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x03, 0x01, 0x02, 0x02, 0xFF, 0x01};
+
+const UCHAR ulAAF_Structural_Metadata[16]                                         = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00};
+const UCHAR ulMXF_Operational_Pattern_Application[16]                             = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00};
+const UCHAR ulMXF_OP_Structure_Version[16]                                        = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00};
+const UCHAR ulMXF_OP1x_SingleItem_AnyPackage[16]                                  = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x01, 0x00, 0x00, 0x00};
+const UCHAR ulMXF_OP1a_SingleItem_SinglePackage[16]                               = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x01, 0x01, 0x00, 0x00};
+const UCHAR ulMXF_OP1a_SingleItem_SinglePackage_UniTrack_Stream_Internal[16]      = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x01, 0x01, 0x01, 0x00};
+const UCHAR ulMXF_OP1a_SingleItem_SinglePackage_UniTrack_Stream_External[16]      = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x01, 0x01, 0x03, 0x00};
+const UCHAR ulMXF_OP1a_SingleItem_SinglePackage_UniTrack_NonStream_Internal[16]   = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x01, 0x01, 0x05, 0x00};
+const UCHAR ulMXF_OP1a_SingleItem_SinglePackage_UniTrack_NonStream_External[16]   = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x01, 0x01, 0x07, 0x00};
+const UCHAR ulMXF_OP1a_SingleItem_SinglePackage_MultiTrack_Stream_Internal[16]    = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x01, 0x01, 0x09, 0x00};
+const UCHAR ulMXF_OP1a_SingleItem_SinglePackage_MultiTrack_Stream_External[16]    = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x01, 0x01, 0x0B, 0x00};
+const UCHAR ulMXF_OP1a_SingleItem_SinglePackage_MultiTrack_NonStream_Internal[16] = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x01, 0x01, 0x0D, 0x00};
+const UCHAR ulMXF_OP1a_SingleItem_SinglePackage_MultiTrack_NonStream_External[16] = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x01, 0x01, 0x0F, 0x00};
+const UCHAR ulMXF_OP_Atom_1_Track_1_SourceClip[16]                                = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x02, 0x0D, 0x01, 0x02, 0x01, 0x10, 0x00, 0x00, 0x00};
+const UCHAR ulMXF_OP_Atom_1_Track_N_SourceClips[16]                               = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x02, 0x0D, 0x01, 0x02, 0x01, 0x10, 0x01, 0x00, 0x00};
+const UCHAR ulMXF_OP_Atom_N_Tracks_1_SourceClip[16]                               = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x02, 0x0D, 0x01, 0x02, 0x01, 0x10, 0x02, 0x00, 0x00};
+const UCHAR ulMXF_OP_Atom_N_Tracks_N_SourceClips[16]                              = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x02, 0x0D, 0x01, 0x02, 0x01, 0x10, 0x03, 0x00, 0x00};
+const UCHAR ulMXF_GC_FrameWrapped_Broadcast_Wave_audio_data[16]                   = {0x06, 0x0e, 0x2b, 0x34, 0x04, 0x01, 0x01, 0x01, 0x0d, 0x01, 0x03, 0x01, 0x02, 0x06, 0x01, 0x00};
+const UCHAR ulMXF_GC_Generic_ANC_Data_Mapping_Undefined_Payload[16]               = {0x06, 0x0E, 0x2B, 0x34, 0x04, 0x01, 0x01, 0x09, 0x0D, 0x01, 0x03, 0x01, 0x02, 0x0E, 0x00, 0x00};
+
+const UCHAR ulPartionPack[16]                                                     = {0x06, 0x0E, 0x2B, 0x34, 0x02, 0x05, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x01, 0xFF, 0xFF, 0xFF};
+const UCHAR ulFiller[16]                                                          = {0x06, 0x0E, 0x2B, 0x34, 0x01, 0x01, 0x01, 0xFF, 0x03, 0x01, 0x02, 0x10, 0x01, 0x00, 0x00, 0x00};
+const UCHAR ulPrimerPack[16]                                                      = {0x06, 0x0E, 0x2B, 0x34, 0x02, 0x05, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x01, 0x05, 0x01, 0x00};
+const UCHAR ulPrefaceSet[16]                                                      = {0x06, 0x0E, 0x2B, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0D, 0x01, 0x01, 0x01, 0x01, 0x01, 0x2F, 0x00};
+const UCHAR ulIdentificationSet[16]                                               = {0x06, 0x0E, 0x2B, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0D, 0x01, 0x01, 0x01, 0x01, 0x01, 0x30, 0x00};
+const UCHAR ulIndexTableSegment[16]                                               = {0x06, 0x0E, 0x2B, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x01, 0x10, 0x01, 0x00};
+const UCHAR ulRandomIndexPack[16]                                                 = {0x06, 0x0E, 0x2B, 0x34, 0x02, 0x05, 0x01, 0x01, 0x0D, 0x01, 0x02, 0x01, 0x01, 0x11, 0x01, 0x00};
+const UCHAR ulContentStorage[16]                                                  = {0x06, 0x0E, 0x2B, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0D, 0x01, 0x01, 0x01, 0x01, 0x01, 0x18, 0x00};
+const UCHAR ulEssenceContainerData[16]                                            = {0x06, 0x0e, 0x2b, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0d, 0x01, 0x01, 0x01, 0x01, 0x01, 0x23, 0x00};
+const UCHAR ulMaterialPackage[16]                                                 = {0x06, 0x0e, 0x2b, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0d, 0x01, 0x01, 0x01, 0x01, 0x01, 0x36, 0x00};
+const UCHAR ulSourcePackage[16]                                                   = {0x06, 0x0e, 0x2b, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0d, 0x01, 0x01, 0x01, 0x01, 0x01, 0x37, 0x00};
+const UCHAR ulTrack[16]                                                           = {0x06, 0x0e, 0x2b, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0d, 0x01, 0x01, 0x01, 0x01, 0x01, 0x3b, 0x00};
+const UCHAR ulSequence[16]                                                        = {0x06, 0x0e, 0x2b, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0d, 0x01, 0x01, 0x01, 0x01, 0x01, 0x0f, 0x00};
+const UCHAR ulSourceClip[16]                                                      = {0x06, 0x0e, 0x2b, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0d, 0x01, 0x01, 0x01, 0x01, 0x01, 0x11, 0x00};
+const UCHAR ulTimecodeComponent[16]                                               = {0x06, 0x0E, 0x2B, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0D, 0x01, 0x01, 0x01, 0x01, 0x01, 0x14, 0x00};
+const UCHAR ulMpeg2VideoDescriptor[16]                                            = {0x06, 0x0e, 0x2b, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0d, 0x01, 0x01, 0x01, 0x01, 0x01, 0x51, 0x00};
+const UCHAR ulMultipleDescriptor[16]                                              = {0x06, 0x0e, 0x2b, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0d, 0x01, 0x01, 0x01, 0x01, 0x01, 0x44, 0x00};
+const UCHAR ulAESAudioDescriptor[16]                                              = {0x06, 0x0e, 0x2b, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0d, 0x01, 0x01, 0x01, 0x01, 0x01, 0x47, 0x00};
+const UCHAR ulXMLDocumentTextIndirectData[16]                                     = {0x06, 0x0E, 0x2B, 0x34, 0x01, 0x01, 0x01, 0x05, 0x03, 0x01, 0x02, 0x20, 0x01, 0x00, 0x00, 0x00};
+const UCHAR ulIdentificationMetadata[16]                                          = {0x06, 0x0e, 0x2b, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0d, 0x01, 0x01, 0x01, 0x01, 0x01, 0x30, 0x00};
+const UCHAR ulWaveAudioDescriptor[16]                                             = {0x06, 0x0e, 0x2b, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0d, 0x01, 0x01, 0x01, 0x01, 0x01, 0x48, 0x00};
+const UCHAR ulVANC_VBI_Smpte436mDescriptor[16]                                    = {0x06, 0x0E, 0x2B, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0D, 0x01, 0x01, 0x01, 0x01, 0x01, 0x5C, 0x00};
+
+const UCHAR ulSystemTC[16]                                                        = {0x06, 0x0E, 0x2B, 0x34, 0x02, 0x53, 0x01, 0x01, 0x0D, 0x01, 0x03, 0x01, 0x14, 0x02, 0x01, 0x00};
+const UCHAR ulSystemMetadataPack[16]                                              = {0x06, 0x0e, 0x2b, 0x34, 0x02, 0x05, 0x01, 0x01, 0x0d, 0x01, 0x03, 0x01, 0x04, 0x01, 0x01, 0x00};
+const UCHAR ulVideoDV[16]                                                         = {0x06, 0x0e, 0x2b, 0x34, 0x01, 0x02, 0x01, 0x01, 0x0d, 0x01, 0x03, 0x01, 0x18, 0x01, 0x01, 0x00};
+const UCHAR ulAudioAES3[16]                                                       = {0x06, 0x0e, 0x2b, 0x34, 0x01, 0x02, 0x01, 0x01, 0x0d, 0x01, 0x03, 0x01, 0x16, 0xFF, 0xFF, 0xFF};
+const UCHAR ulMetadata[16]                                                        = {0x06, 0x0e, 0x2b, 0x34, 0x02, 0x43, 0x01, 0x01, 0x0d, 0x01, 0x03, 0x01, 0x04, 0x01, 0xFF, 0xFF};
+const UCHAR ulVideoMPEG2[16]                                                      = {0x06, 0x0e, 0x2b, 0x34, 0x01, 0x02, 0x01, 0x01, 0x0d, 0x01, 0x03, 0x01, 0x15, 0x01, 0x05, 0x00};
+
+const UCHAR ltInstanceUID[2]   		                                              = { 0x3C, 0x0A };
+const UCHAR ltIndexEditRate[2] 		                                              = { 0x3F, 0x0B };
+const UCHAR ltIndexStartPosition[2]                                               = { 0x3F, 0x0C };
+const UCHAR ltIndexDuration[2] 		                                              = { 0x3F, 0x0D };
+const UCHAR ltEditUnitByteCount[2] 	                                              = { 0x3F, 0x05 };
+const UCHAR ltIndexSID[2] 			                                              = { 0x3F, 0x06 };
+const UCHAR ltBodySID[2] 			                                              = { 0x3F, 0x07 };
+const UCHAR ltSliceCount[2] 		                                              = { 0x3F, 0x08 };
+const UCHAR ltPosTableCount[2] 		                                              = { 0x3F, 0x0E };
+const UCHAR ltDeltaEntryArray[2]                                                  = { 0x3F, 0x09 };
+const UCHAR ltIndexEntryArray[2]                                                  = { 0x3F, 0x0A };
+const UCHAR ltExtStartOffset[2]                                                   = { 0x3F, 0x09 };
+const UCHAR ltVBEByteCount[2]                                                     = { 0x3F, 0x10 };
+const UCHAR ltObjectModelVersion[2]                                               = { 0x3B, 0x07 };
+const UCHAR ltVersion[2]                                                          = { 0x3B, 0x05 };
+const UCHAR ltObjectClass[2]                                                      = { 0x01, 0x01 };
+const UCHAR ltGenerationUID[2]                                                    = { 0x01, 0x02 };
+const UCHAR ltLastModifiedDate[2]                                                 = { 0x3B, 0x02 };
+const UCHAR ltPrimaryPackage[2]                                                   = { 0x3B, 0x08 };
+const UCHAR ltIdentifications[2]                                                  = { 0x3B, 0x06 };
+const UCHAR ltContentStorage[2]                                                   = { 0x3B, 0x03 };
+const UCHAR ltOperationalPattern[2]                                               = { 0x3B, 0x09 };
+const UCHAR ltEssenceContainers[2]                                                = { 0x3B, 0x0A };
+const UCHAR ltDmSchemes[2]                                                        = { 0x3B, 0x0B };
+
+// UL = Universal label ----------------
+//
+typedef struct
+{
+    UCHAR b[16];
+} UL<read=ReadUL>;
+
+string ReadUL( UL &ul )
+{
+    local string s = "";
+    //SPrintf( s, "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+    SPrintf( s, "0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X",
+             ul.b[0], ul.b[1], ul.b[2],  ul.b[3],  ul.b[4],  ul.b[5],  ul.b[6],  ul.b[7],
+             ul.b[8], ul.b[9], ul.b[10], ul.b[11], ul.b[12], ul.b[13], ul.b[14], ul.b[15]);
+    return s;
+};
+
+int ULCompare(UL &ulKey, UCHAR ulMatch[])
+{
+    local int i;
+    for (i = 0; i < 16; ++i)
+    {
+        if (ulMatch[i] == 0xFF)
+        {
+            continue;
+        }
+        else if (ulMatch[i] != ulKey.b[i])
+        {
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+
+// BerLength ---------------------------
+//
+typedef struct
+{
+    local INT64 length = 0;
+    UCHAR ber<hidden=true>;
+    if ( ber < 1 )
+    {
+        Printf("Incomplete BER length in file\n" );
+    }
+    else if ( ber >= 0x80 )
+    {
+        UCHAR chLength[(ber & 0x7F)];
+
+        local int i;
+        for( i = 0; i < (ber & 0x7F); i++ )
+        {
+            length = (length<<8) + chLength[i];
+        }
+    }
+    else
+    {
+        length = ber;
+    }
+} BerLength<read=ReadBerLength>;
+
+string ReadBerLength( BerLength &len )
+{
+    string s = "";
+    SPrintf( s, "%d", len.length );
+    return s;
+}
+
+// KlvObject ---------------------------
+//
+typedef struct
+{
+    UL key<name="UL">;
+    BerLength berLength<name="Length">;
+    //UCHAR data[berLength.length];
+} KlvObject<read=ReadKlvObject>;
+
+string ReadKlvObject(KlvObject &klv)
+{
+    string s;
+    if (ULCompare(klv.key, ulMaterialPackage))                      s = "Material Package";
+    else if (ULCompare(klv.key, ulSourcePackage))                   s = "Source Package";
+    else if (ULCompare(klv.key, ulEssenceContainerData))            s = "Essence Container Data";
+    else if (ULCompare(klv.key, ulTrack))                           s = "Track";
+    else if (ULCompare(klv.key, ulSequence))                        s = "Sequence";
+    else if (ULCompare(klv.key, ulSourceClip))                      s = "Source Clip";
+    else if (ULCompare(klv.key, ulTimecodeComponent))               s = "Timecode Coponent";
+    else if (ULCompare(klv.key, ulMpeg2VideoDescriptor))            s = "Mpeg2 Video Descriptor";
+    else if (ULCompare(klv.key, ulMultipleDescriptor))              s = "Multiple Descriptor";
+    else if (ULCompare(klv.key, ulAESAudioDescriptor))              s = "AES Audio Descriptor";
+    else if (ULCompare(klv.key, ulXMLDocumentTextIndirectData))     s = "XML Document Text Indirect Data";
+    else if (ULCompare(klv.key, ulIdentificationMetadata))          s = "Indentification Metadata";
+    else if (ULCompare(klv.key, ulFiller))                          s = "Filler";
+    else if (ULCompare(klv.key, ulSystemTC))                        s = "System Timecode";
+    else if (ULCompare(klv.key, ulSystemMetadataPack))              s = "System Metatdata Pack";
+    else if (ULCompare(klv.key, ulVideoDV))                         s = "DV Video";
+    else if (ULCompare(klv.key, ulMetadata))                        s = "Metatdata";
+    else if (ULCompare(klv.key, ulVideoMPEG2))                      s = "Mpeg2 Video";
+    else if (ULCompare(klv.key, ulWaveAudioDescriptor))             s = "Wave Audio Descriptor";
+    else if (ULCompare(klv.key, ulVANC_VBI_Smpte436mDescriptor))    s = "VANC/VBI SMPTE 436m Descriptor";
+
+
+    else if (ULCompare(klv.key, ulAudioAES3))
+    {   
+        SPrintf( s, "Audio AES3 ch. %c", '0' + klv.key.b[15]);
+    }
+    else
+    {
+        SPrintf( s, "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+             klv.key.b[0], klv.key.b[1], klv.key.b[2], klv.key.b[3],
+             klv.key.b[4], klv.key.b[5], klv.key.b[6], klv.key.b[7],
+             klv.key.b[8], klv.key.b[9], klv.key.b[10], klv.key.b[11],
+             klv.key.b[12], klv.key.b[13], klv.key.b[14], klv.key.b[15]);
+    }
+    return s;
+};
+
+void SkipFiller()
+{
+    local int64 currentPosition = FTell();
+    KlvObject klvObject;
+    if (ULCompare(klvObject.key, ulFiller))
+    {
+
+        if ( -1 == FSkip( klvObject.berLength.length ) )
+        {
+            Printf("ERROR: Can't skip Filler %Ld Bytes from position %Ld (MXFFile:Filler)\n", klvObject.berLength.length, FTell() );
+            break;
+        }
+        Printf("Skipped %LX  CurPos=%LX\n", klvObject.berLength.length, FTell() );
+    }
+    else
+    {
+        FSeek(currentPosition);
+    }
+}
+
+// EssenceContainer --------------------
+//
+typedef struct
+{
+    UL ul<name="UL">;
+} EssenceContainer<read=ReadEssenceContainer>;
+
+string ReadEssenceContainer(EssenceContainer &ec)
+{
+    string s;
+    if (ULCompare(ec.ul, ulMXF_GC_Frame_wrapped_MPEG_ES_VideoStream_0_SID)) s = "MXF-GC Frame-wrapped MPEG-ES VideoStream-0 SID";
+    else if (ULCompare(ec.ul, ulMXF_GC_Frame_wrapped_AES3_audio_data)) s = "MXF-GC Frame-wrapped AES3 audio data";
+    else if (ULCompare(ec.ul, ulMXF_GC_Generic_Essence_Multiple_Mappings)) s = "MXF-GC Generic Essence Multiple Mappings";
+    else if (ULCompare(ec.ul, ulMXF_GC_Frame_wrapped_SMPTE_D_10_625x50I_30Mbps_DefinedTemplate)) s = "MXF-GC Frame-wrapped SMPTE D-10 625x50I 30Mbps DefinedTemplate";
+    else if (ULCompare(ec.ul, ulMXF_GC_Frame_wrapped_SMPTE_D_10_625x50I_40Mbps_DefinedTemplate)) s = "MXF-GC Frame-wrapped SMPTE D-10 625x50I 40Mbps DefinedTemplate";
+    else if (ULCompare(ec.ul, ulMXF_GC_Frame_wrapped_SMPTE_D_10_625x50I_50Mbps_DefinedTemplate)) s = "MXF-GC Frame-wrapped SMPTE D-10 625x50I 50Mbps DefinedTemplate";
+    else if (ULCompare(ec.ul, ulMXF_GC_Frame_wrapped_DV_based_625x50I_25Mbps)) s = "MXF-GC Frame-wrapped DV-based 625x50I 25Mbps";
+    else if (ULCompare(ec.ul, ulMXF_GC_Frame_wrapped_DV_based_625x50I_50Mbps)) s = "MXF-GC Frame-wrapped DV-based 625x50I 50Mbps";
+    else if (ULCompare(ec.ul, ulMXF_GC_AVC_Byte_Stream_With_VideoStream_0_SID_Frame_wrapped)) s = "MXF-GC AVC Byte Stream With VideoStream-0 SID Frame-wrapped";
+    else if (ULCompare(ec.ul, ulMXF_GC_DV_DIF_Essence)) s = "MXF-GC DV-DIF Mappings";
+    else if (ULCompare(ec.ul, ulMXF_GC_FrameWrapped_Broadcast_Wave_audio_data)) s = "MXF-GC Frame-wrapped Broadcast Wave audio data";
+    else if (ULCompare(ec.ul, ulMXF_GC_Generic_ANC_Data_Mapping_Undefined_Payload)) s = "MXF-GC Generic ANC Data Mapping Undefined Payload";
+
+    else
+    {
+        SPrintf( s, "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+             ec.ul.b[0], ec.ul.b[1], ec.ul.b[2], ec.ul.b[3],
+             ec.ul.b[4], ec.ul.b[5], ec.ul.b[6], ec.ul.b[7],
+             ec.ul.b[8], ec.ul.b[9], ec.ul.b[10], ec.ul.b[11],
+             ec.ul.b[12], ec.ul.b[13], ec.ul.b[14], ec.ul.b[15]);
+    }
+    return s;
+};
+
+// Operational Pattern ------------------
+//
+typedef struct
+{
+    UL ul<name="UL">;
+} OperationalPattern<read=ReadOperationalPattern>;
+
+string ReadOperationalPattern( OperationalPattern &op )
+{
+    string s;
+    if (ULCompare(op.ul, ulAAF_Structural_Metadata)) s = "AAF Structural Metadata";
+    else if (ULCompare(op.ul, ulMXF_Operational_Pattern_Application)) s = "MXF Operational Pattern Application";
+    else if (ULCompare(op.ul, ulMXF_OP_Structure_Version)) s = "MXF OP Structure Version";
+    else if (ULCompare(op.ul, ulMXF_OP1x_SingleItem_AnyPackage)) s = "MXF OP1x SingleItem AnyPackage";
+    else if (ULCompare(op.ul, ulMXF_OP1a_SingleItem_SinglePackage)) s = "MXF OP1a SingleItem SinglePackage";
+    else if (ULCompare(op.ul, ulMXF_OP1a_SingleItem_SinglePackage_UniTrack_Stream_Internal)) s = "MXF OP1a SingleItem SinglePackage UniTrack Stream Internal";
+    else if (ULCompare(op.ul, ulMXF_OP1a_SingleItem_SinglePackage_UniTrack_Stream_External)) s = "MXF OP1a SingleItem SinglePackage UniTrack Stream External";
+    else if (ULCompare(op.ul, ulMXF_OP1a_SingleItem_SinglePackage_UniTrack_NonStream_Internal)) s = "MXF OP1a SingleItem SinglePackage UniTrack NonStream Internal";
+    else if (ULCompare(op.ul, ulMXF_OP1a_SingleItem_SinglePackage_UniTrack_NonStream_External)) s = "MXF OP1a SingleItem SinglePackage UniTrack NonStream External";
+    else if (ULCompare(op.ul, ulMXF_OP1a_SingleItem_SinglePackage_MultiTrack_Stream_Internal)) s = "MXF OP1a SingleItem SinglePackage MultiTrack Stream Internal";
+    else if (ULCompare(op.ul, ulMXF_OP1a_SingleItem_SinglePackage_MultiTrack_Stream_External)) s = "MXF OP1a SingleItem SinglePackage MultiTrack Stream External";
+    else if (ULCompare(op.ul, ulMXF_OP1a_SingleItem_SinglePackage_MultiTrack_NonStream_Internal)) s = "MXF OP1a SingleItem SinglePackage MultiTrack NonStream Internal";
+    else if (ULCompare(op.ul, ulMXF_OP1a_SingleItem_SinglePackage_MultiTrack_NonStream_External)) s = "MXF OP1a SingleItem SinglePackage MultiTrack NonStream External";
+    else if (ULCompare(op.ul, ulMXF_OP_Atom_1_Track_1_SourceClip)) s = "MXF-OP Atom 1 Track 1 SourceClip";
+    else if (ULCompare(op.ul, ulMXF_OP_Atom_1_Track_N_SourceClips)) s = "MXF-OP Atom 1 Track N SourceClips";
+    else if (ULCompare(op.ul, ulMXF_OP_Atom_N_Tracks_1_SourceClip)) s = "MXF-OP Atom N Tracks 1 SourceClip";
+    else if (ULCompare(op.ul, ulMXF_OP_Atom_N_Tracks_N_SourceClips)) s = "MXF-OP Atom N Tracks N SourceClips";
+    else
+        SPrintf( s, "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+             op.ul.b[0], op.ul.b[1], op.ul.b[2], op.ul.b[3],
+             op.ul.b[4], op.ul.b[5], op.ul.b[6], op.ul.b[7],
+             op.ul.b[8], op.ul.b[9], op.ul.b[10], op.ul.b[11],
+             op.ul.b[12], op.ul.b[13], op.ul.b[14], op.ul.b[15]);
+    return s;
+};
+
+// PartitionPack ------------------------
+//
+typedef struct
+{
+    UINT16 majorVersion<name="Major Version">;
+    UINT16 minorVersion<name="Minor Version">;
+    UINT32 kagSize<name="KAG Size",format=hex>;
+    UINT64 thisPartition<name="This Partition",format=hex>;
+    UINT64 previousPartition<name="Previous Partition",format=hex>;
+    UINT64 footerPartition<name="Footer Partition",format=hex>;
+    UINT64 headerByteCount<name="Header Byte Count",format=hex>;
+    UINT64 indexByteCount<name="Index Byte Count",format=hex>;
+    UINT32 indexSid<name="Index SID">;
+    UINT64 bodyOffset<name="Body Offeset",format=hex>;
+    UINT32 bodySid<name="Body SID">;
+    OperationalPattern pattern<name="Operational Pattern">;
+    UINT32 numberOfEsenceContainers<name="Essence Container Count">;
+    UINT32 unknown<hidden=true>;
+    if( numberOfEsenceContainers > 0 )
+        EssenceContainer containers[numberOfEsenceContainers];
+} PartitionPack<name="Partition Pack", bgcolor=0xC0E0FF>;
+
+// Partition ----------------------------
+//
+typedef struct
+{
+    PartitionPack partitionPack;
+
+} Partition<name="Partition", read=ReadPartition>;
+
+string ReadPartition( Partition &partition)
+{
+    string s = "";
+
+    UCHAR buffer[2];
+    ReadBytes( buffer, startof(partition)-7 , 2 );
+
+    UCHAR partitionType = buffer[0];
+    if( partitionType == 0x2 ) Strcat(s, "Header Partition");
+    else if( partitionType == 0x3 ) Strcat(s, "Body Partition");
+    else if( partitionType == 0x4 ) Strcat(s, "Footer Partition");
+    else
+    {
+        Strcat(s, "ERROR: Invalid partion type \n");
+        return s;
+    }
+
+    UCHAR partitionStatus = buffer[1];
+    if( partitionStatus == 0x1 ) Strcat(s, " (Open and Incomplete)");
+    else if( partitionStatus == 0x2 ) Strcat(s, " (Closed and Incomplete)");
+    else if( partitionStatus == 0x3 ) Strcat(s, " (Open and Complete)");
+    else if( partitionStatus == 0x4 ) Strcat(s, " (Closed and Complete)");
+    else
+    {
+        Strcat(s, "ERROR: Invalid partion status \n");
+        return s;
+    }
+    Strcat(s, "\n");
+
+    return s;
+}
+
+
+// Local tag ----------------------------
+//
+typedef struct
+{
+    UCHAR b[2]<format=hex>;
+} LocalTagKey<name="LocalTagEntry", read=ReadLocalTagKey>;
+
+string ReadLocalTagKey(  LocalTagKey &lt )
+{
+    string s = "";
+    SPrintf( s, "%02X %02X", lt.b[0], lt.b[1]);
+    return s;
+};
+
+typedef struct
+{
+    LocalTagKey tag;
+    UINT16 length<format=hex>;
+} LocalTag;
+
+
+typedef struct( int size )
+{
+    local UCHAR posTableCountTemp = 0;
+    local UCHAR sliceCountTemp = 0;
+	while (size > 0)
+	{
+		LocalTag localTag<hidden=true>;
+        if ( Memcmp( localTag.tag.b, ltInstanceUID, 2 ) == 0 )
+        {
+			UL instanceUID;
+		}
+        else if ( Memcmp( localTag.tag.b, ltIndexEditRate, 2 ) == 0 )
+        {
+			int indexEditRateNumerator;
+			int indexEditRateDenominator;
+		}
+        else if ( Memcmp( localTag.tag.b, ltIndexStartPosition, 2 ) == 0 )
+        {
+			INT64 indexStartPosition;
+		}
+        else if ( Memcmp( localTag.tag.b, ltIndexDuration, 2 ) == 0 )
+        {
+			INT64 indexDuration;
+		}
+        else if ( Memcmp( localTag.tag.b, ltEditUnitByteCount, 2 ) == 0 )
+        {
+			UINT32 editUnitByteCount;
+		}
+        else if ( Memcmp( localTag.tag.b, ltIndexSID, 2 ) == 0 )
+        {
+			UINT32 indexSID;
+		}
+        else if ( Memcmp( localTag.tag.b, ltBodySID, 2 ) == 0 )
+        {
+			UINT32 bodySID;
+		}
+        else if ( Memcmp( localTag.tag.b, ltSliceCount, 2 ) == 0 )
+        {
+			UCHAR sliceCount;
+            sliceCountTemp = sliceCount;
+		}
+        else if ( Memcmp( localTag.tag.b, ltPosTableCount, 2 ) == 0 )
+        {
+			UCHAR posTableCount;
+            posTableCountTemp = posTableCount;
+		}
+        else if ( Memcmp( localTag.tag.b, ltDeltaEntryArray, 2 ) == 0 )
+        {
+			UINT32 numberOfDeltaEntries<name="Delta Entry Count">;
+			UINT32 unknown<hidden=true>;
+			if ( numberOfDeltaEntries > 0 )
+			{
+				struct DeltaEntry
+				{
+					CHAR PosTableIndex;
+					UCHAR Slice;
+					UINT32 ElementDelta;
+				} DeltaEntryArray[numberOfDeltaEntries];
+    		}
+		}
+        else if ( Memcmp( localTag.tag.b, ltIndexEntryArray, 2 ) == 0 )
+        {
+			UINT32 numberOfIndexEntries<name="Index Entry Count">;
+			UINT32 unknown<hidden=true>;
+			if ( numberOfIndexEntries > 0 )
+			{
+				struct IndexEntry
+				{
+					CHAR TemporalOffset;
+					CHAR KeyFrameOffset;
+					UCHAR EditUnitFlags<format=hex>;
+					UINT64 StreamOffset<format=hex>;
+					if ( sliceCountTemp > 0 )
+						UINT32 SliceOffset[sliceCountTemp];
+					if ( posTableCountTemp > 0 )
+						UINT32 PosTable[posTableCountTemp];
+				} IndexEntryArray[numberOfIndexEntries]<optimize=false,name="IndexEntry">;
+			}
+		}
+        else if ( Memcmp( localTag.tag.b, ltExtStartOffset, 2 ) == 0 )
+        {
+			UINT64 extStartOffset;
+		}
+        else if ( Memcmp( localTag.tag.b, ltVBEByteCount, 2 ) == 0 )
+        {
+			UINT64 vbeByteCount;
+		}
+		else
+		{
+            if ( -1 == FSkip( localTag.length ) )
+            {
+                Printf("ERROR: Can't skip %LX Bytes from position %LX (IndexTableSegment)\n", klvObject.berLength.length, FTell() );
+                break;
+            }
+    
+			Printf("Local Tag localTag=%X %X length=%d\n", localTag.tag.b[0], localTag.tag.b[1], localTag.length );
+		}
+
+		size -= (localTag.length + sizeof(LocalTag));
+	};
+
+	if ( size > 0 )
+	{
+		UCHAR dummy[size]<hidden=true>;
+		Printf("ERROR: Can't skip local tag %d Bytes\n", size);
+	}
+
+} IndexTableSegment<name="IndexTableSegment", bgcolor=0xC0FFC0>;
+
+// RIP ----------------------------
+//
+typedef struct( int size )
+{
+    struct PartitionOffsetPair
+    {
+        UINT32 bodySID;
+        UINT64 byteOffset<format=hex>;
+    } partitionOffsetPair[(size-sizeof(UINT32))/sizeof(PartitionOffsetPair)]<name="PartitionOffset">;
+    UINT32 length<name="Length", format=hex>;
+} RandomIndexPack<name="RIP", bgcolor=0xFFC0C0>;
+
+// Timestamp ----------------------------
+//
+typedef struct
+{
+    INT16 year;
+    UCHAR month;
+    UCHAR day;
+    UCHAR hour;
+    UCHAR minute;
+    UCHAR second;
+    UCHAR mSec_4;
+} TimeStamp<name="TimeStamp", read=ReadTimeStamp>;
+
+string ReadTimeStamp(TimeStamp &ts)
+{
+    string s = "";
+    SPrintf( s, "%04d-%02d-%02d %02d:%02d:%02d.%03d", ts.year, ts.month, ts.day, ts.hour, ts.minute, ts.second, ts.mSec_4 * 4 );
+    return s;
+};
+
+// LocalTagEntry ----------------------------
+//
+typedef struct
+{
+    LocalTagKey tag;
+    UL ul;
+} LocalTagEntry<name="LocalTagEntry", read=ReadLocalTagEntry, bgcolor=0x00FFFF>;
+
+string ReadLocalTagEntry( LocalTagEntry &lte )
+{
+    string s = "";
+    SPrintf( s, "%02X %02X -> %02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X",
+       lte.tag.b[0], lte.tag.b[1],
+       lte.ul.b[0], lte.ul.b[1], lte.ul.b[2], lte.ul.b[3], lte.ul.b[4], lte.ul.b[5], lte.ul.b[6], lte.ul.b[7],
+       lte.ul.b[8], lte.ul.b[9], lte.ul.b[10], lte.ul.b[11], lte.ul.b[12], lte.ul.b[13], lte.ul.b[14], lte.ul.b[15] );
+    return s;
+};
+
+// Preface ----------------------------
+//
+typedef struct( int size )
+{
+    //KlvObject klvPreface;
+    //local INT32 size = klvPreface.berLength.length;
+
+    local UCHAR posTableCountTemp = 0;
+    local UCHAR sliceCountTemp = 0;
+	while (size > 0)
+	{
+		LocalTag localTag<hidden=true>;
+        if ( Memcmp( localTag.tag.b, ltInstanceUID, 2 ) == 0 )
+        {
+			UL instanceUID<name="InstanceUID">;
+		}
+        else if ( Memcmp( localTag.tag.b, ltObjectModelVersion, 2 ) == 0 )
+        {
+            UINT32 objectModelVersion<name="ObjectModelVersion">;
+		}
+        else if ( Memcmp( localTag.tag.b, ltVersion, 2 ) == 0 )
+        {
+			UCHAR versionMajor<name="Version Major">;
+            UCHAR versionMinor<name="Version Minor">;
+		}
+        else if ( Memcmp( localTag.tag.b, ltGenerationUID, 2 ) == 0 )
+        {
+			UL uuidGenerationUID<name="GenerationUID">;
+		}
+        else if ( Memcmp( localTag.tag.b, ltObjectClass, 2 ) == 0 )
+        {
+			UL auidObjectClass<name="ObjectClass">;
+		}
+        else if ( Memcmp( localTag.tag.b, ltLastModifiedDate, 2 ) == 0 )
+        {
+            TimeStamp timeStamp<name="LastModifiedDate">;
+		}
+        else if ( Memcmp( localTag.tag.b, ltPrimaryPackage, 2 ) == 0 )
+        {
+			UL ulPrimaryPackage<name="PrimaryPackage">;
+		}
+        else if ( Memcmp( localTag.tag.b, ltIdentifications, 2 ) == 0 )
+        {
+            UINT32 numberOfIdentifications;
+            UINT32 sizeOfIdentifications;
+            UL ulIdentificationSet[numberOfIdentifications];
+		}
+        else if ( Memcmp( localTag.tag.b, ltContentStorage, 2 ) == 0 )
+        {
+			UL ulContentStorage<name="ContentStorage">;
+		}
+        else if ( Memcmp( localTag.tag.b, ltOperationalPattern, 2 ) == 0 )
+        {
+			OperationalPattern operationalPattern<name="OperationalPattern">;
+		}
+        else if ( Memcmp( localTag.tag.b, ltEssenceContainers, 2 ) == 0 )
+        {
+            UINT32 numberOfEssenceContainers;
+            UINT32 sizeofOfEssenceContainers;
+            EssenceContainer essenceContainers[numberOfEssenceContainers];
+		}
+        else if ( Memcmp( localTag.tag.b, ltDmSchemes, 2 ) == 0 )
+        {
+            UINT32 numberOfDmSchemes;
+            UINT32 sizeOfDmSchemes;
+            if ( numberOfDmSchemes > 0 )
+                UL ulDmSchemes[numberOfDmSchemes];
+		}
+		else
+		{
+            if ( -1 == FSkip( localTag.length ) )
+            {
+                Printf("ERROR: Can't skip %LX Bytes from position %LX (Preface)\n", klvObject.berLength.length, FTell() );
+                break;
+            }
+    
+			//Printf("Local Tag pos=%LX localTag=%LX length=%d\n", FTell(), localTag.tag, localTag.length );
+			Printf("Local Tag %02X.%02X length=%d\n", localTag.tag.b[0], localTag.tag.b[1], localTag.length );
+		}
+		size -= (localTag.length + sizeof(LocalTag));
+	};
+
+	if ( size > 0 )
+	{
+		UCHAR dummy[size]<hidden=true>;
+		Printf("ERROR: Can't skip local tag %d Bytes\n", size);
+	}
+} Preface<name="Preface">;
+
+// Metadata ----------------------------
+//
+typedef struct()
+{
+    UINT32 numberOfItems;
+    UINT32 itemLength;
+    LocalTagEntry localTagEntry[numberOfItems];
+} Metadata<name="Metadata", bgcolor=0xC0FFFF>; 
+
+// Essence Data ---------------
+//
+typedef struct()
+{
+    local UINT64 position = 0;
+    while(!FEof())
+    {
+        position = FTell();
+        KlvObject klvObject;
+    
+        if (!ULCompare(klvObject.key, ulPartionPack)  
+            && !ULCompare(klvObject.key, ulIndexTableSegment)  
+            //&& !ULCompare(klvObject.key, ulFiller) 
+           ) 
+        {
+            if ( -1 == FSkip( klvObject.berLength.length ) )
+            {
+                Printf("ERROR: Can't skip %LX Bytes from position %LX (EditUnits)\n", klvObject.berLength.length, FTell() );
+                break;
+            }
+        }
+        else
+        {
+            FSeek(position);
+            break;
+        }
+    }
+
+} EssenceData<name="EssenceData", bgcolor=0xFFFFC0>; 
+
+
+
+// EssenceContainerData ---------------
+//
+typedef struct()
+{
+
+    local UINT64 position = 0;
+    while(!FEof())
+    {
+        position = FTell();
+        KlvObject klvObject;
+		//Printf("essence data: KLV pos=%LX length=%LX\n", position, klvObject.berLength.length );
+
+        if (!ULCompare(klvObject.key, ulPartionPack)
+            && !ULCompare(klvObject.key, ulIndexTableSegment)
+            // && !ULCompare(klvObject.key, ulFiller) 
+            ) 
+        {
+            if ( -1 == FSkip( klvObject.berLength.length ) )
+            {
+                Printf("ERROR: Can't skip %LX Bytes from position %LX (EssenceContainerData)\n", klvObject.berLength.length, FTell() );
+                break;
+            }
+        }
+        else
+        {
+            FSeek(position);
+            break;
+        }
+    }    
+} EssenceContainerData<name="EssenceContainerData", bgcolor=0xFFC0FF>; 
+
+// ContentStorage ---------------
+//
+typedef struct(int size)
+{
+    if ( -1 == FSkip(size) )
+    {
+        Printf("ERROR: Can't skip %LX Bytes from position %LX (ContentStorage)\n", klvObject.berLength.length, FTell() );
+        break;
+    }
+
+    EssenceContainerData essenceContainerData;
+
+} ContentStorage<name="ContentStorage", bgcolor=0xFFC0FF>; 
+
+
+// MXFFile ----------------------------
+//
+typedef struct
+{
+    // TODO: RunIn
+
+    local UINT64 position = 0;
+    local UINT64 headerByteCount = 0;
+    while(!FEof())
+    {
+        position = FTell();
+        KlvObject klvObject<hidden=true>;
+		//Printf("KLV pos=%LX skip=%LX\n", FTell(), klvObject.berLength.length );
+        if (ULCompare(klvObject.key, ulFiller))
+        {
+            if ( -1 == FSkip( klvObject.berLength.length ) )
+            {
+                Printf("ERROR: Can't skip Filler %Ld Bytes from position %Ld (MXFFile:Filler)\n", klvObject.berLength.length, FTell() );
+                break;
+            }
+        }
+        else if (ULCompare(klvObject.key, ulPrimerPack))
+        {
+            Printf("Header pos=%LX\n", FTell());
+            if( headerByteCount > 0 )
+            {
+                Metadata metadata();
+            }
+
+        }
+        else if (ULCompare(klvObject.key, ulPrefaceSet))
+        {
+            Printf("Preface pos=%LX\n", FTell());
+            Preface preface(klvObject.berLength.length);
+        }
+        else if (ULCompare(klvObject.key, ulIdentificationSet))
+        {
+            if ( -1 == FSkip( klvObject.berLength.length ) )
+            {
+                Printf("ERROR: Can't skip IdentificationSet %Ld Bytes from position %Ld\n", klvObject.berLength.length, FTell() );
+                break;
+            }
+        }
+        else if (ULCompare(klvObject.key, ulIndexTableSegment))
+        {
+            IndexTableSegment indexTableSegment(klvObject.berLength.length);
+        }
+        else if (ULCompare(klvObject.key, ulRandomIndexPack))
+        {
+            RandomIndexPack randomIndexPack( klvObject.berLength.length );
+        }
+        else if (ULCompare(klvObject.key, ulPartionPack))
+        {
+            Partition partition();
+            headerByteCount = partition.partitionPack.headerByteCount;
+        }
+        else if (ULCompare(klvObject.key, ulContentStorage))
+        {
+            ContentStorage contentStorage(klvObject.berLength.length);
+        }
+        else if (ULCompare(klvObject.key, ulSystemMetadataPack) 
+                 || ULCompare(klvObject.key, ulVideoDV)
+                 || ULCompare(klvObject.key, ulAudioAES3)
+                 || ULCompare(klvObject.key, ulVideoMPEG2)
+                 || ULCompare(klvObject.key, ulMetadata)
+                )
+        {
+    	    Printf("SystemMetadataPack: KLV pos=%LX length=%LX\n", FTell(), klvObject.berLength.length );
+            FSeek(position);
+            EssenceData essenceData();
+        }
+        else
+        {
+            
+            Printf("%s %LX\n", ReadUL(klvObject.key), FTell() );
+            if ( -1 == FSkip( klvObject.berLength.length ) )
+            {
+                Printf("ERROR: Can't skip %LX Bytes from position %LX (MXFFile:Unknown)\n", klvObject.berLength.length, FTell() );
+                break;
+            }
+        }
+    }
+} MXFFile;
+
+//--------------------------------------
+
+BigEndian();
+MXFFile mxfFile<name="MxfFile",open=true>;

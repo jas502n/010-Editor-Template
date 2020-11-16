@@ -1,0 +1,146 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: PB.bt
+//   Authors: shuax
+//   Version: 1.0
+//   Purpose: Parsing google protocol buffers format.
+//  Category: Misc
+// File Mask: *.pb
+//  ID Bytes:
+//   History:
+//   1.0   2020-06-04 shuax:Simple parsing, does not support recursion
+//------------------------------------------------
+LittleEndian();
+
+ubyte read_varint_size()
+{
+    local int pos = FTell();
+
+    local ubyte size = 0;
+    local ubyte i = 0;
+    while(true)
+    {
+        i = ReadUByte(pos + size);
+        size++;
+        if (!(i & 0x80))
+        {
+            break;
+        }
+    }
+    return size;
+}
+
+typedef struct(ubyte size)
+{
+    ubyte raw[size];
+} Varint <read=ReadVarInt>;
+
+uint64 FromVarint(Varint& n)
+{
+    local uint64 value = 0;
+    local ubyte i = 0;
+    local ubyte pos = 0;
+    while(true)
+    {
+        i = n.raw[pos];
+        value |= (uint64)(i & 0x7F) << (pos * 7);
+        pos++;
+        if (!(i & 0x80))
+        {
+            break;
+        }
+    }
+    return value;
+}
+
+string ReadVarInt(Varint& n)
+{
+    string s;
+    SPrintf(s,"varint %Ld", FromVarint(n));
+    return s;
+}
+
+string ReadTag(ubyte tag)
+{
+    local ubyte type = tag & 0x7;
+    local ubyte id = tag >> 3;
+
+    string s;
+    SPrintf(s,"tag %02X, type %d, id %d", tag, type, id);
+    return s;
+}
+
+enum
+{
+    PB_VARINT,
+    PB_64BIT,
+    PB_BYTES,
+};
+
+typedef struct(ubyte size)
+{
+    //ubyte raw[size];
+    local int pos = FTell();
+
+    local int end = pos + size;
+    while( pos < end )
+    {
+        struct
+        {
+            ubyte tag <fgcolor=cPurple,read=ReadTag>;
+            local ubyte type = tag & 0x7;
+            switch(type)
+            {
+                case PB_VARINT:
+                    local ubyte length = read_varint_size();
+                    Varint value(length) <fgcolor=cDkAqua>;
+                    break;
+                case PB_64BIT:
+                    uint64 value <fgcolor=cDkAqua,format=hex>;
+                    break;
+                case PB_BYTES:
+                    local ubyte length = read_varint_size();
+                    Varint size(length) <fgcolor=cDkYellow>;
+                    //PB_SUB node(FromVarint(size));
+                    ubyte value[FromVarint(size)] <fgcolor=cDkGreen>;
+                    break;
+                default:
+                    Printf("not supported type %d!\n", type);
+                    Exit(-1);
+                    break;
+            }
+        } node;
+        pos = FTell();
+    }
+    //FSeek(end);
+} PB_SUB;
+
+while( !FEof() )
+{
+    struct
+    {
+        ubyte tag <fgcolor=cRed,read=ReadTag>;
+        local ubyte type = tag & 0x7;
+        switch(type)
+        {
+            case PB_VARINT:
+                local ubyte length = read_varint_size();
+                Varint value(length) <fgcolor=cDkAqua>;
+                break;
+            case PB_64BIT:
+                uint64 value <fgcolor=cDkAqua,format=hex>;
+                break;
+            case PB_BYTES:
+                local ubyte length = read_varint_size();
+                Varint size(length) <fgcolor=cDkYellow>;
+                PB_SUB node(FromVarint(size));
+                //ubyte value[FromVarint(size)] <fgcolor=cDkGreen>;
+                break;
+            default:
+                Printf("not supported type %d!\n", type);
+                Exit(-1);
+                break;
+        }
+    } node;
+}

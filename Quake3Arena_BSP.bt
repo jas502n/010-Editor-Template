@@ -1,0 +1,225 @@
+//------------------------------------------------
+//--- 010 Editor v8.0 Binary Template
+//
+//      File: Quake3Arena_BSP.bt
+//   Authors: Raymond Hulha
+//   Version: 1.0
+//   Purpose: 010 Editor Binary Template for Quake3 BSP files.
+//  Category: Game
+// File Mask: *.bsp
+//  ID Bytes: 49 42 53 50 //IBSP
+//   History: 
+//   1.0   2017-07-14 Raymond Hulha: Initial Release
+//------------------------------------------------
+
+LittleEndian();
+
+char    signature[4];
+uint32  version;
+
+typedef struct {
+  uint32 offset;
+  uint32 length;
+} lump <read=ReadLumps>;
+
+struct {
+  lump entities;
+  lump shaders;
+  lump planes;
+  lump nodes;
+  lump leafs;
+  lump leafSurfaces;
+  lump leafBrushes;
+  lump models;
+  lump brushes;
+  lump brushSides;
+  lump drawVerts;
+  lump drawIndexes;
+  lump fogs;
+  lump surfaces;
+  lump lightmaps;
+  lump lightGrid;
+  lump visibility;
+} lumps;
+
+FSeek( lumps.entities.offset);
+
+char ents[lumps.entities.length];
+
+typedef struct {
+  char name[64];
+  int surfaceFlags;
+  int contents;
+} Shader <read=ReadShader>;
+
+FSeek( lumps.shaders.offset);
+Shader shader[lumps.shaders.length / sizeof(Shader)];
+
+typedef struct {
+  float normal[3];
+  float dist;
+} Plane <read=ReadPlanes>;
+
+FSeek( lumps.planes.offset);
+Plane planes[lumps.planes.length / sizeof(Shader)];
+
+typedef struct {
+  int plane;
+  int children[2]; //	Children indices. Negative numbers are leaf indices: -(leaf+1).
+  int mins[3];//	Integer bounding box min coord.
+  int maxs[3];
+} Node <read=ReadNodes>;
+
+FSeek( lumps.nodes.offset);
+Node nodes[lumps.nodes.length / sizeof(Node)];
+
+typedef struct {
+  int cluster; //	Visdata cluster index.
+  int area; //	Areaportal area.
+  int mins[3]; //	Integer bounding box min coord.
+  int maxs[3]; //	Integer bounding box max coord.
+  int leafface;	// First leafface for leaf.
+  int n_leaffaces; //	Number of leaffaces for leaf.
+  int leafbrush; //	First leafbrush for leaf.
+  int n_leafbrushes; //	Number of leafbrushes for leaf.
+} Leaf <read=ReadLeafs>;
+
+FSeek( lumps.leafs.offset);
+Leaf leafs[lumps.leafs.length / sizeof(Leaf)];
+
+FSeek( lumps.leafSurfaces.offset);
+int leafSurfaces[lumps.leafSurfaces.length / sizeof(int)];
+
+FSeek( lumps.leafBrushes.offset);
+int leafBrushes[lumps.leafBrushes.length / sizeof(int)];
+
+typedef struct {
+  float mins[3];
+  float maxs[3];
+  int face1;
+  int face_n;
+  int brush1;
+  int brush_n;
+} Model;
+
+FSeek( lumps.models.offset);
+Model models[lumps.models.length / sizeof(Model)];
+
+typedef struct {
+  int brushside; //	First brushside for brush.
+  int n_brushsides; //	Number of brushsides for brush.
+  int texture; //	Texture index.
+} Brush <read=ReadBrushes>;
+
+FSeek( lumps.brushes.offset);
+Brush brushes[lumps.brushes.length / sizeof(Brush)];
+
+typedef struct {
+  int plane; //	Plane index.
+  int texture; //	Texture index.
+} BrushSide <read=ReadBrushSides>;
+
+FSeek( lumps.brushSides.offset);
+BrushSide brushSides[lumps.brushSides.length / sizeof(BrushSide)];
+
+typedef struct {
+  uint32 shaderNum;
+  uint32 fogNum;
+  uint32 surfaceType;
+  uint32 firstVert;
+  uint32 numVerts;
+  uint32 firstIndex;
+  uint32 numIndexes;
+  uint32 lightmapNum;
+  uint32 lm_start[2];
+  uint32 lm_size[2];
+  uint32 lightmapOrigin[3];
+  uint32 lightmapVecs[9];
+  uint32 patchWidth;
+  uint32 patchHeight;
+} Surface <read=ReadSurfaces>;
+
+FSeek( lumps.surfaces.offset);
+local int surfCount = lumps.surfaces.length / sizeof(Surface);
+Surface surfaces[surfCount];
+
+FSeek( lumps.drawVerts.offset);
+
+typedef struct {
+  float xyz[3]; // Vertex position.
+  float st[2]; // Vertex texture coordinates.
+  float lightmap[2]; // Vertex lightmap coordinates.
+  float normal[3]; // Vertex normal.
+  byte color[4]; // Vertex color. RGBA.  --  1.0 is max value
+} Vertex;
+
+Vertex drawVerts[lumps.drawVerts.length / sizeof(Vertex) ];
+
+
+local int i, j;
+for(i=0;i<surfCount;i++) {
+    if( surfaces[i].surfaceType == 2) {
+        for(j=0;j<surfaces[i].numVerts;j++) {
+            FSeek(lumps.drawVerts.offset+(surfaces[i].firstVert+j)*sizeof(Vertex));
+            struct PATCH {
+                float xyz[3];
+            } patch;
+        }
+    }
+}
+
+string ReadLumps( lump &entry )
+{
+  string s;
+  SPrintf( s, "%d %d", entry.offset, entry.length );
+  return s;
+}
+
+string ReadShader( Shader &entry )
+{
+  string s;
+  SPrintf( s, "%s", entry.name );
+  return s;
+}
+
+string ReadPlanes( Plane &entry )
+{
+  string s;
+  SPrintf( s, "%.1f: %.1f, %.1f, %.1f", entry.dist, entry.normal[0], entry.normal[1], entry.normal[2] );
+  return s;
+}
+
+string ReadNodes( Node &entry )
+{
+  string s;
+  SPrintf( s, "pln %d: %d, %d", entry.plane, entry.children[0], entry.children[1] );
+  return s;
+}
+
+string ReadLeafs( Leaf &entry )
+{
+  string s;
+  SPrintf( s, "leaf1 %d, leafn %d, brush1 %d, brushn : %d", entry.leafface, entry.n_leaffaces, entry.leafbrush, entry.n_leafbrushes );
+  return s;
+}
+
+string ReadBrushes( Brush &entry )
+{
+  string s;
+  SPrintf( s, "tex %d, brushside1 %d, brushside_n %d", entry.texture, entry.brushside, entry.n_brushsides );
+  return s;
+}
+
+string ReadBrushSides( BrushSide &entry )
+{
+  string s;
+  SPrintf( s, "tex %d, plane %d", entry.texture, entry.plane);
+  return s;
+}
+
+string ReadSurfaces( Surface &entry )
+{
+  string s;
+  SPrintf( s, "tex: %d, type: %d", entry.shaderNum, (int)entry.surfaceType );
+  return s;
+}

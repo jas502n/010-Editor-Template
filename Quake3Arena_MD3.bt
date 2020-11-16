@@ -1,0 +1,93 @@
+//------------------------------------------------
+//--- 010 Editor v8.0 Binary Template
+//
+//      File: Quake3Arena_MD3.bt
+//   Authors: Raymond Hulha
+//   Version: 1.0
+//   Purpose: 010 Editor Binary Template for Quake3 MD3 files.
+//  Category: Game
+// File Mask: *.md3
+//  ID Bytes: 49 44 50 33 //IDP3
+//   History: 
+//   1.0   2017-07-14 Raymond Hulha: Initial Release
+//------------------------------------------------
+
+LittleEndian();
+
+char    signature[4];
+uint32  version;
+char    name[64];
+
+uint32 flags;
+uint32 num_frames;
+uint32 num_tags;
+uint32 num_surfaces;
+uint32 num_skins;
+uint32 ofs_frames<format=hex>;  
+uint32 ofs_tags<format=hex>;
+uint32 ofs_surfaces<format=hex>;
+uint32 ofs_eof<format=hex>;
+
+typedef struct {
+  float MIN_BOUNDS[3];
+  float MAX_BOUNDS[3];
+  float LOCAL_ORIGIN[3];
+  float RADIUS;
+  char    name[16];
+} Frame;
+
+Frame frames[num_frames];
+
+typedef struct {
+  char    name[64];
+  float ORIGIN[3];
+  float AXIS[9];
+} Tag;
+
+Tag tags[num_tags];
+
+typedef struct {
+  char signature[4];
+  char name[64];
+  uint32 flags;
+
+  uint32 NUM_FRAMES;
+  uint32 NUM_SHADERS;
+  uint32 NUM_VERTS;
+  uint32 NUM_TRIANGLES;
+  uint32 OFS_TRIANGLES<format=hex>;
+  uint32 OFS_SHADERS<format=hex>;
+  uint32 OFS_ST<format=hex>;
+  uint32 OFS_XYZNORMAL<format=hex>;
+  uint32 OFS_END<format=hex>;
+
+} Surface;
+
+FSeek( ofs_surfaces);
+Surface surfaces[num_surfaces];
+
+local int surfaces_0_texc_ofs<format=hex> = surfaces[0].OFS_ST + ofs_surfaces;
+local int surfaces_0_vert_ofs<format=hex> = surfaces[0].OFS_XYZNORMAL + ofs_surfaces;
+
+// THE REST OF THIS FILE ONLY LOOKS AT THE FIRST SURFACE
+
+struct {
+  char name[64];
+  uint32 SHADER_INDEX;
+} shaders[surfaces[0].NUM_SHADERS];
+
+struct {
+  uint32 INDEXES[3];
+} triangles[surfaces[0].NUM_TRIANGLES];
+
+struct {
+  float ST[2];
+} texCoords[surfaces[0].NUM_VERTS];
+
+struct {
+  int16 x;
+  int16 y;
+  int16 z;
+  int16 normal;
+} verts[surfaces[0].NUM_VERTS * num_frames];
+

@@ -1,0 +1,90 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: XML.bt
+//   Authors: SweetScape Software
+//   Version: 1.0
+//   Purpose: Syntax highlighting for XML files.
+//  Category: Syntax
+// File Mask: *.xml,*.xsl,*.xslt
+//  ID Bytes: 
+//   History: 
+//   1.0   2018-10-03 SweetScape Software: Initial version.
+//------------------------------------------------
+RequiresVersion( 9 );
+
+// To save memory, allow a single copy of this template to provide 
+//  syntax highlighting for all open files that match the file mask.
+HighlightAllowInstanceSharing( true );
+
+// Get list of coloring styles
+local int commentStyle   = HighlightFindStyle( "tag-comment" );
+local int dataStyle      = HighlightFindStyle( "tag-data" );
+local int tagStyle       = HighlightFindStyle( "tag-base" );
+local int stringStyle    = HighlightFindStyle( "tag-string" );
+local int nameStyle      = HighlightFindStyle( "tag-name" );
+local int attributeStyle = HighlightFindStyle( "tag-attribute" );
+
+// Types of rules we may be applying
+const int RULE_NONE              = 0;
+const int RULE_MULTILINE_COMMENT = 1;
+const int RULE_TAG               = 2;
+const int RULE_DATA              = 3;
+const int RULE_STRING            = 4;
+const int RULE_CHAR_STRING       = 5;
+
+// Flags to keep track of status
+const int FLAG_TAG_NAME_FOUND    = 0x100;  // true if the tag name has been highlighted
+
+// Main function to apply syntax highlighting to a line of text.
+//  flags is preserved between lines and allows us to do multi-line comments.
+void HighlightLineRealtime( int64 line, wchar_t text[], int foreColors[], int backColors[], int count, ushort &flags )
+{
+    int i, len, pos, bracketPos, style, rule = flags & 0xff, foundName = flags & FLAG_TAG_NAME_FOUND;
+    while( i < count )
+    {
+        // Check multi-line comment - could be continued from a previous line
+        if( (text[i] == '<' || rule == RULE_MULTILINE_COMMENT) && 
+            HighlightCheckMultiLineRule( text, count, "<!--", "-->", i, 
+            rule, RULE_NONE, RULE_MULTILINE_COMMENT, foreColors, backColors, commentStyle ) ) 
+            continue;
+
+        // Check CDATA sections - could be continued from a previous line
+        if( (text[i] == '<' || rule == RULE_DATA) &&
+            HighlightCheckMultiLineRule( text, count, "<![CDATA", "]]>", i, 
+            rule, RULE_NONE, RULE_DATA, foreColors, backColors, dataStyle ) ) 
+            continue;
+
+        // Check start or end of tag rule - could be continued from a previous line
+        if( (text[i] == '<' || text[i] == '>') &&
+            HighlightCheckTagRule( text, count, "<", ">", i, 
+            rule, RULE_NONE, RULE_TAG, foreColors, backColors, tagStyle, foundName ) ) 
+            continue;
+
+        // Check multi-line string inside a tag - could be continued from a previous line
+        if( (text[i] == '\"' || rule == RULE_STRING) &&
+            HighlightCheckMultiLineRule( text, count, "\"", "\"", i, 
+            rule, RULE_TAG, RULE_STRING, foreColors, backColors, stringStyle, HIGHLIGHT_XMLSTRING ) )
+            continue;
+
+        // Check character constant string inside a tag - could be continued from a previous line
+        if( (text[i] == '\'' || rule == RULE_STRING) &&
+            HighlightCheckMultiLineRule( text, count, "\'", "\'", i, 
+            rule, RULE_TAG, RULE_CHAR_STRING, foreColors, backColors, stringStyle, HIGHLIGHT_XMLSTRING ) )
+            continue;
+
+        // Color tokens inside a tag - the foundName flag is preserved between lines
+        if( (rule == RULE_TAG) && 
+            HighlightCheckTagTokenRule( text, count, i, 
+            foreColors, backColors, tagStyle, nameStyle, attributeStyle, foundName ) ) 
+            continue;
+
+        // Nothing found - skip over whole words
+        i = HighlightGetNextToken( text, count, i );
+    }
+
+    // Save rule and foundName in the flags for the next line
+    flags = rule;
+    if( foundName )
+        flags |= FLAG_TAG_NAME_FOUND;
+}

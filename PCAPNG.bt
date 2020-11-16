@@ -1,0 +1,897 @@
+// ------------------------------------------------------------------------
+// --- 010 Editor Binary Template
+//
+//      File: PCAPNG.bt
+//   Authors: Kevin O. Grover
+//   Version: 1.3
+//   Purpose: Parse a PCAPNG Packet Capture file.
+//  Category: Network
+// File Mask: *.pcapng,*.ntar
+//  ID Bytes: 0A 0D 0D 0A
+// Reference: https://github.com/pcapng/pcapng
+//     Tests: https://github.com/hadrielk/pcapng-test-generator.git
+//   History:
+//   1.3   2018-06-09 K. Grover: Pad based on data size.
+//   1.2   2018-06-08 K. Grover: Custom Blocks.  More block types.
+//   1.1   2018-05-12 K. Grover: Refactor.  Cleanup.  Fixed PB reader.
+//   1.0   2017-09-01 K. Grover: Alternate block background color.
+//   0.7   2016-03-11 K. Grover: Updated header.
+//   0.1   2015-10-06 K. Grover: Original Version.
+//
+// This is the default format used by Wireshark 1.20 and newer (libpcap).
+//
+// PCAPNG files are block oriented.  The Section Header block is
+// magic: it specifies the endianess of all data in _that_ section
+// (until the next SHB).  Sections of different endianess are allowed
+// in the same file.
+//
+// The section header block (SHB) is supposed to be the first block,
+// followed by the Interface Description Block (IDB), which can set
+// time resolution details.  This decoder does not check for that.
+//
+// The Blocks all have the same format: unknown blocks can be read and
+// skipped.  In this decoder, we use a look-ahead read to get the
+// block_type, then create a block of that type (for known blocks) and
+// a generic block of type Block for all other blocks.
+// ------------------------------------------------------------------------
+
+// Base Types
+
+typedef byte int8;
+typedef ubyte uint8;
+
+// ------------------------------------------------------------------------
+// Constants and Enums
+// ------------------------------------------------------------------------
+
+// Byte Order Magic
+
+typedef enum <uint32> {
+    BOM = 0x1a2b3c4d,
+    BOM_SWAPPED = 0x4d3c2b1a
+} BYTE_ORDER;
+
+// Block Types
+
+typedef enum <uint32> {
+    // NOTE: The Section Header Block type will read the same
+    //       in Big and Little Endian.
+    BT_SECTION_HEADER  = 0x0a0d0d0a, // Section Header (Mandatory)
+    BT_INTERFACE_DESC  = 0x00000001, // Interface Description (Mandatory)
+    BT_PACKET          = 0x00000002, // Packet (Obsolete)
+    BT_SIMPLE_PACKET   = 0x00000003, // Simple Packet (Optional)
+    BT_NAME_RESOLUTION = 0x00000004, // Name Resolution (Optional)
+    BT_INTERFACE_STATS = 0x00000005, // Interface Statistics (Optional)
+    BT_ENHANCED_PACKET = 0x00000006, // Enhanced Packet (Optional)
+    BT_CUSTOM          = 0x00000BAD, // Custom Block (Optional, Copiable)
+    BT_CUSTOM_NOCOPY   = 0x40000BAD, // Custom Block (Optional, Not Copiable)
+
+    // In specification, but no decoder here
+    BT_RESERVED          = 0x00000000, // Reserved
+    BT_IRIG_TIMESTAMP    = 0x00000007, // IRIG Time Stamp
+    BT_AFDX_INFO         = 0x00000008, // ARINC 428 AFDX Encap. Info. Block
+    BT_HONE_MACHINE      = 0x00000101, // Hone Project Machine Info
+    BT_HONE_CONN_EVENT   = 0x00000102, // Hone Project Connection Even
+    BT_SYSDIG_MACHINE    = 0x00000201, // Sysdig Machine Info
+    BT_SYSDIG_PROCESS_V1 = 0x00000202, // Sysdig Proces Info (v1)
+    BT_SYSDIG_FD_LIST    = 0x00000203, // Sysdig FD List
+    BT_SYSDIG_EVENT      = 0x00000204, // Sysdig Event
+    BT_SYSDIG_IFLIST     = 0x00000205, // Sysdig Inteface List
+    BT_SYSDIG_UESRLIST   = 0x00000206, // Sysdig User List
+    BT_SYSDIG_PROCESS_V2 = 0x00000207, // Sysdig Process Info (v2)
+    BT_SYSDIG_EVENT_FL   = 0x00000208, // Sysdig Event Block with Flags
+    BT_SYSDIG_PROCESS_V3 = 0x00000209, // Sysdig Process Info (v3)
+    BT_SYSDIG_PROCESS_V4 = 0x00000210, // Sysdig Process Info (v4)
+    BT_SYSDIG_PROCESS_V5 = 0x00000211, // Sysdig Process Info (v5)
+    BT_SYSDIG_PROCESS_V6 = 0x00000212, // Sysdig Process Info (v6)
+    BT_SYSDIG_PROCESS_V7 = 0x00000213, // Sysdig Process Info (v7)
+
+    // TODO: How to handle these?
+    // 0x0A0D0A00-0x0A0D0AFF   // Reserved (corrupt by HTTP text tfer)
+    // 0x000A0D0A-0xFF0A0D0A   // Reserved (corrupt by HTTP text tfer)
+    // 0x000A0D0D-0xFF0A0D0D   // Reserved (corrupt by HTTP text tfer)
+    // 0x0D0D0A00-0x0D0D0AFF   // Reserved (corrupt by FTP text tfer)
+    // 0x80000000-0xFFFFFFFF   // Reserved for local use.
+} BLOCK_TYPE;
+
+// Link Types
+
+typedef enum <uint16> {
+    LT_NULL = 0,
+    LT_ETHERNET,
+    LT_EXP_ETHERNET,
+    LT_AX25,
+    LT_PRONET,
+    LT_CHAOS,
+    LT_TOKEN_RING,
+    LT_ARCNET,
+    LT_SLIP,
+    LT_FDDI,
+    LT_PPP_HDLC = 50,
+    LT_PPP_ETHER,
+    LT_SYMANTEC_FIREWALL = 99,
+    LT_ATM_RFC1483,
+    LT_RAW,
+    LT_SLIP_BSDOS,
+    LT_PPP_BSDOS,
+    LT_C_HDLC,
+    LT_IEEE802_11,
+    LT_ATM_CLIP,
+    LT_FRELAY,
+    LT_LOOP,
+    LT_ENC,
+    LT_LANE8023,
+    LT_HIPPI,
+    LT_HDLC,
+    LT_LINUX_SLL,
+    LT_LTALK,
+    LT_ECONET,
+    LT_IPFILTER,
+    LT_PFLOG,
+    LT_CISCO_IOS,
+    LT_PRISM_HEADER,
+    LT_AIRONET_HEADER,
+    LT_HHDLC,
+    LT_IP_OVER_FC,
+    LT_SUNATM,
+    LT_RIO,
+    LT_PCI_EXP,
+    LT_AURORA,
+    LT_IEEE802_11_RADIO,
+    LT_TZSP,
+    LT_ARCNET_LINUX,
+    LT_JUNIPER_MLPPP,
+    LT_JUNIPER_MLFR,
+    LT_JUNIPER_ES,
+    LT_JUNIPER_GGSN,
+    LT_JUNIPER_MFR,
+    LT_JUNIPER_ATM2,
+    LT_JUNIPER_SERVICES,
+    LT_JUNIPER_ATM1,
+    LT_APPLE_IP_OVER_IEEE1394,
+    LT_MTP2_WITH_PHDR,
+    LT_MTP2,
+    LT_MTP3,
+    LT_SCCP,
+    LT_DOCSIS,
+    LT_LINUX_IRDA,
+    LT_IBM_SP,
+    LT_IBM_SN
+} LINK_CODE;
+
+typedef enum <uint16> {
+    nres_endofrecord = 0,
+    nres_ip4record = 1,
+    nres_ip6record = 2
+} NRES_TYPE;
+
+typedef struct {
+    NRES_TYPE  record_type;
+    uint16     record_length;
+    if (record_length > 0) {
+        uint8 data[record_length];
+
+        // Align to 32 bit (4 byte) boundary (if needed)
+        local int padbytes = record_length & 0b11;
+        if (padbytes) {
+            padbytes = 4 - padbytes;
+            uint8 padding[padbytes];
+        }
+    }
+} NRES_RECORD <read=Read_NRES_RECORD>;
+
+string Read_NRES_RECORD(NRES_RECORD &r) {
+    local string name = EnumToString(r.record_type);
+
+    if (name != "") {
+        return name;
+    } else {
+        string res;
+        SPrintf(res, "*UNKNOWN*: %u", r.record_type);
+        return res;
+    }
+}
+
+// ------------------------------------------------------------------------
+// Helper Routines
+// ------------------------------------------------------------------------
+
+/**
+ * Generate a Block Label string.
+ *
+ * @param name the name of the block (possibly with extra data).
+ * @param btype block_type enum value.
+ * @param hasoptions indicate if this block has options.
+ * @param istruncated indicate if this blocks data is truncated. (EPB).
+ * @returns the generated block label string.
+ */
+
+string BlockLabel(string name, uint32 btype,
+                  int hasoptions, int istruncated)
+{
+    string res;
+    SPrintf(res, "%s (0x%X%s%s)", name, btype,
+            (hasoptions) ? "; +Opt" : "", (istruncated) ? "; Truncated" : "");
+    return res;
+}
+
+/**
+ * Return the given string, or "*UNKNOWN*" if it is empty.
+ *
+ * @param name the string to check
+ * @returns the string, or "*UNKNOWN*".
+ */
+
+string StrOrUnknown(string name)
+{
+    return (name != "") ? name : "*UNKNOWN*";
+}
+
+void check_block_lengths(uint32 block_length, uint32 block_lenght2, string block_label)
+{
+    if (block_length != block_length2) {
+        Warning("%s block length mismatch", block_label);
+        Printf("ERROR: %s block length mismatch (%u != %u)\n",
+               block_label, block_length, block_length2);
+        Exit(1);
+    }
+}
+
+// ------------------------------------------------------------------------
+// TimeStamp - 2 32bit words.   Time Units since Epoch.
+// ------------------------------------------------------------------------
+// Time Stamps are stored as two separate 32 bit numbers.
+// They are affected by endianess, so must be read independently.
+// The resolution is determined by options in the Interface Description
+// Block.  Default is micro seconds (10^-6).
+//
+// Epoch = 1970-01-01 00:00:00 UTC
+// ------------------------------------------------------------------------
+
+// NOTE: The fractional value does not match the number in Wireshark.  Also
+//       Wireshark is scaling to local timezone.  I do not.
+
+
+// These can be changed in IDB options.  These are the defaults.
+// TODO: Function Set_Time_Scale_Defaults() and called from IDB processing also!
+local uint8  tsresol_base = 10;    // 10 or 2
+local uint8  tsresol = 6;
+local int64  tsoffset = 0;
+local double tsscale = Pow(tsresol_base, -tsresol);
+
+typedef struct {
+    uint32  timestamp_high;
+    uint32  timestamp_low;
+} TimeStamp <read=Read_TimeStamp>;
+
+string Read_TimeStamp(TimeStamp &ts) {
+    local string res;
+    local double seconds = (((int64)ts.timestamp_high * (int64)0xFFFFFFFF + ts.timestamp_low) + tsoffset) * tsscale;
+    local time_t timet = (time_t) seconds;
+    local double rem = seconds - (uint32)timet;
+    // NOTE: This is fragile.  TimeToString wants time_t which is 32 bits
+    SPrintf(res, "%s + %.9lf  UTC", TimeTToString(timet, "yyyy-MM-dd hh:mm:ss"), rem);
+    return res;
+}
+
+// ------------------------------------------------------------------------
+// Options (allowed in some blocks)
+// ------------------------------------------------------------------------
+// I believe that you need to get the size of the block and subtract
+// the sizes of all known fields.  If that number is not 0, then there
+// are options.  This means that you must know the layout of the block
+// or you cannot know if options are present.  E.g. we cannot know if
+// options are present in generic Block structures.
+//
+// Note: Option types 2+ are re-used: they are different depending
+// upon the containing block type.
+// ------------------------------------------------------------------------
+
+typedef struct {
+    uint16 option;
+    uint16 length;
+    if (length > 0) {
+        uint8  data[length];
+
+        // Align to 32 bit (4 byte) boundary (if needed)
+        local int padbytes = length & 0b11;
+        if (padbytes) {
+            padbytes = 4 - padbytes;
+            uint8 padding[padbytes];
+        }
+    }
+} Options <read=Read_Option>;
+
+string Read_Option(Options &o) {
+    local string res;
+
+    switch (o.option) {
+    case 0:
+        return "opt_endofopt";
+    case 1:
+        SPrintf(res, "opt_comment: %s", o.data);
+        return res;
+
+    // Unknown
+    default:
+        SPrintf(res, "option: %u", o.option);
+        return res;
+    }
+}
+
+string Read_SHB_Option(Options &o) {
+    if (o.option <= 1) {
+        // Common options
+        return Read_Option(o);
+    }
+
+    local string res;
+
+    // Options for this block type
+    switch (o.option) {
+    // Section Header
+    case 2:
+        SPrintf(res, "shb_hardware: %s", o.data);
+        return res;
+    case 3:
+        SPrintf(res, "shb_os: %s", o.data);
+        return res;
+    case 4:
+        SPrintf(res, "shb_userappl: %s", o.data);
+        return res;
+
+    // Unknown
+    default:
+        SPrintf(res, "unknown option: %u", o.option);
+        return res;
+    }
+}
+
+string Read_IDB_Option(Options &o) {
+    if (o.option <= 1) {
+        // Common options
+        return Read_Option(o);
+    }
+
+    local string res;
+
+    // Options for this block type
+    switch (o.option) {
+    // Interface Description
+    case 2:
+        SPrintf(res, "if_name: %s", o.data);
+        return res;
+    case 3:
+        SPrintf(res, "if_description: %s", o.data);
+        return res;
+    case 4:
+        // TODO: 4 bytes IP addr, 4 bytes netmask
+        //       not 32bit numbers, not affected by endianess
+        return "if_IPv4addr";
+    case 5:
+        // TODO: 16 octets address, 1 oct prefix length
+        return "if_IPv6addr";
+    case 6:
+        // TODO: 48 bits (6 octets)
+        return "if_MACaddr";
+    case 7:
+        return "if_EUIaddr";
+    case 8:
+        return "if_speed";
+    case 9:
+        // Process Time Stamp Resolution options
+        tsresol = o.data[0];
+        if (tsresol & 0x80) {
+            // Remove high bit and set base
+            tsresol = tsresol & 0x7f;
+            tsresol_base = 2;
+        }
+        else {
+            // Otherwise, use default base
+            tsresol_base = 10;
+        }
+        tsscale = Pow(tsresol_base, -tsresol);
+        SPrintf(res, "if_tsresol: pow(%d, -%d) seconds", tsresol_base, tsresol);
+        return res;
+    case 10:
+        // TODO: Do I need to remember/use this?
+        return "if_tzone";
+    case 11:
+        // This is not a string.  Format unclear.  Has leading \0.
+        return "if_filter";
+    case 12:
+        SPrintf(res, "if_os: %s", o.data);
+        return res;
+    case 13:
+        // 8 bit signed number
+        return "if_fcslen";
+    case 14:
+        // TODO: Decode (int64) and save.
+        return "if_tsoffset";
+
+    // Unknown
+    default:
+        SPrintf(res, "unknown option: %u", o.option);
+        return res;
+    }
+}
+
+string Read_EPB_Option(Options &o) {
+    if (o.option <= 1) {
+        // Common options
+        return Read_Option(o);
+    }
+
+    local string res;
+
+    // Common options
+    switch (o.option) {
+    // Enhanced Packet Block
+    case 2:
+        return "epb_flags";
+    case 3:
+        return "epb_hash";
+    case 4:
+        return "epb_dropcount";
+
+    // Unknown
+    default:
+        SPrintf(res, "unknown option: %u", o.option);
+        return res;
+    }
+}
+
+string Read_PB_Option(Options &o) {
+    if (o.option <= 1) {
+        // Common options
+        return Read_Option(o);
+    }
+
+    local string res;
+
+    // Options for this block type
+    switch (o.option) {
+    // Packet Block (Obsolete)
+    case 2:
+        return "pack_flags";
+    case 3:
+        return "pack_hash";
+
+    // Unknown
+    default:
+        SPrintf(res, "unknown option: %u", o.option);
+        return res;
+    }
+}
+
+string Read_NRB_Option(Options &o) {
+    if (o.option <= 1) {
+        // Common options
+        return Read_Option(o);
+    }
+
+    local string res;
+
+    // Options for this block type
+    switch (o.option) {
+    // Name Resolution Block
+    case 2:
+        SPrintf(res, "ns_dnsname: %s", o.data);
+        return res;
+    case 3:
+        return "ns_dnsIP4addr";
+    case 4:
+        return "ns_dnsIP6addr";
+
+    // Unknown
+    default:
+        SPrintf(res, "unknown option: %u", o.option);
+        return res;
+    }
+}
+
+string Read_ISB_Option(Options &o) {
+    if (o.option <= 1) {
+        // Common options
+        return Read_Option(o);
+    }
+
+    local string res;
+
+    // Options for this block type
+    switch (o.option) {
+    // Interface Statistics Block
+    case 2:
+        return "isb_starttime";
+    case 3:
+        return "isb_endtime";
+    case 4:
+        return "isb_ifrecv";
+    case 5:
+        return "isb_ifdrop";
+    case 6:
+        return "isb_filteraccept";
+    case 7:
+        return "isb_osdrop";
+    case 8:
+        return "isb_usrdeliv";
+
+    // Unknown
+    default:
+        SPrintf(res, "unknown option: %u", o.option);
+        return res;
+    }
+}
+
+// ------------------------------------------------------------------------
+// Block (generic)
+// ------------------------------------------------------------------------
+// This is the generic block structure.  All blocks are of this form.
+// This structure can be used to read (and skip) all blocks.
+// It is used when we have not defined specific details for a block type.
+// Defining the layout of known blocks allows us to more easily see
+// the contents of the block (in a readable format).
+//
+// NOTES
+// - length includes meta data (12 bytes).  Block with no body is 12 bytes.
+// - length is included twice to permit backward navigation.
+// ------------------------------------------------------------------------
+
+typedef struct {
+    BLOCK_TYPE block_type <format=hex>;
+    uint32 block_length;
+    if (block_length > 12)
+        uint8  block_body[block_length - 12];
+    // Should never need to align a generic Block because
+    // length is the total packet length: internal items should
+    // already be aligned.
+    if ((block_length & 0b11) != 0) {
+        // This should never happen according to the spec.
+        Printf("WARNING: %08x: Block data not 4-byte aligned\n", pos);
+    }
+    uint32 block_length2;
+} Block <read=Read_Block>;
+
+string Read_Block(Block &b) {
+    local string name = StrOrUnknown(EnumToString(b.block_type));
+    return BlockLabel(name, b.block_type, false, false);
+}
+
+// ------------------------------------------------------------------------
+// Section Header Block (Mandatory)
+// ------------------------------------------------------------------------
+// This block starts a new section.  It specifies the endianess of all
+// data in this section.   Sections of different endianess are allowed
+// in the same file/stream.
+// ------------------------------------------------------------------------
+
+typedef struct {
+    // Peek ahead to check for Endianess in this Section
+    local uint32 bom = ReadUInt(FTell() + 8);
+    // is this section BE?
+    // NOTE: IsBigEndian() is not reliable in the reader function, so
+    //       we save the state in this structure.
+    local uint8 isBE = IsBigEndian();
+    if (bom == BOM) {
+        // This good.  Don't change.
+    } else if (bom == BOM_SWAPPED) {
+        // Swap the endianess
+        if (isBE) {
+            LittleEndian();
+            isBE = 0;
+        } else {
+            BigEndian();
+            isBE = 1;
+        }
+    } else {
+        Warning("Bad Byte_Order_Magic");
+        Printf("ERROR: Bad Byte Order Magic: 0x%X\n", bom);
+        return 1;
+    }
+
+    // Allocate the data for this section header
+    BLOCK_TYPE  block_type <format=hex>;
+    uint32  block_length;
+    BYTE_ORDER  byte_order_magic <format=hex>;
+    uint16  version_major;
+    uint16  version_minor;
+    /**
+     * Length for this entire section (excluding this SHB),
+     * if it's -1 (0xFFFFFFFFFFFFFFFF), then it was not specified.
+     */
+    // spec calls for this to be int64, but this works.
+    // They use -1 to test for not specified.
+    uint64  section_length <read=Read_Section_Length>;
+    if (block_length > 28) {
+        // Allocate Options.
+        do {
+            Options options <read=Read_SHB_Option>;
+        } while (options.option != 0);
+    }
+    uint32  block_length2;
+    check_block_lengths(block_length, block_length2, "Section Header");
+} SHB <read=Read_SHB>;
+
+string Read_SHB(SHB &b) {
+    local string name;
+    SPrintf(name, "Section Header v%u.%u (%s)",
+            b.version_major, b.version_minor,
+            b.isBE ? "BE" : "LE");
+    return BlockLabel(name, b.block_type, exists(b.options), false);
+}
+
+string Read_Section_Length(uint64 sl) {
+    // The spec calls for this value to be signed.  But using
+    // un-signed in 010editor, this test works correctly.
+    if (sl == -1) {
+        return "* Not Specified *";
+    } else {
+        local string res;
+        SPrintf(res, "%u", sl);
+        return res;
+    }
+}
+
+// ------------------------------------------------------------------------
+// Interface Description Block (Mandatory)
+// ------------------------------------------------------------------------
+
+typedef struct {
+    BLOCK_TYPE  block_type <format=hex>;
+    uint32  block_length;
+    LINK_CODE  link_type;
+    uint16  reserved;
+    uint32  snap_length;
+    if (block_length > 20) {
+        // Allocate Options.
+        do {
+            Options options <read=Read_IDB_Option>;
+        } while (options.option != 0);
+    }
+    uint32  block_length2;
+    check_block_lengths(block_length, block_length2, "Interface Description");
+} IDB <read=Read_IDB>;
+
+string Read_IDB(IDB &b) {
+    local string name;
+    SPrintf(name, "Interface Description (%s)", EnumToString(b.link_type));
+    return BlockLabel(name, b.block_type, exists(b.options), false);
+}
+
+// ------------------------------------------------------------------------
+// Enhanced Packet Block (Optional)
+// ------------------------------------------------------------------------
+
+typedef struct {
+    BLOCK_TYPE  block_type <format=hex>;
+    uint32  block_length;
+    uint32  interface_id;
+    TimeStamp   timestamp;
+    uint32  len_capture;
+    uint32  len_packet;
+    if (len_capture) {
+        uint8   data[len_capture];
+
+        // Align to 32 bits
+        local int padbytes = len_capture & 0b11;
+        if (padbytes) {
+            padbytes = 4 - padbytes;
+            uint8 padding[padbytes];
+        }
+    }
+    if (block_length > (32 + len_capture + padbytes)) {
+        // Allocate Options.
+        do {
+            Options options <read=Read_EPB_Option>;
+        } while (options.option != 0);
+    }
+    uint32  block_length2;
+    check_block_lengths(block_length, block_length2, "Enhanced Packet");
+} EPB <read=Read_EPB>;
+
+string Read_EPB(EPB &b) {
+    return BlockLabel("Enhanced Packet", b.block_type,
+                      exists(b.options), b.len_capture != b.len_packet);
+}
+
+// ------------------------------------------------------------------------
+// Name Resolution Block (Optional)
+// ------------------------------------------------------------------------
+
+typedef struct {
+    BLOCK_TYPE  block_type <format=hex>;
+    uint32  block_length;
+
+    // Records
+    local uint64 pos_start = FTell();
+    do {
+        NRES_RECORD record;
+    } while(record.record_length != 0);
+    local uint64 recsize = FTell() - pos_start;
+
+    // Options
+    if (block_length > 12 + recsize) {
+        // Allocate Options.
+        do {
+            Options options <read=Read_NRB_Option>;
+        } while (options.option != 0);
+    }
+    uint32  block_length2;
+    check_block_lengths(block_length, block_length2, "Name Resolution");
+} NRB <read=Read_NRB>;
+
+string Read_NRB(NRB &b) {
+    return BlockLabel("Name Resolution", b.block_type,
+                      exists(b.options), false);
+}
+
+// ------------------------------------------------------------------------
+// Interface Statistics Block (Optional)
+// ------------------------------------------------------------------------
+
+typedef struct {
+    BLOCK_TYPE  block_type <format=hex>;
+    uint32  block_length;
+    uint32  interface_id;
+    TimeStamp  timestamp;
+    if (block_length > 24) {
+        // Allocate Options.
+        do {
+            Options options <read=Read_ISB_Option>;
+        } while (options.option != 0);
+    }
+    uint32  block_length2;
+    check_block_lengths(block_length, block_length2, "Interface Statistics");
+} ISB <read=Read_ISB>;
+
+string Read_ISB(ISB &b) {
+    return BlockLabel("Interface Statistics", b.block_type,
+                      exists(b.options), false);
+}
+
+// ------------------------------------------------------------------------
+// Simple Packet Block (Optional)
+// ------------------------------------------------------------------------
+
+typedef struct {
+    BLOCK_TYPE block_type <format=hex>;
+    uint32 block_length;
+    uint32 original_packet_length;
+
+    local uint32 data_length = original_packet_length;
+    if (last_snap_length != 0) {
+        data_length = Min(original_packet_length, last_snap_length);
+    }
+    if (data_length > 0) {
+        uint8  data[data_length];
+
+        // Align to 32 bit (4 byte) boundary (if needed)
+        local int padbytes = data_length & 0b11;
+        if (padbytes) {
+            padbytes = 4 - padbytes;
+            uint8 padding[padbytes];
+        }
+    }
+    uint32 block_length2;
+    check_block_lengths(block_length, block_length2, "Simple Packet");
+} SPB <read=Read_SPB>;
+
+string Read_SPB(SPB &b) {
+    return BlockLabel("Simple Packet", b.block_type,
+                      exists(b.options), false);
+}
+
+// ------------------------------------------------------------------------
+// Packet Block (Obsolete)
+// ------------------------------------------------------------------------
+
+typedef struct {
+    BLOCK_TYPE block_type <format=hex>;
+    uint32 block_length;
+    uint16 interface_id;
+    uint16 drops_count;
+    TimeStamp  timestamp;
+    uint32 len_capture;
+    uint32 len_packet;
+    if (len_capture) {
+        uint8 data[len_capture];
+
+        // Align to 32 bit (4 byte) boundary (if needed)
+        local int padbytes = len_capture & 0b11;
+        if (padbytes) {
+            padbytes = 4 - padbytes;
+            uint8 padding[padbytes];
+        }
+    }
+    // Options
+    if (block_length > (32 + len_capture + padbytes)) {
+        // Allocate Options.
+        do {
+            Options options <read=Read_PB_Option>;
+        } while (options.option != 0);
+    }
+    uint32  block_length2;
+    check_block_lengths(block_length, block_length2, "Packet");
+} PB <read=Read_PB>;
+
+string Read_PB(PB &b) {
+    return BlockLabel("Packet", b.block_type,
+                      exists(b.options), false);
+}
+
+// ------------------------------------------------------------------------
+// Custom Block (Optional)
+// Two flavors: one copiable, one not.
+// ------------------------------------------------------------------------
+// TODO: Not Tested!
+
+typedef struct {
+    BLOCK_TYPE  block_type <format=hex>;
+    uint32  block_length;
+    uint32  iana_pen;           // Private Enterprise Number (IANA assigned)
+    if (block_length > 16)
+        uint8  custom_data[block_length - 16];
+    uint32  block_length2;
+    check_block_lengths(block_length, block_length2, "Interface Description");
+} CB <read=Read_CB>;
+
+string Read_CB(IDB &b) {
+    local string name;
+    SPrintf(name, "Custom (%s)", EnumToString(b.link_type));
+    return BlockLabel(name, b.block_type, false, false);
+}
+
+// ------------------------------------------------------------------------
+// Main - Allocate the data
+// ------------------------------------------------------------------------
+
+local uint32 last_snap_length = 0;  // Saved from last IDB
+local BLOCK_TYPE block_type;
+
+local int block_count = 0;
+while( !FEof() ) {
+    block_type = ReadUInt();
+    SetBackColor( (block_count++ % 2) ? cLtGray : cNone );
+    switch (block_type) {
+    case BT_SECTION_HEADER:
+        SHB b <name="SHB">;
+        break;
+    case BT_INTERFACE_DESC:
+        // Set default TIME scales.   These can be changed
+        // by options in this block.
+        tsresol_base = 10;
+        tsresol = 6;
+        tsscale = Pow(tsresol_base, -tsresol);
+        tsoffset = 0;
+
+        IDB b <name="IDB">;
+
+        // Save for future use
+        last_snap_length = b.snap_length;
+        break;
+    case BT_NAME_RESOLUTION:
+        NRB b <name="NRB">;
+        break;
+    case BT_ENHANCED_PACKET:
+        EPB b <name="EPB">;
+        break;
+    case BT_PACKET:
+        PB b <name="PB">;
+        break;
+    case BT_INTERFACE_STATS:
+        ISB b <name="ISB">;
+        break;
+    case BT_SIMPLE_PACKET:
+        SPB b <name="SPB">;
+        break;
+    case BT_CUSTOM:
+        CB b <name="CB">;
+        break;
+    case BT_CUSTOM_NOCOPY:
+        CB b <name="CB_NOCOPY">;
+        break;
+    default:
+        // Not a known type, use a generic Block
+        Block b <name="Block">;
+    }
+}

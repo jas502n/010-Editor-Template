@@ -1,0 +1,81 @@
+//------------------------------------------------
+//--- 010 Editor v8.0.1 Binary Template
+//
+//      File: UMSE.bt
+//   Authors: David Alvarez Perez
+//   Version: 0.1
+//   Purpose: Template for Universal Malware Sample Encryption
+//  Category: Misc
+// File Mask: *.umse
+//  ID Bytes: 55 4D 53 45 //UMSE
+//   History: 
+//   0.1   2020-02-24 David Alvarez Perez: Initial version.
+//------------------------------------------------
+struct ENCRYPTED_SAMPLE {
+    struct HEADER {
+        char    magic[4] <comment="Magic of: Universal Malware Sample Encryption">;
+        char    version[4] <comment="Version of: Universal Malware Sample Encryption format">;
+        int     numRecordsDecTable <comment="Number of Records in Decryption Table">;
+        int     numFileEntries <comment="Number of file entries or encrypted byte chunks">;
+        int     authorNameLength <comment="Author name length">;
+        char    authorNameValue[header.authorNameLength] <comment="Author name">;
+    } header <comment="UMSE Header">;
+
+    struct DECRYPTION_TABLE {
+        char    levelOfConfidentiality <comment="Level of confidenciality">;
+        char    aesWrapped[256] <comment="IV and AES256 Key (wrapped with Public RSA) both necessaries to decrypt chunks of this level">;
+    } decryptionTable [ header.numRecordsDecTable ] <comment="Decryption table">;
+
+    struct ENTRY {
+        int     size <comment="Size of this entry">;
+        char    levelOfConfidentiality <comment="Level of confidenciality of this entry">;
+        char    encryptedMessage[ entry.size ] <comment="Encrypted chunk">;
+        int     numMetadata <comment="Number of public metadata entries of this chunk">;
+        struct ENTRY_METADATA {
+            char    tag[8] <comment="TAG of this metadata">;
+            int     length <comment="Size of this metadata content">;
+            char    value[ length ] <comment="metadata value">;
+        } entry_meta [ entry. numMetadata ]<optimize=false, comment="Entry metadata">;
+    } entry [ header.numFileEntries ] <optimize=false, comment="UMSE entry">;
+
+    struct FILE_PROPERTIES {
+        char    levelOfConfidentiality <comment="File confidenciality level">;
+        char    hashValue[ 32 ] <comment="Hash value">;
+        int     numMetadata <comment=" Number of public metadata entries of this file">;
+        struct FILE_METADATA {
+            char    tag[8] <comment="TAG of this flag">;
+            int     length <comment="Size of this metadata content">;
+            char    value[ file_metadata.length ] <comment="metadata value">;
+        } file_metadata [ file_properties.numMetadata ]<optimize=false, comment="File metadata">;
+    } file_properties <comment="File properties">;
+
+    struct AUTHENTICATION_HEADER {
+        int     authenticationLength  <comment="Authentication length">;
+        char    authentication[ authentication_header.authenticationLength ]  <comment="HMAC SHA256 Authentication. The key is the sha256 of the encryption table but after entire decrypted">;
+    } authentication_header <comment="Authentication Header">;
+
+    if(!FEof()) {
+        struct RSA_PRIVATE_KEY {
+            int     rsaPrivateKeyLength <comment="RSA Key Length">;
+            char    rsaPrivateKey[ rsa_private_key.rsaPrivateKeyLength ] <comment="RSA Key">;
+        } rsa_private_key <comment="RSA Key (This is an optional field)">;
+    }
+} encryptedSample;
+
+
+// Main
+
+int isUMSE(void)
+{
+    local TFindResults countUmse;
+	countUmse = FindAll("UMSE");
+    return countUmse.count;
+}
+
+
+isUMSE();
+if (isUMSE()==0)
+{
+	Printf("Keywords not found, not a UMSE file!\n");
+	return;
+}

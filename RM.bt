@@ -1,0 +1,138 @@
+//------------------------------------------------
+//--- 010 Editor v7.0.1 Binary Template
+//
+//      File: RM.bt
+//   Authors: Jian Xu
+//   Version: 1.0
+//   Purpose: Defines a template for parsing RM (RealMedia) video files.
+//  Category: Video
+// File Mask: *.rm,*.ra,*.rmvb
+//  ID Bytes: 2E 52 4D 46 //.RMF
+//   History: 
+//  1.0 2016-05-14 Jian Xu: Init Commit
+//------------------------------------------------
+
+BigEndian();
+
+// RealMedia file header
+typedef struct {
+    char type[4]; // always must be ".RMF"
+    DWORD size; // typically 0x12
+    WORD  version; // always 0, for every known file
+    DWORD fileVersion;
+    DWORD numberOfHeaders;
+} RMF;
+
+// File Properties header
+typedef struct {
+    char type[4]; // always must be "PROP"
+    DWORD size; // typically 0x32
+    WORD version;
+    DWORD maxBitRate;
+    DWORD averageBitRate;
+    DWORD maxDataPacketSize;
+    DWORD averageDataPacketSize;
+    DWORD numOfPackets;
+    DWORD durationInMS;
+    DWORD playbackSuggestedInMS;
+    DWORD firstINDXOffset;
+    DWORD firstDATAOffset;
+    WORD  numOfStreams <comment="Number of streams in the file">;
+    WORD  flags;
+} PROP;
+
+
+
+// Content description header
+
+typedef struct {
+    char type[4]; // always must be "CONT"
+    DWORD size;
+    WORD version;
+    WORD titleLength;
+    char title[titleLength];
+    WORD authorLength;
+    char author[authorLength];
+    WORD copyrightLength;
+    char copyright[copyrightLength];
+    WORD commentLength;
+    char comment[commentLength];
+} CONT;
+
+// Media properties header
+typedef struct {
+    char type[4]; // always must be "MDPR"
+    DWORD size;
+    WORD version;
+    WORD numOfStream;
+    DWORD maxBitRate;
+    DWORD averageBitRate;
+    DWORD maxDataPacketSize;
+    DWORD averageDataPacketSize;
+    DWORD startOffset;
+    DWORD preroll;
+    DWORD duration;
+    byte descriptionSize;
+    byte description[descriptionSize];
+    byte streamMimeTypeSize;
+    byte streamMimeType[streamMimeTypeSize];
+    DWORD specificTypeDataSize;
+    byte specificTypeData[specificTypeDataSize];
+    
+} MDPR;
+
+// Data Packet
+typedef struct {
+    WORD version;
+    WORD size;
+    WORD streamNumber;
+    DWORD timestamp;
+    if (version == 0) {
+        byte packetGroup;
+        byte flags;
+    } else if (version == 1) {
+        WORD asmRule;
+        byte asmFlag;
+    }
+    byte specificData[size-12];
+} DataPacket;
+
+// Data header
+typedef struct {
+    char type[4]; //always be data
+    DWORD size;
+    WORD version;
+    DWORD numOfDataPackets;
+    DWORD nextDataOffset;
+    DataPacket dataPacket[numOfDataPackets] <optimize=false>;
+} DH;
+
+// Index entry
+typedef struct {
+    WORD version;
+    DWORD timestampInMS;
+    DWORD offset;
+    DWORD number;
+} IndexEntry;
+
+// Index header
+typedef struct {
+    char type[4];
+    DWORD size;
+    WORD version;
+    DWORD numOfEntries;
+    WORD numOfStream;
+    DWORD nextIndexOffset;
+    IndexEntry entries[numOfEntries];
+} IndexHeader;
+
+
+
+struct RealMedia {
+    RMF rmf;
+    PROP prop;
+    CONT cont;
+    MDPR mdpr[ prop.numOfStreams] <optimize=false>;
+    DH dh;
+    IndexHeader ih[prop.numOfStreams] <optimize=false>;
+} realmedia;

@@ -1,0 +1,621 @@
+//--------------------------------------
+//--- 010 Editor v7.0d Binary Template
+//
+//      File: SytosPlus.bt
+//    Author: Simon N. Thornton
+//    E-mail: datarecovery@eazimail.com
+//   Version: 1.1
+//   Purpose: Decode Sytos Plus Tape Image and (optionally) dump recovered files.
+//  Category: Drives
+// File Mask:  
+//  ID Bytes: 
+//
+//   History:
+//   1.1   2016-05-17 Simon Thornton: Minor correction variable names
+//   1.0   2016-05-16 Simon Thornton: Official release
+//   0.4   2016-05-16 Simon Thornton: Changed read logic; dropped initial record count sequence (faster)
+//   0.3   2016-05-16 Simon Thornton: Corrected bug in fFindHeader logic, now searches to end
+//   0.3   2016-05-16 Simon Thornton: Dumps output to <sourcedir>\output\<filepath> with ':' replaced by '_'
+//   0.21  2016-05-16 Simon Thornton: Dumps recovered files to <sourcedir>\output\<offset_<filename>
+//   0.2   2016-05-16 Simon Thornton: Decoded all except MAC times and Permissions
+//   0.1   2016-05-16 Simon Thornton: Initial version, partial decode
+//--------------------------------------
+
+
+/**************************
+Sytos stores the backup as a series of tape records, grouped into several categories. 
+
+Backup catalog (definition):
+
+Blksize     Records     uchars
+512         5           2560
+1024        10          5120
+
+Backup content: generally rest of tape
+
+Backup continuation record (optional): if backup extends to another tape
+(similar to format of initial tape catalog but only 1 record
+
+
+a) Record entries within the blocks are padded with NULLs to the block size.
+
+b) The sytos software re-uses working buffers, adjacent records may carry over data from the previous record
+   (very common with directory entries)
+
+c) Each entry on the tape begins with a record length (XX XX) followed by an 8 uchar null terminated signature:
+
+   XX XX A2 2A 2A A2 A2 2A 2A A2 00     "¢**¢¢**¢"
+
+d) The next uchar after the signature determines the record type
+
+
+Known Bugs
+==========
+
+a)  Does not restore MAC file times as these are not yet enumerated from the image.
+    The format used for the date/time stamps eludes me currently (ideas anyone?).
+
+b)  The original file/directory permissions are not enumerated.
+    (See previous comment on MAC file times).
+
+c)  Verified to work on the PC, not checked on the Linux or Mac versions of "010 Editor"
+    (the export function may not work due to file paths but I have not checked)
+
+d)  The export function should probably be moved to a script which would includes a pure template
+    The current design was a trade off as the requirement was to recover the data
+    first and allow cataloging second.
+
+e)  The template is highly memory intensive as it loads both the original tape (1GB or more)
+    and the decoded template into memory. I considered an alternative design wherein
+    the extracted file was referenced by an offset and then a second pass would handle
+    the export. If anyone wants to do this please have a go and let me know.
+
+    One issue that can occur, usually if you process multiple images, is that the editor
+    can crash. Short of debugging the editor the recommended usage is to close each tape
+    image after processing so that it frees up memory.
+
+    Note: Further work to analyse the crash sequence is needed.
+
+f)  If the record enumeration fails for some reason then the output log is NOT written
+    to disk although it remains in the output pane for inspection.
+
+g)  Does not handle encrypted backups
+    I don't have any sample to test against. From what I read on a data recovery site
+    this shouldn't be too difficult.
+
+
+Operation
+=========
+
+1) Extract the tape image to disk (see below for HOWTO).
+2) Load 010 Editor.
+3) Open the Image file.
+4) Open the sytos template.
+5) If you want to export the files recovered set the EXPORT variable to 1 (after the comments at the top).
+   (the files are dumped to the directory "output" under the directory where the image file
+    was loaded from, e.g. if the image was "c:\temp\myimage.img" the restore is in "c:\temp\output").
+6) Hit F5 to execute the template
+   If you are prompted to allow the script to access the disk click allow (for saving restored files)
+   It will take a while to process the tape, especially if EXPORT is set.
+
+7) The output pane will contain a log of the activity, this is also writtten to disk with
+   the same name as the image file but with .log appended.
+
+
+Retrieval of the tape image
+===========================
+The retrieval process outlined here is linux (or bsd) specific, once transferred then
+the processing can be done on any platform supported by 010 Editor.
+
+Why not windows for the transfer; Linux does not require specific drivers to interface
+with the tape drives. Finding drivers for legacy devices under windows can be impossible.
+This said, if you can find a way to do this under windows go right ahead.
+
+Before you can process a tape image you need to create one by transferring the data
+from the tape. For ease of access the transfer is performed using a linux (or similar)
+platform using command line utilities such as dd and mt.
+
+For testing I had the Wangtek and Exauchar drives connected via SCSI1 interface to an
+old adaptec SCSI controller (AHA1542A) on a linux test machine.
+
+
+The following assumes the use of linux (or equivalent) with the Tape drives attached, via SCSI in my case
+
+1)  Find the Block size of the tape, e.g. TAPEDEV=/dev/st0
+    mt -f ${TAPEDEV} status 2>&1 | grep \"Tape block\" | cut -d ' ' -f4`"
+
+2)  use dd to dump tape record to disk i.e. a=filename plus part, e.g. tape_1.img:
+    dd if=${TAPEDEV} of=${a} bs=${BLKSIZE} conv=noerror,notrunc 2>&1
+
+    Repeat on errors to skip bad sectors and/or records.
+
+3)  Check size of output file
+    if size >0 then go back to step 2) and increment segment
+    if size ==zero then no record was retrieved, stop
+    
+4)  Combine all records retrieved in step 2 into a single file
+
+5)  Eject tape
+
+
+
+A sample bash script for this logic is as follows:
+
+    #!/bin/bash
+    #
+    # Author:   Simon Thornton (datarecovery@eazimail.com)
+    # Date:	2014/10/26
+    # Modified:	2014/10/26
+    # Function:	Copy tape image to file
+    # Syntax:	gettape.sh [stX] [backupSW] [dstdir]
+    # Where:	stX		Tape device, st0, st1 etc	(default: st2)
+    #		backupSW	label for image			(default: sytos)
+    #		dstdir		Directory for files		(default: /root)
+    #
+    # Bugs
+    # 2014/10/27	SNT If the tape is faulty then the status command will hang. Usual symptoms are fragments in the tape cartridge
+    #		Solution: power cycle drive, remove tape (repeat power cycle till app ends)
+    #
+    
+    sVER=1.0
+    
+    printf "\n==============================\n" 1>&2
+    printf "= Tape recovery utility v${sVER} =" 1>&2
+    printf "\n==============================\n" 1>&2
+    printf "\n\n" 1>&2 
+    
+    # Did we specify a device on the command line?
+    if [ -n "$1" ]; then
+	    sTAPE="${1}"
+    else	# Figure out a device to use
+	    # Default device, use to locate 
+	    sTAPEDEVDEF="TANDBERG  TDC 3600"
+	    # Find the default device in the list of scsi tape appliances
+	    sTAPE="`lsscsi | grep tape | grep \"${sTAPEDEVDEF}\" | cut -b59- | tr -d ' '`"
+	    # Default device not found, revert to st0
+	    if [ -z "${sTAPE}" ]; then sTAPE=st0; fi
+    fi
+    
+    sTAPEDEV="/dev/n${sTAPE}"
+    export sTAPEDEV
+    
+    
+    sTAPESRC="${2:-sytos}"
+    sDSTDIR="${3:-/root}"
+    
+    if [ ! -e ${sTAPEDEV} ]; then
+	    printf "Error: device ${sTAPE} does not exist, aborting!\n" 1>&2
+	    exit 1
+    fi
+    
+    if [ ! -d ${sDSTDIR} ]; then
+	    printf "Error: Directory ${sDSTDIR} does not exist, aborting!\n" 1>&2
+	    exit 1
+    fi
+    
+    sTAPENAM="`lsscsi | grep ${sTAPE} | cut -b22-46 | sed 's/ $//' | tr -s ' ' '-' | tr '[:upper:]' '[:lower:]'`"
+    
+    if [ -z "${sTAPENAM}" ]; then
+	    printf "Error: cannot get tape device name for ${sTAPE}, aborted\n" 1>&2
+	    exit 1
+    fi
+    
+    
+    sPFX="${sTAPESRC}-${sTAPENAM}`date +%Y%m%d%H%M`"
+    
+    printf "Source dev:\t${sTAPEDEV}\nOutput dir:\t${sDSTDIR}\nImage file:\t${sPFX}.img\n\n" 1>&2
+    
+    printf "Checking for tape, please insert ...\t" 1>&2
+    BLKSIZE="`mt -f ${sTAPEDEV} status 2>&1 | grep \"Tape block\" | cut -d ' ' -f4`"
+    if [ -z "${BLKSIZE}" ]; then BLKSIZE=512; fi
+    printf "ready\n" 1>&2
+    
+    (
+	    printf "\n===============\nRestore started at\t`date`\nBlock size:\t${BLKSIZE}\n\n"
+	    printf "Rewinding tape ...\t" 1>&2
+	    mt -f ${sTAPEDEV} rewind 2>&1
+	    printf "OK\n" 1>&2
+    
+	    for a in `seq -w 0 9`; do
+		    printf "Copying tape segment %03d from ${sTAPEDEV} @ ${BLKSIZE} uchars, please wait ... \t" $a 1>&2
+		    dd if=${sTAPEDEV} of=${sDSTDIR}/${sPFX}_${a}.img bs=${BLKSIZE} conv=noerror,notrunc 2>&1 | awk 'BEGIN{printf "\n"}{printf "\tdd        :\t%s\n",$0}'
+		    printf "Xfer\t" 1>&2
+		    mt -f ${sTAPEDEV} status 2>&1 | awk 'BEGIN{printf "\n"}{printf "\t%s :\t%s\n",ENVIRON["sTAPEDEV"],$0}'
+		    if [ -s ${sDSTDIR}/${sPFX}_00${a}.img ]; then
+			    printf "OK\n" 1>&2
+		    else
+			    printf "0 uchars, removing\n" 1>&2
+			    rm ${sDSTDIR}/${sPFX}_${a}.img
+			    break
+		    fi
+	    done
+    
+	    printf "Concatenating parts ...\t" 1>&2
+	    cat ${sDSTDIR}/${sPFX}_00[0-9].img >${sDSTDIR}/${sPFX}.img && rm -f ${sDSTDIR}/${sPFX}_00[0-9].img
+	    printf "OK\n" 1>&2
+    
+	    printf "Ejecting tape ...\t" 1>&2
+	    mt -f ${sTAPEDEV} rewind 2>/dev/null 1>/dev/null
+	    mt -f ${sTAPEDEV} offline 2>/dev/null 1>/dev/null
+	    printf "OK\n" 1>&2
+    
+	    printf "\n===============\nRestore ended at\t`date`\n"
+    ) | tee /root/${sPFX}.log
+    
+    unset sTAPEDEV
+    #
+    # EOF
+
+
+Note on tape devices
+====================
+The block size on tapes depends on the format, type and size of the tape device.
+
+As an example based on the tape samples I examined the block sizes were:
+     512 Wangtek / Tandberg
+     512 sytos-tandberg-tdc-3600-201410062106.img
+    1024 Exauchar
+    1024 sytos-exauchar-exb-8200-201410062153.img
+
+The script determines the block size automatically by determining the spacing between signatures in the first 16k
+
+When examining a tape you can usually find the block size by using the 'mt status' command 
+and look for the 'Tape block' entry.
+
+
+Examples
+========
+To make it easy to verify I have uploaded two partial tape images that will let you
+test the template (unzip these files and then open them in 010 Editor, click F5)
+
+-rw-r--r-- 1 root root 351232 May 18 01:59 sytos_exauchar_example.img
+-rw-r--r-- 1 root root 150230 May 18 01:44 sytos_tandberg_example.img
+
+The most up to date version of this script (and the sample files) can always be
+downloaded from:
+
+    http://thornton.info/tools/
+
+
+Disclaimer
+==========
+Warning: this template can write the content of the backup to your disk if the EXPORT
+option is set; there is a chance that this may corrupt your disk if the tape image
+is corrupt for some reason. No warranty expressed or implied is given with this template or any derivative
+thereof. If you execute this script, or any deriviative thereof, you hereby absolve the
+author of any and all liabilities. In essence; if it corrupts your system, damages your hardware
+or causes financial loss you are on your own.
+
+I'm not a programmer, this code was constructed to fulfil a data recovery requirement.
+If you improve this code or resolve the outstanding issues please let me know.
+
+*/
+
+
+// Change these as needed
+#define DEBUG           0               // Set this to 1 if you want DEBUG messages
+#define EXPORT          0               // Set this to 1 if all files should be exported
+                                        // Note: see disclaimer above before enabling
+// Do not change below this point
+
+
+#define MAX_PATH        260             // Max length of DOS path
+#define MAX_SIZE        4294967295      // 2TB, used to indicate lookup failure
+
+
+typedef struct {
+    uint16 iRecLen;
+//    uchar szFilePath[iRecLen];
+    string szFilePath;
+    uchar bPad[MAX_PATH-iRecLen-1] <bgcolor=cYellow>;
+} _stFilePath;
+
+typedef struct {
+    uint16 iRecType;
+    uchar bPad1[10] <format=hex>;
+    uint32 iFileSize;
+    uchar bPad2[12] <format=hex>;
+    time_t dDateTime_Modified <format=hex>;
+    time_t dDateTime_Accessed <format=hex>;
+    time_t dDateTime_Created <format=hex>;
+    time_t dDateTime_Extra <format=hex>;
+    uint32 iPad4 <format=hex>;
+    uint16 wUNK1 <format=hex>;
+    uchar bPad5[6] <format=hex>;
+    uint16 wUNK2 <format=hex>;
+    uchar bPad6[18] <format=hex>;
+    _stFilePath FileName;
+
+    FSeek(iPos+BLKSIZE);            // Jump to file data block
+    local uint64 _iFilOff=FTell();
+    local uint64 _liFileSize=iFileSize;
+
+    Printf("%-40s\t(f)\t%d\t%d\t%8d",FileName.szFilePath,iCntRecs,iRecType,iFileSize);
+
+    // Edge case: truncated file block
+    if ( (FileSize() - FTell() ) <iFileSize ) {
+        _liFileSize=FileSize()- FTell();
+        Printf(",%d",_liFileSize);
+    };
+
+    if (_liFileSize>0) {             // do not output zero len files
+        uchar bBlock[_liFileSize];    // Capture File if length <>0
+        local int hFile,hCurFile;
+        local char sfileout[],sfiledir[];
+        SPrintf(sfileout,"%s\\%s",sSRCDIR,fCleanPath(FileName.szFilePath));
+        sfiledir=FileNameGetPath(sfileout);
+
+        if (!DirectoryExists(sfiledir)) {        // Create the directoryt if needed
+            MakeDir(sfiledir);
+        };
+        Printf("\t%s",sfileout);
+
+        if ( EXPORT ) {            // Export file to disk
+            // Save File
+            hCurFile=GetFileNum();
+            hFile=FileNew("Hex",true);
+            FileSelect(hFile);
+            WriteBytes(bBlock,0,sizeof(bBlock));
+            FileSave(sfileout);
+            FileClose();
+            FileSelect(hCurFile);
+        };
+    };
+    Printf("\n");
+} _stFILEREC;
+
+
+typedef struct {
+    uint16 iRecType;                      // Directory Entry
+    uchar bPad1[8];
+    time_t dDateTime_Modified <format=hex>;
+    uchar bPad2[6];
+    uint16 wUNK1 <format=hex>;
+    uint32 iUNK2 <format=hex>;
+    uint32 iUNK3 <format=hex>;
+    uchar bPad3[16];
+    _stFilePath DirName;            // There maybe data after dirname string, ignore it! this is just padding from previous record
+    FSeek(FTell()+2*BLKSIZE-318);   // 318 = size of all previous fields (careful!)
+    Printf("%-40s\t(d)\t%d\t%d\n",DirName.szFilePath,iCntRecs,iRecType);
+} _stDIRREC;
+
+typedef struct {
+    local uint64 _lLen;      // Used for tracking record length
+
+    // This starts after the Record header (Len/Sig/)
+    uint16 iRecType;
+    uchar szBackupNam[20];
+    uchar szBackupDesc[276];
+    uint16 wUN3;
+    uint16 wUN4;
+    uchar bPad1[111];
+    uchar szDrvNam1[21];
+    uchar szDrvNam2[20];
+    uchar szSWver[20];
+    uchar bPad2[10];
+    uchar szDateHr1[6];
+    uchar szDateHr2[8];
+    uchar szDrvLtr[4];
+
+    _lLen=FileSize()-FTell();   // Next tape marker at end of tape
+    if ( (_lLen) >= 512 ) {
+        uchar bPad3[512];
+    } else {
+        uchar bPad3[_lLen];
+    };
+    Printf("Backup Name:\t%s\nBackup Description:\t%s\nBackup Device:\t%s\nBackup Software:\t%s\n\n",szBackupNam,szBackupDesc,szDrvNam1,szSWver);
+
+} _stRECHEAD2;
+
+
+typedef struct {
+    local uint64 iPos;
+    local int _iRecType;
+
+    iPos=FTell();
+
+    uint16 iRecLen;
+    uchar szRecSig[8];        // A2 2A 2A A2 A2 2A 2A A2
+    _iRecType=ReadShort(FTell());       // Get record type
+    switch (_iRecType) {
+        case 0:                     // Catalog
+            _stRECHEAD2 tape_hdr <comment="Tape Catalog Entry">;
+            break;
+        case 1280:                     // Catalog
+            uchar bRecord[iRecLen-sizeof(iRecLen)-sizeof(szRecSig)] <comment="Tape Catalog Entry">;
+            break;
+        case 512:                 // File entry
+            _stFILEREC FileEntry <comment="Tape File Entry">;
+            break;
+       case 2048:                 // End of Catalog
+            uchar bRecord[iRecLen-sizeof(iRecLen)-sizeof(szRecSig)] <comment="End of Catalog Marker">;
+            break;
+        case 5376:                 // File entry
+            _stDIRREC DirEntry <bgcolor=cLtBlue,comment="Tape Directory entry">;
+            break;
+        default:                // Header
+            Printf("[WARNING] Non standard record Record type %d detected at record %d\n",_iRecType,iCntRecs);
+            uchar bRecord[iRecLen-sizeof(iRecLen)-sizeof(szRecSig)] <comment="Un classified Tape Entry">;
+            break;
+
+    };
+} _stRECORD;
+    
+// --------------------------------------
+
+typedef struct _stHeader {
+    local uint64 iPos;
+
+    iPos=fFindHeader(FTell(),0);
+    if (iPos==MAX_SIZE || FEof()) {
+        Printf("[ABORT] Error: end-of-file (no further headers) after offset %d, aborted\n",FTell());
+//        Assert(iPos<MAX_SIZE,"[ABORT] Error: end-of-file (no further headers)");
+        return -1;
+    } else {
+        FSeek(iPos);
+        _stRECORD record <bgcolor=cLtRed>;
+        iCntRecs++;
+    };
+};
+
+// Enumerate tape structure
+typedef struct {
+    while (!FEof()) {
+        _stHeader tape_rec <optimize=false>; //,comment="Tape Record">;
+//      iCntRecs++;
+    };
+} sytos_backup;
+
+
+// **********************************
+/*
+    Find Tape Header and return offset
+    iStart      Start from this Offset in File, use FTell() ?
+    iMax        Max bytes to search from iStart (0=search to end)
+
+    Return: Sig offset or MAX_SIZE
+    Note: Does not change file position
+*/
+uint64 fFindHeader ( uint64 iStart, uint64 iMax ) {
+    local uint64 iPos=0;
+    local uint64 iOff=0;
+    local uint64 lFND=0;
+    local uint64 bSig;
+
+    if ( iStart>(FileSize()-10) ) {
+        Printf("Error: fFindHeader start value %u is outside of file\n",iStart);
+        return MAX_SIZE;
+    };
+
+    if (iMax==0 || iMax>(FileSize()-iStart) ) {
+        iMax=FileSize()-iStart;            // Use uchars remaining in file from current
+    };
+
+    if (DEBUG) Printf("iStart=%10d\tiMax=%10d\tFileSize=%10d\t",iStart,iMax,FileSize());
+    iOff+=2;
+//    while ( iStart+iOff < iMax-8 ) {
+    while ( (iMax-iOff) >8 ) {
+    	bSig=ReadUQuad(iStart+iOff);
+        if ( bSig==11685199061159914146 ) { // 0xA22A2AA2A22A2AA2
+            if (DEBUG) Printf("SIG Found\t");
+            iPos=iStart+iOff-2;
+            lFND=1;
+            break;
+        };
+        iOff+=1;
+    };
+    if ( lFND==0 ) {                // No Sig found
+        if (DEBUG) Printf("Not Found\t");
+        iPos=MAX_SIZE;
+    };
+    if (DEBUG) Printf("iPos=%10d\n",iPos);
+    return iPos;
+};
+
+
+// ***************************************************
+/*
+    Find a specific tape record and return offset
+    iRec        Find this record, starting from beginning of file
+
+    Return: Record offset or MAX_SIZE
+    Note: Does not change file position
+*/
+uint64 fSeekRecord ( uint64 iRec ) {
+    local uint64 iPos=0;
+    local uint64 iCnt=0;
+
+    if (DEBUG) Printf("\tfSeekRecord %d\t",iRec);
+    while ( iCnt<=iRec ) {
+        iPos=fFindHeader(iPos,0);
+        if ( iPos==MAX_SIZE ) {
+            if (DEBUG) Printf("Not Found\t");
+            return iPos;
+        };
+        iCnt++;
+        iPos+=1;
+    };
+    iPos-=1;
+    if (DEBUG) Printf("iPos=%10d\n",iPos);
+    return iPos;
+};
+
+
+
+// ***************************************************
+/*
+    Count the number of Tape records and return
+    iStart      Start from this byte offset
+
+    Return:     Number of records or MAX_SIZE
+    Note: Does not change file position
+*/
+uint32 fCountRecord ( uint64 iStart, uint64 iBLKSIZE ) {
+    local uint64 iPos=iStart;
+    local uint64 iCnt=0;
+    local uint64 iMax=FileSize();
+
+    if (DEBUG) Printf("\tfCountRecord %d\t",iStart);
+    while ( iPos!=MAX_SIZE && iPos<iMax ) {
+        iPos=fFindHeader(iPos,0);
+//        Printf("\t\t\t\t%d/%012x\r",iCnt,iPos);
+        iCnt++;
+        iPos+=iBLKSIZE;
+    };
+    if (DEBUG) Printf("\tfCountRecord found %d records\t",iCnt);
+    return iCnt;
+};
+
+
+// ***************************************************
+/*
+    Replace ':' with '_' in FilePath
+*/
+string fCleanPath (string sFilePath) {
+    local uint32 iPos=0;
+    local uchar sRes[MAX_PATH];
+
+    Strncpy(sRes,sFilePath,Strlen(sFilePath));
+//    Printf("%s,%d\n",sFilePath,Strlen(sFilePath));
+    for (iPos=0; iPos<Strlen(sFilePath);iPos++ ) {
+        if (sRes[iPos] == 0x3A ) {
+            sRes[iPos]='_';
+        };
+    };
+    return sRes;
+};
+
+
+// ***************************************************
+// Main
+
+LittleEndian();
+
+local uint64 BLKSIZE;
+local uint32 iCntRecs=0;
+
+BLKSIZE=fFindHeader(256,16384);
+if (BLKSIZE==MAX_SIZE) {
+    Printf("[INFO] Cannot determine BLKSIZE, is this a tape image?\n");
+    return -1;
+};
+
+// Get curent file working directory and create an output folder
+local char sSRCDIR[]=FileNameGetPath(GetFileName());
+
+SPrintf(sSRCDIR,"%s%s",sSRCDIR,"output");
+if (!DirectoryExists(sSRCDIR)) {        // Create the directoryt if needed
+    MakeDir(sSRCDIR);
+    Printf("[INFO] Output directory %s does not exist, creating\n",sSRCDIR);
+};
+
+Printf("Working file:\t%s\nTemp Dir:\t\t%s\nOutput Dir:\t\t%s\n\n",GetFileName(),GetTempDirectory(),sSRCDIR);
+
+// Extract tape records and export files (if EXPORT >0)
+sytos_backup tape;      // Enumerate tape structure
+Printf("\nComplete, located %d records\n\n",iCntRecs);
+
+// Save output log
+local char slogout[];
+SPrintf(slogout,"%s.log",GetFileName());        // use image source name plus .log
+OutputPaneSave(slogout);

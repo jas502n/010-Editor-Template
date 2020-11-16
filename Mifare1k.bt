@@ -1,0 +1,38 @@
+//------------------------------------------------
+//--- 010 Editor Binary Template
+//
+//      File: Mifare1k.bt
+//   Authors: Ruben Boonen (b33f)
+//   Website: http://www.fuzzysecurity.com/
+//   Version: 1.1
+//   Purpose: Mifare Classic 1k Structure parsing.
+//            Commonly used in smart cards.
+//  Category: Electronics
+// File Mask: 
+//  ID Bytes: 
+//   History: 
+//   1.1   2016-02-12 SweetScape Software: Updated header for repository submission.
+//   1.0   R Boonen: Initial release.
+//------------------------------------------------
+
+struct FILE {
+        struct Manufacturer_block {
+            char    Card_UID[4] <fgcolor=cDkGreen>;
+            char    LRC[1] <fgcolor=cDkRed>;
+            char    Internal[11] <fgcolor=cWhite>;
+            char    Data[32];
+            char    Key_A[6] <bgcolor=cDkGray, fgcolor=cLtRed>;
+            char    Access_Bits[3] <bgcolor=cDkGray, fgcolor=cWhite>;
+            char    GPB[1] <bgcolor=cDkGray, fgcolor=cLtBlue>;
+            char    Key_B[6] <bgcolor=cDkGray, fgcolor=cYellow>;
+        } manufacturer_block;
+
+        struct Sec_4blk {
+            char    Data[48];
+            char    Key_A[6] <bgcolor=cDkGray, fgcolor=cLtRed>;
+            char    Access_Bits[3] <bgcolor=cDkGray, fgcolor=cWhite>;
+            char    GPB[1] <bgcolor=cDkGray, fgcolor=cLtBlue>;
+            char    Key_B[6] <bgcolor=cDkGray, fgcolor=cYellow>;
+        } sec_4blk[ 15 ];
+
+    } file  <bgcolor=cSilver>;

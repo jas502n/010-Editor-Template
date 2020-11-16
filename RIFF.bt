@@ -1,0 +1,155 @@
+//------------------------------------------------
+//--- 010 Editor v2.0 Binary Template
+//
+//      File: RIFF.bt
+//   Authors: gocha
+//   Version: 1.1
+//   Purpose: Defines a template for
+//            generic RIFF files.
+//  Category: Misc
+// File Mask: 
+//  ID Bytes: 52 49 46 46 //RIFF
+//   History: 
+//   1.1   2016-02-22 SweetScape Software: Updated header for repository submission, added read function.
+//   1.0   2015-02-22 gocha: Initial release.
+//------------------------------------------------
+
+typedef CHAR ID[4];
+
+local int cOverTheRainbowIndex = 0;
+local int cOverTheRainbow[12] = {
+    0xbfbfef,
+    0xbfcfef,
+    0xbfefef,
+    0xbfefcf,
+    0xbfefbf,
+    0xcfefbf,
+    0xefefbf,
+    0xefcfbf,
+    0xefbfbf,
+    0xefbfcf,
+    0xefbfef,
+    0xcfbfef
+};
+local int cGrayZone = 0xd9dadc;
+local int COLOR_LUT_LENGTH = sizeof(cOverTheRainbow) / sizeof(cOverTheRainbow[0]);
+
+//-----------------------------------
+// Define structures used in RIFF files
+
+typedef struct {
+    ID        chunkID;
+    DWORD     chunkSize;
+    UCHAR     data[chunkSize];
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+} CHUNK <read=ReadCHUNK>;
+
+string ReadCHUNK( struct CHUNK &s )
+{
+    return s.chunkID;    
+}
+
+//typedef struct LISTCHUNK LISTCHUNK;
+struct LISTCHUNK {
+    ID        chunkID;
+    DWORD     chunkSize;
+    local quad pos = FTell();
+    ID        chunkType;
+
+    // Read the subchunks
+    local char tag[5];
+    local DWORD size;
+    while( FTell() - pos < chunkSize )
+    {
+        // Read the chunk tag
+        ReadBytes( tag, FTell(), 4 );
+        tag[4] = 0;
+
+        // Read the chunk size
+        size = ReadUInt( FTell() + 4 );
+        if( FTell() - pos + size > chunkSize ){
+            Printf( "Chunk '%s' of size %d at position 0x%LX exceeds the parent chunk size boundary.\n", tag, size, FTell() );
+            return -1;
+        }
+
+        // See which chunk this is
+        switch( tag )
+        {
+            case "LIST":
+                SetBackColor( cGrayZone );
+                struct LISTCHUNK list;
+                break;
+            default:
+                SetBackColor( cOverTheRainbow[cOverTheRainbowIndex] );
+                cOverTheRainbowIndex = (cOverTheRainbowIndex + 1) % COLOR_LUT_LENGTH;
+                CHUNK subchunk;
+                break;
+        }
+    }
+
+    // Padding so the next chunk starts on an even byte
+    if( (chunkSize & 1) && (FTell() < FileSize()) )
+        UCHAR padding;
+};
+
+typedef struct
+{
+    ID     groupID;
+    DWORD  size;
+    ID     riffType;
+} RIFFHEADER;
+
+
+
+//---------------------------------------------
+
+// Define the headers
+local quad riff_pos = FTell();
+LittleEndian();
+SetBackColor( cGrayZone );
+RIFFHEADER header;
+
+// Check for valid header
+if( header.groupID != "RIFF" )
+{
+    Warning( "File is not a valid RIFF file. Template stopped." );
+    return -1;
+}
+
+// Read the file as a set of chunks
+local char tag[5];
+local DWORD size;
+while( FTell() + 8 <= FileSize() && FTell() - riff_pos != header.size + 8 )
+{
+    // Read the chunk tag
+    ReadBytes( tag, FTell(), 4 );
+    tag[4] = 0;
+
+    // Read the chunk size
+    size = ReadUInt( FTell() + 4 );
+
+    // See which chunk this is
+    switch( tag )
+    {
+        case "LIST":
+            SetBackColor( cGrayZone );
+            LISTCHUNK list;
+            break;
+        default:
+            SetBackColor( cOverTheRainbow[cOverTheRainbowIndex] );
+            cOverTheRainbowIndex = (cOverTheRainbowIndex + 1) % COLOR_LUT_LENGTH;
+            CHUNK chunk;
+            break;
+    }
+}
+
+// Verify the whole file size
+local quad actual_size = FTell() - riff_pos;
+if( actual_size != 8 + header.size )
+{
+    Printf( "RIFF file size mismatch (header value %Ld, actual size %Ld).\n", header.size, actual_size - 8 );
+    return -1;
+}

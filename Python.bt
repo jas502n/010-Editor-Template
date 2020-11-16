@@ -1,0 +1,94 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: Python.bt
+//   Authors: SweetScape Software
+//   Version: 1.0
+//   Purpose: Syntax highlighting for Python script files.
+//  Category: Syntax
+// File Mask: *.py,*.pyw
+//  ID Bytes: 
+//   History: 
+//   1.0   2019-04-02 SweetScape Software: Initial version.
+//------------------------------------------------
+RequiresVersion( 9 );
+
+// To save memory, allow a single copy of this template to provide 
+//  syntax highlighting for all open files that match the file mask.
+HighlightAllowInstanceSharing( true );
+
+// Get list of coloring styles
+local int commentStyle  = HighlightFindStyle( "code-comment" );
+local int keywordStyle  = HighlightFindStyle( "code-keyword" );
+local int dataTypeStyle = HighlightFindStyle( "code-data-type" );
+local int stringStyle   = HighlightFindStyle( "code-string" );
+
+// Types of rules we may be applying that may span multiple lines
+const int RULE_NONE              = 0;
+const int RULE_MULTILINE_COMMENT = 1;
+
+// Build list of keywords
+local TKeywordList keywordList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD,
+    "False", "None", "True", "and", "as", "assert", "break", "class", "continue", 
+    "def", "del", "elif", "else", "except", "finally", "for", "from", "global", 
+    "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", 
+    "raise", "return", "try", "while", "with", "yield" );
+ 
+// Build list of built-in functions
+local TKeywordList functionList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD,
+    "abs", "all", "any", "ascii", "bin", "bool", "bytearray", "bytes", "callable", 
+    "chr", "classmethod", "compile", "complex", "delattr", "dict", "dir", 
+    "divmod", "enumerate", "eval", "exec", "filter", "float", "format", 
+    "frozenset", "getattr", "globals", "hasattr", "hash", "help", "hex", "id", 
+    "input", "int", "isinstance", "issubclass", "iter", "len", "list", "locals", 
+    "map", "max", "memoryview", "min", "next", "object", "oct", "open", "ord", 
+    "pow", "print", "property", "range", "repr", "reversed", "round", "set", 
+    "setattr", "slice", "sorted", "staticmethod", "str", "sum", "tuple", "type", 
+    "vars", "zip" );
+
+// Main function to apply syntax highlighting to a line of text.
+//  flags is preserved between lines and allows us to do multi-line comments.
+void HighlightLineRealtime( int64 line, wchar_t text[], int foreColors[], int backColors[], int count, ushort &flags )
+{
+    int i, len, pos, rule = flags;
+    while( i < count )
+    {  
+        // Check """ multi-line docstring comment - could be continued from a previous line
+        if( (text[i] == '"' || rule == RULE_MULTILINE_COMMENT) && 
+            HighlightCheckMultiLineRule( text, count, "\"\"\"", "\"\"\"", i, 
+            rule, RULE_NONE, RULE_MULTILINE_COMMENT, foreColors, backColors, commentStyle ) ) 
+            continue;
+
+        // Check single-line comments
+        if( (text[i] == '#') &&
+            HighlightCheckCommentRule( text, count, "#", i, 
+            foreColors, backColors, commentStyle ) ) 
+            continue;
+
+        // Check strings - double and single quotes
+        if( (text[i] == '\"') &&
+            HighlightCheckSingleLineRule( text, count, "\"", "\"", i, 
+            foreColors, backColors, stringStyle ) ) 
+            continue;
+        if( (text[i] == '\'') &&
+            HighlightCheckSingleLineRule( text, count, "\'", "\'", i, 
+            foreColors, backColors, stringStyle ) ) 
+            continue;
+
+        // Check keywords
+        if( HighlightCheckKeywordRule( text, count, keywordList, i, 
+            foreColors, backColors, keywordStyle ) )
+            continue;
+
+        // Check functions
+        if( HighlightCheckKeywordRule( text, count, functionList, i, 
+            foreColors, backColors, dataTypeStyle ) )
+            continue;
+
+        // Nothing found - skip over whole words
+        i = HighlightGetNextToken( text, count, i );
+    }
+
+    // Save rule in the flags for the next line
+    flags = rule;
+}

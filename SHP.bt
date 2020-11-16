@@ -1,0 +1,175 @@
+//------------------------------------------------
+//--- 010 Editor v2.1.3 Binary Template
+//
+//      File: SHP.bt
+//   Authors: A Norman
+//   Version: 1.3
+//   Purpose: Parses ESRI ShapeFiles.
+//  Category: GIS
+// File Mask: *.shp
+//  ID Bytes:
+//   History:
+//   1.3   2017-08-26 K. Grover: Combined ShapeEnums.  Added Readers.  Alternate record color.
+//   1.2   2016-08-11 M. Nicke: Updated records for MultiPatchType
+//   1.1   2016-01-29 SweetScape: Updated header for repository submission, fixed reading records to the end of the file.
+//   1.0   A Norman: Initial release.
+//------------------------------------------------
+
+typedef struct {
+    double X;
+    double Y;
+} POINT <read=getPOINT>;
+
+string getPOINT(local POINT &p) {
+    string s;
+    SPrintf(s, "POINT(%f, %f)", p.X, p.Y);
+    return s;
+}
+
+typedef enum {
+    TriangleStrip = 0,
+    TriangleFan = 1,
+    OuterRing = 2,
+    InnerRing = 3,
+    FirstRing = 4,
+    Ring = 5
+} PATCH;
+
+string GetByteSize(int wordSize) {
+    string s;
+    SPrintf(s, "%d", 2*wordSize);
+    return s;
+}
+
+typedef enum {
+    NullShapeType,
+    PointType,
+    PolyLineType=3,
+    PolygonType=5,
+    MultiPointType=8,
+    PointZType=11,
+    PolyLineZType=13,
+    PolygonZType=15,
+    MultiPointZType=18,
+    PointMType=21,
+    PolyLineMType=23,
+    PolygonMType=25,
+    MultiPointMType=28,
+    MultiPatchType=31
+} SHAPE;
+
+typedef struct {
+    BigEndian();
+    int	recordNumber;
+    int	contentLength <read=GetByteSize>;
+    LittleEndian();
+    SHAPE shapeType;
+    if (shapeType == 1)
+    {
+        POINT location;
+    }
+    else if (shapeType == 3)
+    {
+        double 	box[4];
+        int	numParts;
+        int	numPoints;
+        int	parts[numParts];
+        POINT   points[numPoints];
+    }
+    else if (shapeType == 5)
+    {
+        double	box[4];
+        int	numParts;
+        int	numPoints;
+        int	parts[numParts];
+        POINT	points[numPoints];
+    }
+    else if (shapeType == 31)
+    {
+        double  box[4];
+        int	numParts;
+        int	numPoints;
+        int	Parts[numParts];
+        PATCH   PartTypes[numParts];
+        POINT	points[numPoints];
+        double	Zmin;
+        double	Zmax;
+        double  ZArray[numPoints];
+        double	Mmin;
+        double	Mmax;
+        double  MArray[numPoints];
+    }
+} RECORD <read=getRECORD>;
+
+string getRECORD(local RECORD &r) {
+    string s;
+    switch (r.shapeType) {
+    case 1:
+        SPrintf(s, "%s", EnumToString(r.shapeType));
+        break;
+    case 3:
+    case 5:
+    case 31:
+        SPrintf(s, "%s <%d pts>", EnumToString(r.shapeType), r.numPoints);
+        break;
+    default:
+        SPrintf(s, "<%s>", EnumToString(r.shapeType));
+    }
+    return s;
+}
+
+typedef struct {
+    BigEndian();
+    int	    fileCode;
+    int	    unused[5];
+    int	    fileLength <read=GetByteSize>;
+
+    LittleEndian();
+    int	    version;
+    SHAPE   shapeType;
+    double	Xmin;
+    double	Ymin;
+    double	Xmax;
+    double	Ymax;
+    double	Zmin;
+    double	Zmax;
+    double	Mmin;
+    double	Mmax;
+} HEADER <read=getHEADER>;
+
+string getHEADER(local HEADER &h) {
+    string s;
+    SPrintf(s, "%s", EnumToString(h.shapeType));
+    return s;
+}
+
+// Helper routine to set back ground color to 'even_color'
+// or 'odd_color' depending upon whether 'count'
+// is even or odd.
+void setColorEvenOdd(int count, int even_color, int odd_color) {
+    local int color = (count % 2) ? odd_color : even_color;
+    SetBackColor(color);
+}
+
+typedef struct {
+    SetBackColor(cLtGreen);
+    HEADER header;
+    SetBackColor(cLtGray);
+
+    local int record_count = 0;
+    while( !FEof() )
+    {
+        setColorEvenOdd(record_count, cNone, cLtGray);
+        RECORD record;
+        record_count++;
+    }
+} ESRI_SHAPE <read=getESRI_SHAPE>;
+
+string getESRI_SHAPE(local ESRI_SHAPE &es) {
+    string s;
+    SPrintf(s, "version %d", es.header.version);
+    return s;
+}
+
+// Allocate data
+ESRI_SHAPE esri_shape;

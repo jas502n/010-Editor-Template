@@ -1,0 +1,77 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: Nus3Audio.bt
+//   Authors: jam1garner
+//   Version: 1.0
+//   Purpose: Parse nus3 music archives.
+//  Category: Archive
+// File Mask: *.nus3audio
+//  ID Bytes: 4E 55 53 33 //nus3
+//   History: Smash Ultimate
+//   1.0   2018-12-31 jam1garner: Initial Commit
+//------------------------------------------------
+
+struct HEADER {
+    char magic[4]<bgcolor=cGreen>; //nus3
+    uint filesize;
+} Header;
+
+struct AUDIINDX {
+    char magic[8]<bgcolor=cGreen>; // AUDIINDX
+    uint size<bgcolor=cPurple>; // 4
+    uint count; // track count
+} Audiindx;
+
+struct TNID {
+    char magic[4]<bgcolor=cGreen>; // TNID
+    uint size<bgcolor=cPurple>; // 4
+    if(size >= Audiindx.count * 4){
+        uint trackNumbers[Audiindx.count];//some struct here
+    }
+    else {
+        ubyte data[size];
+    }
+} Tnid;
+
+struct NMOF {
+    char magic[4]<bgcolor=cGreen>; // NMOF
+    uint size<bgcolor=cPurple>; // 4
+    if(size >= Audiindx.count * 4){
+        uint names[Audiindx.count];//some struct here
+    }
+    else {
+        ubyte data[size];
+    }
+} Nmof;
+
+struct ADOF {
+    char magic[4]<bgcolor=cGreen>; // ADOF
+    uint size<bgcolor=cPurple>; // 8
+    if(size >= Audiindx.count * 8){
+        struct FILE_ENTRY {
+            uint fileOffset<bgcolor=cBlue>;
+            uint fileSize<bgcolor=cRed>;
+        } FileEntry[Audiindx.count];
+    }
+    else {
+        ubyte data[size];
+    }
+} Adof;
+
+struct TNNM {
+    char magic[4]<bgcolor=cGreen>; // TNNM
+    uint size<bgcolor=cPurple>;
+    char string_section[size];
+} Tnnm;
+
+struct JUNK {
+    char magic[4]<bgcolor=cGreen>; // TNNM
+    uint size<bgcolor=cPurple>; // 8
+    byte padding[size];
+} Junk;
+
+struct PACK {
+    char magic[4]<bgcolor=cGreen>; // TNNM
+    uint size<bgcolor=cRed>;
+} Pack;

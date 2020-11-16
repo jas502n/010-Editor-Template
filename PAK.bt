@@ -1,0 +1,72 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: PAK.bt
+//   Authors: shuax
+//   Version: 1.0
+//   Purpose: Parsing chrome pak files.
+//  Category: Archive
+// File Mask: *.pak
+//  ID Bytes: 04 00 00 00, 05 00 00 00
+//   History: 
+//   1.0   2020-06-02 shuax:First implementation
+//------------------------------------------------
+struct PAK4_HEADER
+{
+    uint32 num_entries;
+    UCHAR encodeing;
+};
+
+struct PAK5_HEADER
+{
+    uint32 encodeing;
+    uint16 resource_count;
+    uint16 alias_count;
+};
+
+struct PAK_ENTRY
+{
+    uint16 resource_id;
+    uint32 file_offset;
+};
+
+struct PAK_ALIAS
+{
+    uint16 resource_id;
+    uint16 entry_index;
+};
+
+typedef struct (int resource_id, int offset)
+{
+    local uint16 id = resource_id;
+    UCHAR Data[offset];
+} PAK_ENTRY_DATA;
+
+LittleEndian();
+uint32 version;
+
+if(version==4)
+{
+    PAK4_HEADER header;
+    PAK_ENTRY entry[header.num_entries + 1];
+    local int i = 0;
+    for(i=0;i<header.num_entries;i++)
+    {
+        PAK_ENTRY_DATA entry_data(entry[i].resource_id, entry[i + 1].file_offset - entry[i].file_offset);
+    }
+}
+else if(version==5)
+{
+    PAK5_HEADER header;
+    PAK_ENTRY entry[header.resource_count + 1];
+    PAK_ALIAS alias[header.alias_count];
+    local int i = 0;
+    for(i=0;i<header.resource_count;i++)
+    {
+        PAK_ENTRY_DATA entry_data(entry[i].resource_id, entry[i + 1].file_offset - entry[i].file_offset);
+    }
+} else {
+    Warning("not chrome pak file!");
+    Printf("not chrome pak file!\n");
+    Exit(-1);
+}

@@ -1,0 +1,400 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: RegistryDhcpInterfaceOptions.bt
+//    Author: Simon N. Thornton
+//    E-mail: datarecovery@eazimail.com
+//   Version: 1.0
+//   Purpose: Decode the "DhcpInterfaceOptions" registry entry
+//  Category: Operating System
+// File Mask: 
+//  ID Bytes: 
+//   History:
+//   1.0   2019-05-27 Simon Thornton: Fully documented extraction 
+//   1.1   2019-05-24 Simon Thornton: Added enums for various fields
+//   0.1   2019-05-23 Simon Thornton: Initial Version
+//------------------------------------------------
+
+/* 
+    This was created whilst researching the storage of forensic artifacts in windows.
+    The DHCPInterfaceOptions key is set under each Network interface and carries a copy of the DHCP params sent by
+    the server (but not the leased address). The format used is different to the original network packet.
+
+    References:
+    https://www.iana.org/assignments/bootp-dhcp-parameters/bootp-dhcp-parameters.xhtml
+    https://tools.ietf.org/html/rfc2132
+
+    Usage:
+
+    1) To dump the key run the following from the command line:
+        reg query HKLM\SYSTEM\CurrentControlSet\services\Tcpip\Parameters\Interfaces\ /f Dhcpinterfaceoptions /s
+
+        or, sending the output into the file "regquery.txt":
+
+        reg query HKLM\SYSTEM\CurrentControlSet\services\Tcpip\Parameters\Interfaces\ /f Dhcpinterfaceoptions /s >regquery.txt
+
+        (can be done via psexec or winexe)
+
+    2) Convert the hex strings from the above reg query back into native binary and store in a file.
+       (see below for a bash script to conver the 
+
+    3) Run this template against the binary file
+
+
+    Below is bash script to which will convert the output from the above reg query into individual files:
+
+	#!/bin/bash
+	#
+	# Created: 2019/05/23
+	# Modifed: 2019/05/23
+    # Author:  Simon Thornton (datarecovery@eazimail.com)
+    #
+	# Function: Converts REG_BINARY output from the 'reg query' command into binary file, one per key
+	# reg query HKLM\SYSTEM\CurrentControlSet\services\Tcpip\Parameters\Interfaces\ /f Dhcpinterfaceoptions /s >i:\tmp\regquery.txt
+	#
+	# Example input:
+	# HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\services\Tcpip\Parameters\Interfaces\{649bb47e-35e7-43a9-a1df-82541d20ee5f}
+	#   DhcpInterfaceOptions    REG_BINARY    FC00000000000000000000000000000059440D007900000000000000000000000000000059440D007700000000000000000000000000000059440D002F00000000000000000000000000000059440D002E00000000000000000000000000000059440D002C00000000000000000000000000000059440D002B00000000000000000000000000000059440D002100000000000000000000000000000059440D001F00000000000000000000000000000059440D000F00000000000000000000000000000059440D000600000000000000000000000000000059440D000300000000000000000000000000000059440D0001000000000000000400000000000000D5401408FFFFFF0033000000000000000400000000000000D54014080000070836000000000000000400000000000000D5401408C0A850FE35000000000000000100000000000000D540140805000000
+	#
+	#
+	# Syntax:  $0 [output filename from reg query]   # default is regquery.txt in current directory
+	#
+	
+	# Get input filename
+	sSRC=${1:-regquery.txt}
+	
+	if [ ! -e "${sSRC}" ]; then printf "Error: cannot locate input file ${sSRC}\n"; exit 1; fi
+	
+	# Create a temp file based on input name
+	sTMPFIL=${sSRC}.tmp
+	
+	# Take source file (in CRLF format and create bash style variables
+	cat -v ${sSRC} | sed -e 's/\^M//g' -e 's/HKEY_LOCAL_MACHINE/HKLM/g' -e 's/\\/_/g' -e 's/{//g' -e 's/}//g' | awk ' \
+    	 /BEGIN/{ nCNT=0 }
+    	 /HKLM/ { sFIL=$1 }
+    	 /REG_/ {
+    	    sKEY=$1;
+    	    sTYP=$2;
+    	    sVAL=$3;
+    	    printf("sREGFIL[%d]=%s\nsREGKEY[%d]=%s\nsREGTYP[%d]=%s\nsREGVAL[%d]=%s\n",nCNT,sFIL,nCNT,sKEY,nCNT,sTYP,nCNT,sVAL);
+    	    nCNT++;
+    	 }
+	' >${sTMPFIL}
+	
+	source ${sTMPFIL}
+	
+	for i in ${!sREGFIL[*]}; do
+	    case "${sREGTYP[$i]}" in
+	        "REG_BINARY")
+	            sDST=${sREGKEY[$i]}_${sREGFIL[$i]##*_}.bin
+	            printf "File=${sDST}\n"
+	            echo -n "${sREGVAL[$i]}" | xxd -r -p - ${sDST}
+	            ;;
+	    esac
+	done
+	
+	rm ${sTMPFIL} 2>/dev/null
+    #
+    # EOF ---------------------------------------------------
+
+    Notes:
+    ======
+    1) Not uncommon to find DHCP type codes with no data (marked as empty)
+    2) The Lease IP is NOT contained in the options, this is set as a separate registry key
+*/
+
+local uint64 iCntRecs;
+
+// Derived from https://www.iana.org/assignments/bootp-dhcp-parameters/bootp-dhcp-parameters.xhtml
+typedef enum <uint32> e_tag {
+	Pad=0,Subnet_Mask=1,Time_Offset=2,Router=3,Time_Server=4,Name_Server=5,Domain_Server=6,Log_Server=7,Quotes_Server=8,LPR_Server=9,Impress_Server=10,RLP_Server=11,Hostname=12,Boot_File_Size=13,Merit_Dump_File=14,Domain_Name=15,
+	Swap_Server=16,Root_Path=17,Extension_File=18,Forward_On_Off=19,SrcRte_On_Off=20,Policy_Filter=21,Max_DG_Assembly=22,Default_IP_TTL=23,MTU_Timeout=24,MTU_Plateau=25,MTU_Interface=26,MTU_Subnet=27,Broadcast_Address=28,Mask_Discovery=29,Mask_Supplier=30,Router_Discovery=31,
+	Router_Request=32,Static_Route=33,Trailers=34,ARP_Timeout=35,Ethernet=36,Default_TCP_TTL=37,Keepalive_Time=38,Keepalive_Data=39,NIS_Domain=40,NIS_Servers=41,NTP_Servers=42,Vendor_Specific=43,NETBIOS_Name_Srv=44,NETBIOS_Dist_Srv=45,NETBIOS_Node_Type=46,NETBIOS_Scope=47,
+	X_Window_Font=48,X_Window_Manager=49,Address_Request=50,Address_Time=51,Overload=52,DHCP_Msg_Type=53,DHCP_Server_Id=54,Parameter_List=55,DHCP_Message=56,DHCP_Max_Msg_Size=57,Renewal_Time=58,Rebinding_Time=59,Class_Id=60,Client_Id=61,NetWare_IP_Domain=62,NetWare_IP_Option=63,
+	NISDomainName=64,NISServerAddr=65,ServerName=66,BootfileName=67,HomeAgentAddrs=68,SMTPServer=69,POP3Server=70,NNTPServer=71,WWWServer=72,FingerServer=73,IRCServer=74,StreetTalkServer=75,STDAServer=76,UserClass=77,Directory_Agent=78,Service_Scope=79,
+	Rapid_Commit=80,Client_FQDN=81,Relay_Agent_Information=82,iSNS=83,REMOVED_Unassigned_84=84,NDS_Servers=85,NDS_Tree_Name=86,NDS_Context=87,BCMCS_Controller_Domain_Name_list=88,BCMCS_Controller_IPv4_address_option=89,Authentication=90,clientlasttransactiontime_option=91,associatedip_option=92,Client_System=93,Client_NDI=94,LDAP=95,
+	REMOVED_Unassigned_96=96,UUID_GUID=97,UserAuth=98,GEOCONF_CIVIC=99,PCode=100,TCode=101,REMOVED_Unassigned_102=102,REMOVED_Unassigned_103=103,REMOVED_Unassigned_104=104,REMOVED_Unassigned_105=105,REMOVED_Unassigned_106=106,REMOVED_Unassigned_107=107,REMOVED_Unassigned_108=108,OPTION_DHCP4O6_S46_SADDR=109,REMOVED_Unassigned_110=110,Unassigned_111=111,
+	Netinfo_Address=112,Netinfo_Tag=113,URL=114,REMOVED_Unassigned_115=115,AutoConfig=116,Name_Service_Search=117,Subnet_Selection_Option=118,Domain_Search=119,SIP_Servers_DHCP_Option=120,Classless_Static_Route_Option=121,CCC=122,GeoConf_Option=123,VI_Vendor_Class=124,VI_VendorSpecific_Information=125,Removed_Unassigned_126=126,Removed_Unassigned_127=127,
+	PXE_undefined_vendor_specific_128=128,PXE_undefined_vendor_specific_129=129,PXE_undefined_vendor_specific_130=130,PXE_undefined_vendor_specific_131=131,PXE_undefined_vendor_specific_132=132,PXE_undefined_vendor_specific_133=133,PXE_undefined_vendor_specific_134=134,PXE_undefined_vendor_specific_135=135,OPTION_PANA_AGENT=136,OPTION_V4_LOST=137,OPTION_CAPWAP_AC_V4=138,OPTIONIPv4_AddressMoS=139,OPTIONIPv4_FQDNMoS=140,SIP_UA_Configuration_Service_Domains=141,OPTIONIPv4_AddressANDSF=142,OPTION_V4_SZTP_REDIRECT=143,
+	GeoLoc=144,FORCERENEW_NONCE_CAPABLE=145,RDNSS_Selection=146,Unassigned_147=147,Unassigned_148=148,Unassigned_149=149,TFTP_server_address_Etherboot_GRUB_Config=150,statuscode=151,basetime=152,starttimeofstate=153,querystarttime=154,queryendtime=155,dhcpstate=156,datasource=157,OPTION_V4_PCP_SERVER=158,OPTION_V4_PORTPARAMS=159,
+	DHCP_CaptivePortal=160,OPTION_MUD_URL_V4=161,Unassigned_162=162,Unassigned_163=163,Unassigned_164=164,Unassigned_165=165,Unassigned_166=166,Unassigned_167=167,Unassigned_168=168,Unassigned_169=169,Unassigned_170=170,Unassigned_171=171,Unassigned_172=172,Unassigned_173=173,Unassigned_174=174,Etherboot_Tentatively_Assigned_20050623_175=175,
+	IP_Telephone_Tentatively_Assigned_20050623_176=176,Etherboot_Tentatively_Assigned_20050623_177=177,Unassigned_178=178,Unassigned_179=179,Unassigned_180=180,Unassigned_181=181,Unassigned_182=182,Unassigned_183=183,Unassigned_184=184,Unassigned_185=185,Unassigned_186=186,Unassigned_187=187,Unassigned_188=188,Unassigned_189=189,Unassigned_190=190,Unassigned_191=191,
+	Unassigned_192=192,Unassigned_193=193,Unassigned_194=194,Unassigned_195=195,Unassigned_196=196,Unassigned_197=197,Unassigned_198=198,Unassigned_199=199,Unassigned_200=200,Unassigned_201=201,Unassigned_202=202,Unassigned_203=203,Unassigned_204=204,Unassigned_205=205,Unassigned_206=206,Unassigned_207=207,
+	PXELINUX_Magic=208,Configuration_File=209,Path_Prefix=210,Reboot_Time=211,OPTION_6RD=212,OPTION_V4_ACCESS_DOMAIN=213,Unassigned_214=214,Unassigned_215=215,Unassigned_216=216,Unassigned_217=217,Unassigned_218=218,Unassigned_219=219,Subnet_Allocation_Option=220,Virtual_Subnet_Selection_VSS_Option=221,Reserved_Private_Use_222=222,Reserved_Private_Use_223=223,
+	Reserved_Private_Use_224=224,Reserved_Private_Use_225=225,Reserved_Private_Use_226=226,Reserved_Private_Use_227=227,Reserved_Private_Use_228=228,Reserved_Private_Use_229=229,Reserved_Private_Use_230=230,Reserved_Private_Use_231=231,Reserved_Private_Use_232=232,Reserved_Private_Use_233=233,Reserved_Private_Use_234=234,Reserved_Private_Use_235=235,Reserved_Private_Use_236=236,Reserved_Private_Use_237=237,Reserved_Private_Use_238=238,Reserved_Private_Use_239=239,
+	Reserved_Private_Use_240=240,Reserved_Private_Use_241=241,Reserved_Private_Use_242=242,Reserved_Private_Use_243=243,Reserved_Private_Use_244=244,Reserved_Private_Use_245=245,Reserved_Private_Use_246=246,Reserved_Private_Use_247=247,Reserved_Private_Use_248=248,Reserved_Private_Use_249=249,Reserved_Private_Use_250=250,Reserved_Private_Use_251=251,Reserved_Private_Use_252=252,Reserved_Private_Use_253=253,Reserved_Private_Use_254=254,End=255
+} s_tag;
+
+typedef enum <uint32> e_netbios_node_type { B_node=1, P_node=2, M_node=4, H_node=8 } s_netbios_node_type;
+
+typedef struct {
+    ubyte len;      // Length of section including this byte
+    if (len>0) {
+        ubyte data[len-1];
+    } else {
+        ubyte data[2];
+    }
+} s_marker;
+
+// Holds an IP address (4 bytes)
+typedef struct {
+    ubyte Byte[4];
+} s_ipv4 <read=show_ipv4>;          // Display the IP when read
+
+// Return a string with the IP address
+string show_ipv4(s_ipv4 &IP)
+{
+    local string sRES;
+    SPrintf(sRES,"%d.%d.%d.%d",IP.Byte[0],IP.Byte[1],IP.Byte[2],IP.Byte[3]);
+    return sRES;
+};
+
+// Print IP address
+void f_print_ipv4(s_ipv4 &IP)
+{
+    Printf("%s\t",show_ipv4(IP));
+};
+
+
+// Main DHCP Option decode
+typedef struct {
+    local  uint32 ToRead,i;
+    enum e_tag  DhcpOptionCode;
+    Printf("- %03d:%03d\t",iCntRecs,DhcpOptionCode);
+    uint32 unk1;
+    uint32 DhcpOptionLen;
+    uint32 DhcpIsVendorSpecific;
+    uint32 unk2 <format=hex>;
+    if ((DhcpOptionLen % 4) == 0) {
+        ToRead=DhcpOptionLen - (DhcpOptionLen % 4);
+    } else {
+        ToRead=DhcpOptionLen - (DhcpOptionLen % 4) + 4;
+    };
+
+    Printf("%-30s=\t",EnumToString(DhcpOptionCode));
+
+    switch (DhcpOptionCode) {
+        case 1:                 // Subnet Mask
+            if (ToRead>0) {
+                s_ipv4 SubNetMask;
+                for (i=0;i<ToRead/4;i++) { f_print_ipv4(SubNetMask[i]); }
+            } else {
+                Printf("empty");
+            };
+            break;
+        case 3:                 // IPv4 Routers
+            if (ToRead>0) {
+                s_ipv4 Routers;
+                for (i=0;i<ToRead/4;i++) { f_print_ipv4(Routers[i]); }
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 6:                 // Domain Name Server
+            if (ToRead>0) {
+                s_ipv4 DomainNameServer[ToRead / 4];
+                for (i=0;i<ToRead/4;i++) { f_print_ipv4(DomainNameServer[i]); }
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 12:                // Host Name
+            if (ToRead>0) {
+                char HostName[ToRead];
+                Printf("%s",HostName);
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 15:                // Domain Name
+            if (ToRead>0) {
+                char DomainName[ToRead];
+                Printf("%s",DomainName);
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 28:                // Broadcast Address
+            if (ToRead>0) {
+                s_ipv4 BroadcastAddress;
+                f_print_ipv4(BroadcastAddress);
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 31:                // Perform Router Discovery
+            if (ToRead>0) {
+                ubyte PerformRouterDiscover[ToRead /4];
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 33:                // Static Routes
+            if (ToRead>0) {
+                s_ipv4 StaticRoutes[ToRead /4];
+                for (i=0;i<ToRead/4;i++) { f_print_ipv4(StaticRoutes[i]); }
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 44:                // NETBIOS Name Server
+            if (ToRead>0) {
+                s_ipv4 NETBIOS_Name_Server[ToRead / 4];
+                for (i=0;i<ToRead/4;i++) { f_print_ipv4(NETBIOS_Name_Server[i]);}
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 46:                // NETBIOS Node Type
+            if (ToRead>0) {
+                e_netbios_node_type data;
+                Printf("%d",data);
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 47:                // NETBIOS Scope
+            if (ToRead>0) {
+                ubyte data[ToRead];
+                Printf("%s",data);
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 51:                // Address Lease Time
+            if (ToRead>0) {
+                BigEndian();
+                uint32 AddressLeasetime;
+                Printf("%d (secs)",AddressLeasetime);
+                LittleEndian();
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 54:                // DHCP Server ID
+            if (ToRead>0) {
+                s_ipv4 DHCPServerID;
+                for (i=0;i<ToRead/4;i++) { f_print_ipv4(DHCPServerID[i]); }
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 58:                // Renewal Time
+            if (ToRead>0) {
+                BigEndian();
+                uint32 RenewalTime;
+                Printf("%d (secs)",RenewalTime);
+                LittleEndian();
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 59:                // Rebinding Time
+            if (ToRead>0) {
+                BigEndian();
+                uint32 RebindingTime;
+                Printf("%d (secs)",RebindingTime);
+                LittleEndian();
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 60:                // Class ID
+            if (ToRead>0) {
+                char ClassID[ToRead];
+                Printf("%s",ClassID);
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 61:                // Client ID
+            if (ToRead>0) {
+                ubyte ClientID[ToRead] <format=hex>;
+                for (i=0;i<ToRead;i++) { Printf("%02X",ClientID[i]); };
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 81:                // Client FQDN
+            if (ToRead>0) {
+                s_marker marker; 
+                ToRead=ToRead-sizeof(marker);
+                char data[ToRead];
+                Printf("%s",data);
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 119:               // Domain Search
+            if (ToRead>0) {
+                char DomainSearch[ToRead];
+                Printf("%s",data);
+            } else {
+                Printf("empty");
+            }
+            break;
+
+        case 121:               // Classless Static routes
+            if (ToRead>0) {
+                s_ipv4 ClassLessStaticRoutes[ToRead /4];
+                for (i=0;i<ToRead/4;i++) { f_print_ipv4(ClassLessStaticRoutes[i]); }
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        case 252:               // Private; used in Windows to set the proxy
+            if (ToRead>0) {
+                char data[ToRead];
+                Printf("%s",data);
+            } else {
+                Printf("empty");
+            };
+            break;
+
+        default:                // Anything not explictly covered above (displays as Hex)
+            if (ToRead>0) {
+                char data[ToRead];
+                for (i=0;i<ToRead;i++) { Printf("%02X",data[i]); }
+            } else {
+                Printf("empty");
+            };
+            break;
+    };
+    Printf("\n");
+} s_DhcpOption;
+
+
+// Parses the file, one record at a time
+typedef struct {
+    while (!FEof()) {
+        s_DhcpOption DHCPOPTIONS <optimize=false>;
+        iCntRecs++;
+    };
+} s_binarray;
+
+
+
+// -------------------------
+// Main function
+LittleEndian();
+
+Printf("Decode Registry entry \"DhcpintefaceOptions\"\n\n");
+s_binarray dhcp_decode;

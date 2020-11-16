@@ -1,0 +1,226 @@
+//------------------------------------------------
+//--- 010 Editor v9.0.2 Binary Template
+//
+//      File: Yara.bt
+//   Authors: mirar@chaosmail.org
+//   Version: 1.0
+//   Purpose: Syntax highlighting for Yara files
+//  Category: Syntax
+// File Mask: *.yr,*.yar,*.yara
+//  ID Bytes: 
+//   History: 
+//   1.0   2019-07-11 mirar: initial version
+//------------------------------------------------
+
+RequiresVersion(9);
+
+// To save memory, allow a single copy of this template to provide 
+//  syntax highlighting for all open files that match the file mask.
+HighlightAllowInstanceSharing(true);
+
+// Get list of coloring styles
+local int commentStyle     = HighlightFindStyle("tag-comment");
+local int ruleNameStyle    = HighlightFindStyle("tag-name");
+local int codeCommentStyle = HighlightFindStyle("code-comment");
+local int keywordStyle     = HighlightFindStyle("code-keyword");
+local int dataTypeStyle    = HighlightFindStyle("code-data-type");
+local int stringStyle      = HighlightFindStyle("code-string");
+local int byteStringStyle  = HighlightFindStyle("tag-data");
+local int operatorStyle    = HighlightFindStyle("code-operator", 0xff00ff, -1, 0xcc99ff, -1 );
+
+// Types of rules we may be applying
+const int RULE_NONE                   =  0;
+const int RULE_MULTILINE_COMMENT      =  1;
+const int RULE_COMMENT                =  2;
+const int RULE_RULE                   =  3;
+const int RULE_NAME                   =  4;
+const int RULE_BODY                   =  5;
+const int RULE_META                   =  6;
+const int RULE_META_ML_COMMENT        =  7;
+const int RULE_CONDITION              =  8;
+const int RULE_CONDITION_ML_COMMENT   =  9;
+const int RULE_STRINGS                = 10;
+const int RULE_STRING                 = 11;
+const int RULE_BYTE_STRING            = 12;
+const int RULE_STRINGS_ML_COMMENT     = 13;
+const int RULE_BYTE_STRING_ML_COMMENT = 14;
+
+
+// Build list of keywords
+local TKeywordList keywordList = HighlightBuildKeywordList(HIGHLIGHT_WHOLEWORD,
+    "global", "rule", "private", "strings", "meta", "condition", "import", "include");
+
+// Build list of datatypes
+local TKeywordList dataTypeList = HighlightBuildKeywordList(HIGHLIGHT_WHOLEWORD,
+    "ascii", "wide", "fullword", "nocase");
+
+// Build list of condition keywords
+local TKeywordList conditionTypeList = HighlightBuildKeywordList(HIGHLIGHT_WHOLEWORD,
+    "all", "and", "any", "at", "contains", "entrypoint", "false", "filesize", "for", "in",
+    "int8", "int16", "int32", "int8be", "int16be", "int32be", "matches", "nocase", "not",
+    "or", "of", "them", "true", "uint8", "uint16", "uint32", "uint8be", "uint16be", "uint32be");
+
+
+// Main function to apply syntax highlighting to a line of text.
+// flags is preserved between lines and allows us to do multi-line comments.
+void HighlightLineRealtime(int64 line, wchar_t text[], int foreColors[], int backColors[], int count, ushort &flags)
+{
+    int i, nexti, len, pos, bracketPos, style, rule = flags & 0xff, unused;
+    while(i < count)
+    {
+        if((rule == RULE_MULTILINE_COMMENT || (text[i] == '/') && rule == RULE_NONE) && 
+            HighlightCheckMultiLineRule(text, count, "/*", "*/", i, rule, RULE_NONE, RULE_MULTILINE_COMMENT, foreColors, backColors, commentStyle))
+            continue;
+
+        if((rule == RULE_META_ML_COMMENT || (text[i] == '/') && rule == RULE_META) && 
+            HighlightCheckMultiLineRule(text, count, "/*", "*/", i, rule, RULE_META, RULE_META_ML_COMMENT, foreColors, backColors, commentStyle))
+            continue;
+
+        if((rule == RULE_STRINGS_ML_COMMENT || (text[i] == '/') && rule == RULE_STRINGS) && 
+            HighlightCheckMultiLineRule(text, count, "/*", "*/", i, rule, RULE_STRINGS, RULE_STRINGS_ML_COMMENT, foreColors, backColors, commentStyle))
+            continue;
+
+        if((rule == RULE_BYTE_STRING_ML_COMMENT || (text[i] == '/') && rule == RULE_BYTE_STRING) && 
+            HighlightCheckMultiLineRule(text, count, "/*", "*/", i, rule, RULE_BYTE_STRING, RULE_BYTE_STRING_ML_COMMENT, foreColors, backColors, commentStyle))
+            continue;
+
+        if((rule == RULE_CONDITION_ML_COMMENT || (text[i] == '/') && rule == RULE_CONDITION) && 
+            HighlightCheckMultiLineRule(text, count, "/*", "*/", i, rule, RULE_CONDITION, RULE_CONDITION_ML_COMMENT, foreColors, backColors, commentStyle))
+            continue;
+
+        // Check single-line comments
+        if((text[i] == '/') && 
+            HighlightCheckCommentRule(text, count, "//", i, 
+            foreColors, backColors, codeCommentStyle)) 
+            continue;
+
+        if ((rule == RULE_NONE && text[i] == 'r') &&
+            HighlightMatchString(text, count, "rule", i, HIGHLIGHT_WHOLEWORD)) {
+            rule = RULE_RULE;
+            HighlightCheckKeywordRule(text, count, keywordList, i, foreColors, backColors, keywordStyle);
+            i = HighlightGetNextToken(text, count, i);
+            continue;
+        }
+
+        if (rule == RULE_NONE) {
+            HighlightCheckKeywordRule(text, count, keywordList, i, foreColors, backColors, keywordStyle);
+            i = HighlightGetNextToken(text, count, i);
+            continue;
+        }
+
+        if (rule == RULE_RULE) {
+            rule = RULE_NAME;
+            nexti = HighlightGetNextToken(text, count, i, 0);
+            HighlightApplyStyle(foreColors, backColors, i, nexti-i, ruleNameStyle);
+            i = nexti;
+            continue;
+        }
+
+        if (rule >= RULE_BODY && rule != RULE_BYTE_STRING && text[i] == '}') {
+            rule = RULE_NONE;
+            i = HighlightGetNextToken(text, count, i);
+            continue;
+        }
+
+        if (rule == RULE_NAME && text[i] == '{') {
+            rule = RULE_BODY;
+            i = HighlightGetNextToken(text, count, i);
+            continue;
+        }
+
+        if (rule >= RULE_BODY) {
+            if (rule >= RULE_BODY &&
+                text[i] == 's' && 
+                HighlightMatchString(text, count, "strings", i, HIGHLIGHT_IGNORECASE | HIGHLIGHT_WHOLEWORD)) {
+                if (HighlightMatchString(text, count, "[ \n\r]*[:]", i + 7, HIGHLIGHT_REGEX)) {
+                    // in strings section
+                    rule = RULE_STRINGS;
+                    HighlightCheckKeywordRule(text, count, keywordList, i, foreColors, backColors, keywordStyle);
+                }
+            }
+
+            if (rule >= RULE_BODY &&
+                text[i] == 'c' && 
+                HighlightMatchString(text, count, "condition", i, HIGHLIGHT_IGNORECASE | HIGHLIGHT_WHOLEWORD)) {
+                if (HighlightMatchString(text, count, "[ \n\r]*[:]", i + 9, HIGHLIGHT_REGEX)) {
+                    // in condition section
+                    rule = RULE_CONDITION;
+                    HighlightCheckKeywordRule(text, count, keywordList, i, foreColors, backColors, keywordStyle);
+                }
+            }
+
+            if (rule >= RULE_BODY &&
+                text[i] == 'm' && 
+                HighlightMatchString(text, count, "meta", i, HIGHLIGHT_IGNORECASE | HIGHLIGHT_WHOLEWORD)) {
+                if (HighlightMatchString(text, count, "[ \n\r]*[:]", i + 4, HIGHLIGHT_REGEX)) {
+                    // in meta section
+                    rule = RULE_META;
+                    HighlightCheckKeywordRule(text, count, keywordList, i, foreColors, backColors, keywordStyle);
+                }
+            }
+
+            if (rule >= RULE_STRINGS) {
+                if((text[i] == '\"' || rule == RULE_STRING) &&
+                    HighlightCheckMultiLineRule(text, count, "\"", "\"", i, 
+                    rule, RULE_STRINGS, RULE_STRING, foreColors, backColors, stringStyle, HIGHLIGHT_CSTRING))
+                    continue;
+
+                if (text[i] == '}' && rule == RULE_BYTE_STRING) {
+                    rule = RULE_STRINGS;
+                    i = HighlightGetNextToken(text, count, i, 0);
+                    continue;
+                }
+
+                if (text[i] == '{' || rule == RULE_BYTE_STRING) {
+                    rule = RULE_BYTE_STRING;
+                    nexti = HighlightMatchString(text, count, "[0-9a-fA-F]{2}", i, HIGHLIGHT_REGEX);
+                    if (nexti) {
+                        nexti += i;
+                        HighlightApplyStyle(foreColors, backColors, i, nexti-i, byteStringStyle);
+                    } else {
+                        nexti = HighlightGetNextToken(text, count, i, 0);
+                    }
+                    i = nexti;
+                    continue;
+                }
+
+
+                if (HighlightCheckKeywordRule(text, count, dataTypeList, i, 
+                        foreColors, backColors, dataTypeStyle))
+                    continue;
+
+                if (HighlightMatchString(text, count, "=", i, 0)) {
+                    nexti = HighlightGetNextToken(text, count, i, 0);
+                    HighlightApplyStyle(foreColors, backColors, i, nexti-i, operatorStyle);
+                    i = nexti;
+                    continue;
+                }
+            }
+
+            if (rule == RULE_META) {
+                if ((text[i] == '\"' || rule == RULE_STRING) &&
+                    HighlightCheckMultiLineRule(text, count, "\"", "\"", i, 
+                    rule, RULE_META, RULE_STRING, foreColors, backColors, stringStyle, HIGHLIGHT_CSTRING))
+                    continue;
+
+                if (HighlightMatchString(text, count, "=", i, 0)) {
+                    nexti = HighlightGetNextToken(text, count, i, 0);
+                    HighlightApplyStyle(foreColors, backColors, i, nexti-i, operatorStyle);
+                    i = nexti;
+                    continue;
+                }
+            }
+
+            if (rule == RULE_CONDITION) {
+                if (HighlightCheckKeywordRule(text, count, conditionTypeList, i, foreColors, backColors, keywordStyle))
+                    continue;
+            }
+        }
+
+        // Nothing found - skip over whole words
+        i = HighlightGetNextToken(text, count, i);
+    }
+
+    // Save rule and foundName in the flags for the next line
+    flags = rule;
+}

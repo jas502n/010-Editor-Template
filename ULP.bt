@@ -1,0 +1,151 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: ULP.bt
+//   Authors: L. Potjewijd
+//   Version: 1.3
+//   Purpose: Syntax highlighting for Eagle 5 user language programs.
+//            May not work correctly with earlier or later versions.
+//  Category: Syntax
+// File Mask: *.ulp
+//  ID Bytes: 
+//   History: 
+//   1.3    2019-12-30 L. Potjewijd: added UL object data types
+//   1.2    2019-04-07 L. Potjewijd: converted from version 6 highlight
+//------------------------------------------------
+RequiresVersion( 9 );
+
+// To save memory, allow a single copy of this template to provide 
+//  syntax highlighting for all open files that match the file mask.
+HighlightAllowInstanceSharing( true );
+
+// Get list of coloring styles
+local int stringStyle         = HighlightFindStyle( "code-string" );
+local int commentStyle        = HighlightFindStyle( "code-comment" );
+local int keywordStyle        = HighlightFindStyle( "code-keyword" );
+local int dataTypeStyle       = HighlightFindStyle( "code-data-type" );
+local int constantStyle       = HighlightFindStyle( "code-constant" );
+local int builtinStyle        = HighlightFindStyle( "code-builtin" );
+local int dlgPredefinedStyle  = HighlightFindStyle( "dlg-predefined" );
+local int dlgObjectStyle      = HighlightFindStyle( "dlg-objects" );
+local int dlgFunctionStyle    = HighlightFindStyle( "dlg-functions" );
+
+// Types of rules we may be applying
+const int RULE_NONE              = 0;
+const int RULE_MULTILINE_COMMENT = 1;
+const int RULE_STRING            = 2;
+
+// Build list of keywords
+local TKeywordList keywordList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD,
+    "break","case","continue","default","do","else","enum","for","if","return",
+    "switch","while","#usage","#require","#include" );
+
+// Build list of data types
+local TKeywordList dataTypeList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD,
+    "string","char","int","numeric","real","void","UL_ARC","UL_AREA","UL_ATTRIBUTE","UL_BOARD",
+    "UL_BUS","UL_CIRCLE","UL_CLASS","UL_CONTACT","UL_CONTACTREF","UL_DEVICE","UL_DEVICESET",
+    "UL_ELEMENT","UL_FRAME","UL_GATE","UL_GRID","UL_HOLE","UL_INSTANCE","UL_JUNCTION","UL_LABEL",
+    "UL_LAYER","UL_LIBRARY","UL_NET","UL_PACKAGE","UL_PAD","UL_PART","UL_PIN","UL_PINREF",
+    "UL_POLYGON","UL_RECTANGLE","UL_SCHEMATIC","UL_SEGMENT","UL_SHEET","UL_SIGNAL","UL_SMD",
+    "UL_SYMBOL","UL_TEXT","UL_VIA","UL_WIRE" );
+
+// Build list of constants
+local TKeywordList constantList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD,
+    "EAGLE_VERSION","EAGLE_RELEASE","EAGLE_SIGNATURE","FONT_FIXED","FONT_VECTOR","FONT_PROPORTIONAL",
+    "LAYER_TOP","LAYER_BOTTOM","LAYER_PADS","LAYER_VIAS","LAYER_UNROUTED","LAYER_DIMENSION",
+    "LAYER_TPLACE","LAYER_BPLACE","LAYER_TORIGINS","LAYER_BORIGINS","LAYER_TNAMES","LAYER_BNAMES",
+    "LAYER_TVALUES","LAYER_BVALUES","LAYER_TSTOP","LAYER_BSTOP","LAYER_TCREAM","LAYER_BCREAM",
+    "LAYER_TFINISH","LAYER_BFINISH","LAYER_TGLUE","LAYER_BGLUE","LAYER_TTEST","LAYER_BTEST",
+    "LAYER_TKEEPOUT","LAYER_BKEEPOUT","LAYER_TRESTRICT","LAYER_BRESTRICT","LAYER_VRESTRICT",
+    "LAYER_DRILLS","LAYER_HOLES","LAYER_MILLING","LAYER_MEASURES","LAYER_DOCUMENT","LAYER_REFERENCE",
+    "LAYER_TDOCU","LAYER_BDOCU","LAYER_NETS","LAYER_BUSSES","LAYER_PINS","LAYER_SYMBOLS","LAYER_NAMES",
+    "LAYER_VALUES","LAYER_INFO","LAYER_GUIDE","LAYER_USER","REAL_EPSILON","REAL_MAX","REAL_MIN",
+    "INT_MAX","INT_MIN","PI" );
+
+// Build list of builtins
+local TKeywordList builtinList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD,
+    "abs","acos","asin","atan","ceil","clrgroup","cos","exit","exp","filedir","fileerror","fileext",
+    "fileglob","filename","fileread","filesetext","filesize","filetime","floor","frac","ingroup",
+    "isalnum","isalpha","iscntrl","isdigit","isgraph","islower","isprint","ispunct","isspace",
+    "isupper","isxdigit","language","log","log10","lookup","max","min","output","palette","pow",
+    "printf","round","setgroup","sin","sort","sprintf","sqrt","status","strchr","strjoin","strlen",
+    "strlwr","strrchr","strrstr","strsplit","strstr","strsub","strtod","strtol","strupr","strxstr",
+    "system","t2day","t2dayofweek","t2hour","t2minute","t2month","t2second","t2string","t2year",
+    "tan","time","tolower","toupper","trunc","u2inch","u2mic","u2mil","u2mm" );
+
+// Build list of dlg predefineds
+local TKeywordList dlgPredefinedList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD,
+    "dlgDirectory","dlgFileOpen","dlgFileSave","dlgMessageBox" );
+
+// Build list of dlg objects
+local TKeywordList dlgObjectList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD,
+    "dlgCell","dlgCheckBox","dlgComboBox","dlgDialog","dlgGridLayout","dlgGroup","dlgHBoxLayout",
+    "dlgIntEdit","dlgLabel","dlgListBox","dlgListView","dlgPushButton","dlgRadioButton","dlgRealEdit",
+    "dlgSpacing","dlgSpinBox","dlgStretch","dlgStringEdit","dlgTabPage","dlgTabWidget","dlgTextEdit",
+    "dlgTextView","dlgVBoxLayout" );
+
+// Build list of dlg functions
+local TKeywordList dlgFunctionList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD,
+    "dlgAccept","dlgRedisplay","dlgReset","dlgReject" );
+
+// Main function to apply syntax highlighting to a line of text.
+//  flags is preserved between lines and allows us to do multi-line comments.
+void HighlightLineRealtime( int64 line, wchar_t text[], int foreColors[], int backColors[], int count, ushort &flags )
+{   int i, len, pos, rule = flags;
+    while( i < count )
+    {  // Check multi-line comment - could be continued from a previous line
+        if( (text[i] == '/' || rule == RULE_MULTILINE_COMMENT) && 
+            HighlightCheckMultiLineRule( text, count, "/*", "*/", i, 
+            rule, RULE_NONE, RULE_MULTILINE_COMMENT, foreColors, backColors, commentStyle ) ) 
+            continue;
+        // Check multi-line string - could be continued from a previous line
+        if( (text[i] == '\"' || rule == RULE_STRING) &&
+            HighlightCheckMultiLineRule( text, count, "\"", "\"", i, 
+            rule, RULE_NONE, RULE_STRING, foreColors, backColors, stringStyle, HIGHLIGHT_CSTRING ) ) 
+            continue;
+        // Check single-line comments
+        if( (text[i] == '/') &&
+            HighlightCheckCommentRule( text, count, "//", i, 
+            foreColors, backColors, commentStyle ) ) 
+            continue;
+        // Check character constant
+        if( (text[i] == '\'') &&
+            HighlightCheckSingleLineRule( text, count, "\'", "\'", i, 
+            foreColors, backColors, stringStyle, HIGHLIGHT_CSTRING ) ) 
+            continue;
+        // Check keywords
+        if( HighlightCheckKeywordRule( text, count, keywordList, i, 
+            foreColors, backColors, keywordStyle ) )
+            continue;
+        // Check data types
+        if( HighlightCheckKeywordRule( text, count, dataTypeList, i, 
+            foreColors, backColors, dataTypeStyle ) )
+            continue;
+        // Check constants
+        if( HighlightCheckKeywordRule( text, count, constantList, i, 
+            foreColors, backColors, constantStyle ) )
+            continue;
+        // Check builtins
+        if( HighlightCheckKeywordRule( text, count, builtinList, i, 
+            foreColors, backColors, builtinStyle ) )
+            continue;
+        // Check dlg predefineds
+        if( HighlightCheckKeywordRule( text, count, dlgPredefinedList, i, 
+            foreColors, backColors, dlgPredefinedStyle ) )
+            continue;
+        // Check dlg objects
+        if( HighlightCheckKeywordRule( text, count, dlgObjectList, i, 
+            foreColors, backColors, dlgObjectStyle ) )
+            continue;
+        // Check dlg functions
+        if( HighlightCheckKeywordRule( text, count, dlgFunctionList, i, 
+            foreColors, backColors, dlgFunctionStyle ) )
+            continue;
+
+        // Nothing found - skip over whole words
+        i = HighlightGetNextToken( text, count, i );
+    }
+
+    // Save rule in the flags for the next line
+    flags = rule;
+}

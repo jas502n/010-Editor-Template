@@ -1,0 +1,1114 @@
+//------------------------------------------------
+//--- 010 Editor v2.0 Binary Template
+//
+//      File: RAR.bt
+//   Authors: Alexander Sherman, Jiaxi Ren
+//   Version: 8.0
+//   Purpose: Parse RAR archives including 2.x, 3.x, 5.x and SFX RAR files.
+//  Category: Archive
+// File Mask: *.rar
+//  ID Bytes: 52 61 72 21 1A 07 00, 52 61 72 21 1A 07 01 00
+//   History:
+//   8.0   2020-10-28 Jiaxi Ren: Added 5.x support.
+//   7.2   2020-06-14 G Cazzetta: Added UNICODE name decoding from UnRAR source.
+//   7.1   2016-01-28 SweetScape: Updated header for repository submission.
+//   7.03  A Sherman: First public release.
+//
+// RAR archive structures
+// Based on TECHNOTE.TXT from the RAR archiver distribution
+//------------------------------------------------
+
+LittleEndian();
+
+const string RarSignature = "Rar!" + '\x1A' + '\x07' + '\x00';
+const string RarSignatureV5 = "Rar!" + '\x1A' + '\x07' + '\x01' + '\x00';
+
+///////////////
+
+struct FileHeadBlock;
+struct OldCommentBlock;
+struct OldSubBlock;
+struct SubBlock;
+struct RarBlockV5;
+struct Record;
+
+///////////////
+
+enum <byte> RarBlockType
+{
+	MARKER=0x72, ARCHIVE, FILE_OR_DIR, COMMENT_OLD, AV_OLD_1, SUBBLOCK_OLD, RR_OLD, AV_OLD_2, SUBBLOCK, _END_
+};
+
+enum <ubyte> RarBlockTypeV5 {
+	MAIN = 1, FILE, SERVICE, ENCRYPT, END
+};
+
+enum <ubyte> RecordType {
+	LOCATOR = 1, FILE_ENCRYP = 1, FILE_HASH, FILE_TIME, FILE_VERSION, REDIRECTION, OWNER, SERVICE_DATA
+};
+
+////////////////
+
+local uint16 _flags = 0;
+
+/// info:
+local uquad iBlocksCounter = 0;
+local uquad iFiles = 0;
+local uquad iDirs = 0;
+local uquad iComments = 0;
+local uquad iSubBlocks = 0;
+local uquad iUniNames = 0;
+local uquad iBadCRCCounter = 0;
+local ubyte iMinVerToUnpack = 0xff;
+local ubyte iMaxVerToUnpack = 0;
+local uquad iTotalUnpackedSize = 0;
+local uint iAV1 = 0;
+local uint iAV2 = 0;
+local ubyte isArchiveEnd = 0;
+const ubyte MAX_VINT_LEN = 10;
+local ubyte isVersionV5 = false;
+
+////////////////
+
+enum <ubyte> OsType
+{
+	_MS_DOS, _OS_2, _Win32, _Unix, _Mac_OS, _BeOS
+};
+
+enum <char> PackMethod
+{
+	Store='0', Fastest, Fast, Normal, Good, Best
+};
+
+enum <uint16> SubType_OldStyle
+{
+	OS2_EA = 0x0100
+};
+
+struct UnixStyleAttrs
+{
+	uint32 owner_may_eXecute : 1;
+	uint32 owner_may_Write : 1;
+	uint32 owner_may_Read : 1;
+
+	uint32 group_may_eXecute : 1;
+	uint32 gorup_may_Write : 1;
+	uint32 group_may_Read : 1;
+
+	uint32 everybody_may_eXecute : 1;
+	uint32 everybody_may_Write : 1;
+	uint32 everybody_may_Read : 1;
+
+	uint32 _s : 1; // ??
+	uint32 _s : 1; // ??
+
+	uint32 _unused : 21;
+};
+
+struct DosFileAttrs
+{
+	uint32 READONLY : 1; //              0x00000001
+	uint32 HIDDEN : 1; //                0x00000002
+	uint32 SYSTEM : 1; //                0x00000004
+	uint32 VOLUME : 1;
+	uint32 DIRECTORY : 1; //             0x00000010
+	uint32 ARCHIVE : 1; //               0x00000020
+	uint32 _res : 26;
+};
+
+struct WinFileAttrs
+{
+	uint32 READONLY : 1;
+	uint32 HIDDEN : 1;
+	uint32 SYSTEM : 1;
+	uint32 VOLUME : 1;
+	uint32 DIRECTORY : 1;
+	uint32 ARCHIVE : 1;
+	uint32 DEVICE : 1;
+	uint32 NORMAL : 1;
+	uint32 TEMPORARY : 1;
+	uint32 SPARSE_FILE : 1;
+	uint32 REPARSE_POINT : 1;
+	uint32 COMPRESSED : 1;
+	uint32 OFFLINE : 1;
+	uint32 NOT_CONTENT_INDEXED : 1;
+	uint32 ENCRYPTED : 1;
+	uint32 _res2 : 17;
+};
+
+struct CommonBlockFlags
+{
+	ushort _reserved : 14;
+	ushort OLD_VERSION_IGNORE : 1;
+	ushort ADD_SIZE_PRESENT : 1;
+};
+
+struct MainHeadFlags
+{
+	ubyte ARCHIVE_VOLUME : 1;
+	ubyte ARCHIVE_COMMENT_PRESENT : 1;
+	ubyte ARCHIVE_LOCKED : 1;
+	ubyte ARCHIVE_SOLID : 1;
+	ubyte NEW_VOLUME_NAMING : 1;
+	ubyte AV_PRESENT : 1;
+	ubyte RECOVERY_PRESENT : 1;
+	ubyte BLOCK_HEADERS_ENCRYPTED : 1;
+	ubyte IS_FIRST_VOLUME : 1;
+	ubyte _reserved : 5;
+	ubyte OLD_VERSION_IGNORE : 1;
+	ubyte ADD_SIZE_PRESENT : 1;
+};
+
+enum <byte> FileDictType
+{
+	_64K, _128K, _256K, _512K, _1024K, _2048K, _4096K, _Directory
+};
+
+struct FileHeadFlags
+{
+	ubyte from_PREV_VOLUME : 1;
+	ubyte to_NEXT_VOLUME : 1;
+	ubyte PASSWORD_ENCRYPTED : 1;
+	ubyte FILE_COMMENT_PRESENT : 1;
+	ubyte SOLID : 1;
+	FileDictType DICTIONARY : 3;
+	ubyte HIGH_SIZE : 1;
+	ubyte has_UNICODE_FILENAME : 1;
+	ubyte ENCRYPTION_SALT : 1;
+	ubyte IS_OLD_FILE_VERSION : 1;
+	ubyte EXTENDED_TIME_INFO : 1;
+	ubyte _reserved : 1;
+	ubyte OLD_VERSION_IGNORE : 1;
+	ubyte ADD_SIZE_PRESENT : 1;
+};
+
+typedef struct
+{
+	local quad iOfs = FTell();
+
+	uint16 HEAD_CRC <format=hex, fgcolor=cRed>;
+
+	RarBlockType HeadType <fgcolor=cGreen>;
+
+	_flags = ReadUShort(FTell());
+
+	if (HeadType == ARCHIVE)
+		MainHeadFlags HEAD_FLAGS;
+	else if (HeadType == FILE_OR_DIR)
+		FileHeadFlags HEAD_FLAGS;
+	else
+		CommonBlockFlags HEAD_FLAGS;
+
+	++iBlocksCounter;
+
+	if (HeadType < MARKER || HeadType > _END_)
+	{
+		Warning("Unknown Header Type (0x%02x) in Block #%Lu", HeadType, iBlocksCounter);
+		Printf("Unknown Header Type (0x%02x) in Block #%Lu\n", HeadType, iBlocksCounter);
+	}
+
+	uint16 HeaderSize;
+
+	if (HeaderSize < 7)
+	{
+		Warning("Invalid block size (%u) in Block #%Lu", HeaderSize, iBlocksCounter);
+		Printf("Invalid block size (%u) in Block #%Lu\n", HeaderSize, iBlocksCounter);
+		return -1;
+	}
+
+	if (HeadType != MARKER)
+	{
+		local uint16 crcCheck = Checksum(CHECKSUM_CRC32, startof(HeadType), HeaderSize-sizeof(HEAD_CRC)) & 0xFFFF;
+		if (crcCheck != HEAD_CRC)
+		{
+			Warning("Header CRC mismatch in Block #%Lu", iBlocksCounter);
+			Printf("Header CRC mismatch in Block #%Lu: expected CRC is 0x%X, got 0x%X\n", iBlocksCounter, crcCheck, HEAD_CRC);
+			++iBadCRCCounter;
+		}
+	}
+
+	if (HEAD_FLAGS.ADD_SIZE_PRESENT)
+		uint32 RawDataSize;
+	else
+		local uint32 RawDataSize = 0;
+
+	switch (HeadType) {
+	case ARCHIVE:
+		uint16 _reserved1;
+		uint32 _reserved2;
+		if (HEAD_FLAGS.ARCHIVE_COMMENT_PRESENT) struct RarBlock MainComment;
+		break;
+	case FILE_OR_DIR:
+		if (HEAD_FLAGS.DICTIONARY == 7)
+		{
+			++iDirs;
+			FileHeadBlock dir;
+		}
+		else
+		{
+			++iFiles;
+			FileHeadBlock file;
+		}
+		break;
+	case COMMENT_OLD:
+		OldCommentBlock cmm;
+		break;
+	case SUBBLOCK_OLD:
+		OldSubBlocksub;
+		break;
+	case SUBBLOCK:
+		SubBlock sub;
+		break;
+	case AV_OLD_1:
+		++iAV1;
+		Printf("*** AV was found (RAR v. < 2.60) @ block #%Lu.\n", iBlocksCounter);
+		break;
+	case AV_OLD_2:
+		++iAV2;
+		Printf("*** AV was found (RAR v. 2.60 - 2.9x) @ block #%Lu.\n", iBlocksCounter);
+		break;
+	}
+
+	iOfs = HeaderSize - (FTell() - iOfs);
+
+	if (iOfs > 0)
+		ubyte _reserved[iOfs];
+
+	if (RawDataSize > 0)
+		ubyte _raw[RawDataSize] <format=hex, bgcolor=0x76EE00>;
+} RarBlock <read=ReadRarBlock>;
+
+string ReadRarBlock(RarBlock &b) 
+{
+	local string s = EnumToString(b.HeadType);
+    if( b.HeadType == FILE_OR_DIR )
+    {
+        if( exists(b.file) )
+            s += " - " + b.file.FileName;
+        else if( exists(b.dir) )
+            s += " - \\" + b.dir.FileName;
+    }
+    return s;
+}
+
+struct FileHeadBlock
+{
+	uint32 UnpackedSize;
+	iTotalUnpackedSize += UnpackedSize;
+
+	OsType Host_OS;
+	uint32 FileCRC32 <format=hex>;
+	DOSTIME FileTime;
+	DOSDATE FileDate;
+	ubyte VersionToUnpack;
+
+	if (VersionToUnpack > iMaxVerToUnpack)
+		iMaxVerToUnpack = VersionToUnpack;
+
+	if (VersionToUnpack < iMinVerToUnpack)
+		iMinVerToUnpack = VersionToUnpack;
+
+	PackMethod Method;
+	uint16 NameSize;
+
+	switch (Host_OS) {
+	case _Win32:
+		WinFileAttrs Attributes;
+		break;
+	case _MS_DOS:
+	case _Mac_OS:
+	case _OS_2:
+		DosFileAttrs Attributes;
+		break;
+	case _Unix:
+	case _BeOS:
+		UnixStyleAttrs Attributes;
+		break;
+	default:
+		uint32 Attributes <format=binary>;
+	}
+
+	if (_flags & 0x0100)
+	{
+		uint32 HIGH_PACK_SIZE;
+		uint32 HIGH_UNP_SIZE;
+
+		iTotalUnpackedSize += (HIGH_UNP_SIZE << 32);
+	}
+
+	if (_flags & 0x0200)
+	{
+		++iUniNames;
+
+		struct WideFileNameData
+		{
+			char Name[NameSize];
+		} FileName <read=ReadUniName>;
+	}
+	else
+		char FileName[NameSize];
+
+	if (_flags & 0x0008)
+	{
+		RarBlock FileComment; // used in RAR v. <= 3.11
+	}
+
+	if (_flags & 0x0400)
+		uquad SALT <format=hex>;
+};
+
+/////////////////
+
+struct OldCommentBlock {
+	++iComments;
+
+	uint16 UnpackedSize;
+	ubyte VersionToUnpack;
+	PackMethod Method;
+	uint16 CommentCRC <format=hex>;
+
+	Printf("*** Old style CommentBlock:  (Block #%Lu)\n", iBlocksCounter);
+};
+
+struct OldSubBlock {
+	++iSubBlocks;
+
+	SubType_OldStyle SubType;
+	ubyte _reserved;
+
+	Printf("*** Old style SubBlock: %u (Block #%Lu)\n", SubType, iBlocksCounter);
+};
+
+struct SubBlock {
+	++iSubBlocks;
+
+	ubyte _unknown_to_me_1[15];
+	ubyte SubTypeLen;
+	ubyte _unknown_to_me_2[5];
+	char SubType[SubTypeLen];
+
+	Printf("*** SubBlock: %s (Block #%Lu)\n", SubType+'\0', iBlocksCounter);
+	switch (SubType) {
+	case "CMT":
+		++iComments;
+		break;
+	case "AV":
+		Printf("*** Authenticity Verification info (RAR v. 3.x) @ block #%Lu.\n", iBlocksCounter);
+		break;
+	case "RR":
+		Printf("*** Recovery Record was found (RAR v. 3.x) @ block #%Lu.\n", iBlocksCounter);
+		break;
+	}
+};
+
+//////////////////////////////////////////////////
+// LEB128 stuff (taken from DEX.bt)
+//////////////////////////////////////////////////
+
+// struct to read a uleb128 value. uleb128's are a variable-length encoding for
+// a 32 bit value. some of the uleb128/sleb128 code was adapted from dalvik's
+// libdex/Leb128.h and Wikipedia.
+
+typedef struct {
+	ubyte val <comment="uleb128 element">;
+
+	while (val > 0x7f) {
+		ubyte val <comment="uleb128 element">;
+	}
+} uleb128 <read=ULeb128Read, write=ULeb128Write, comment="Unsigned little-endian base 128 value">;
+
+// get the actual uint value of the uleb128
+uquad uleb128_value(uleb128 &u) {
+	local uquad result = 0;
+	local uquad cur = 0;
+	local ubyte idx = 0;
+
+	cur = u.val[idx];
+
+	while (cur > 0x7f) {
+		result += ((cur & 0x7f) << (idx * 7));
+		idx += 1;
+		cur = u.val[idx];
+	}
+
+	result += ((cur & 0x7f) << (idx * 7));
+
+	return result;
+}
+
+string ULeb128Read(uleb128 &u) {
+	local string s;
+	s = SPrintf(s, "%Lu", uleb128_value(u));
+	return s;
+}
+
+void ULeb128Write(uleb128 &u, string s) {
+	uquad value;
+	ubyte size;
+	// Store up to 64 bit integers, resulting in 10 bytes maximum.
+	byte bValue[MAX_VINT_LEN];
+	byte lowByte;
+
+	SScanf(s, "%Lu", value);
+
+	pos = startof(u);
+	size = sizeof(u);
+	DeleteBytes(pos, size);
+
+	size = 0;
+	do {
+		lowByte = value & 0x7F;
+		value >>= 7;
+
+		if (value != 0) {
+			lowByte |= 0x80;
+		}
+
+		bValue[size] = lowByte;
+		size += 1;
+	} while(value != 0);
+
+	InsertBytes(pos, size, 0);
+	WriteBytes(bValue, pos, size);
+}
+
+string VolumeNumberRead(uleb128 &u) {
+	local string s;
+	s = SPrintf(s, "Volume number: %Lu", uleb128_value(u) + 1);
+	return s;
+}
+
+string OSRead(uleb128 &u) {
+	local string s;
+	switch (uleb128_value(u)) {
+		case 0:
+			s = "Windows";
+			break;
+		case 1:
+			s = "Unix";
+			break;
+	}
+	return s;
+}
+
+string RecordRead(Record &record) {
+	return record.RecordName + " record";
+}
+
+string RedirectionRead(uleb128 &type) {
+	local uint32 value = uleb128_value(type);
+	local string s;
+
+	switch (value) {
+		case 0x0001:
+			s = "Unix symlink";
+			break;
+		case 0x0002:
+			s = "Unix symlink";
+			break;
+		case 0x0003:
+			s = "Unix symlink";
+			break;
+		case 0x0004:
+			s = "Unix symlink";
+			break;
+		case 0x0005:
+			s = "Unix symlink";
+			break;
+		default:
+			s = "Unknown symlink";
+			break;
+	}
+
+	return s;
+}
+
+// Extra record
+typedef struct(ubyte block) {
+	local uint32 flag = 0;
+	local uquad size = 0;
+	local uquad type = 0;
+	local string RecordName;
+	uleb128 Size <comment="Record size">;
+	uleb128 Type <comment="Record type">;
+
+	type = uleb128_value(Type);
+
+	switch (block) {
+		case MAIN:
+			if (type == LOCATOR) {
+				RecordName = "Locator";
+				uleb128 Flag <comment="Record flag">;
+				flag = uleb128_value(Flag);
+
+				if (flag & 0x0001) {
+					uleb128 QuickOpenOffste <comment="Quick open offset">;
+					Printf("Quick open record offset is present.\n");
+				}
+
+				if (flag & 0x0002) {
+					uleb128 RecoveryRecordOffste <comment="Recovery record offset">;
+					Printf("Recovery record offset is present.\n");
+				}
+			} else {
+				RecordName = "Unknown";
+				size = uleb128_value(Size) - FTell() + startof(Type);
+				byte Data[size] <comment="Record data">;
+			}
+			break;
+		case FILE:
+		case SERVICE:
+			if (type == FILE_ENCRYP) {
+                RecordName = "File encryption";
+				uleb128 EncryptionVersion <comment="Version of encryption algorithm">;
+
+				uleb128 EncryptionFlags <comment="Flag of encryption">;
+
+				ubyte KDFCount <comment="KDF count">;
+
+				byte Salt[16] <comment="Salt value">;
+
+				byte IV[16] <comment="AES-256 initialization vector">;
+
+				if (uleb128_value(EncryptionFlags) & 0x0001) {
+					byte CheckValue[12] <comment="Check value">;
+				}
+			} else if (type == FILE_HASH) {
+				RecordName = "File hash";
+				uleb128 HashType <comment="Hash type">;
+
+				if (uleb128_value(HashType) == 0) {
+					// BLAKE2sp
+					byte HashData[32] <comment="Hash data">;
+				} else {
+					size = uleb128_value(Size) - FTell() + startof(Type);
+					byte HashData[size] <comment="Hash data">;
+					Warning("Unknown hash function here.");
+				}
+			} else if (type == FILE_TIME) {
+				RecordName = "File time";
+				uleb128 Flag <comment="File time flags">;
+				flag = uleb128_value(Flag);
+
+				if (flag & 0x0002) {
+					Printf("Modification time is present.\n");
+					if (flag & 0x0001) {
+						time_t mtime <comment="Modification time">;
+					} else {
+						FILETIME mtime <comment="Modification time">;
+					}
+				}
+
+				if (flag & 0x0004) {
+					Printf("Creation time is present.\n");
+					if (flag & 0x0001) {
+						time_t ctime <comment="Creation time">;
+					} else {
+						FILETIME ctime <comment="Creation time">;
+					}
+				}
+
+				if (flag & 0x0008) {
+					Printf("Last access time is present.\n");
+					if (flag & 0x0001) {
+						time_t atime <comment="Last access time">;
+					} else {
+						FILETIME atime <comment="Last access time">;
+					}
+				}
+
+				if (!(~flag & 0x0013)) {
+					uint32 mtime_nano <comment="mtime nanoseconds">;
+				}
+
+				if (!(~flag & 0x0015)) {
+					uint32 ctime_nano <comment="ctime nanoseconds">;
+				}
+
+				if (!(~flag & 0x0019)) {
+					uint32 atime_nano <comment="atime nanoseconds">;
+				}
+			} else if (type == FILE_VERSION) {
+				RecordName = "File version";
+				uleb128 Flag <comment="File version flags">;
+
+				uleb128 Version <comment="File version number">;
+			} else if (type == REDIRECTION) {
+				RecordName = "File system redirection";
+				uleb128 RedirectionType <comment="Redirection type", read=RedirectionRead>;
+
+				uleb128 Flag <comment="File redirection flags">;
+
+				uleb128 NameLength <comment="Length of link target name">;
+
+				ubyte Name[uleb128_value(NameLength)] <comment="Name", bgcolor=cLtBlue>;
+			} else if (type == OWNER) {
+				RecordName = "Unix owner record";
+				uleb128 Flag <comment="Unix owner flags">;
+				flag = uleb128_value(Flag);
+
+				if (flag & 0x0001) {
+					uleb128 UserNameLength <comment="User name length">;
+					ubyte User[uleb128_value(UserNameLength)] <comment="User name">;
+				}
+
+				if (flag & 0x0002) {
+					uleb128 GroupNameLength <comment="Group name length">;
+					ubyte Group[uleb128_value(GroupNameLength)] <comment="Group name">;
+				}
+
+				if (flag & 0x0004) {
+					uleb128 UserID <comment="User ID">;
+				}
+
+				if (flag & 0x0008) {
+					uleb128 GroupID <comment="Group ID">;
+				}
+			} else if (type == SERVICE_DATA) {
+				RecordName = "Service data";
+				size = uleb128_value(Size) - FTell() + startof(Type);
+				byte Data[size] <comment="Record data">;
+			} else {
+				RecordName = "Unknown";
+				size = uleb128_value(Size) - FTell() + startof(Type);
+				byte Data[size] <comment="Record data">;
+			}
+			break;
+		default:
+			RecordName = "Unknown";
+			size = uleb128_value(Size) - FTell() + startof(Type);
+			byte Data[size] <comment="Record data">;
+			break;
+    }
+} Record <read=RecordRead>;
+
+struct Records(RarBlockV5 &block) {
+	local uquad RemainingSize = uleb128_value(block.ExtraSize);
+
+	while (RemainingSize) {
+		Record record(uleb128_value(block.HeadType));
+		RemainingSize -= sizeof(record);
+	}
+};
+
+// Data cache structure of quick open data
+struct DataCache {
+	local uint32 crcCheck = 0;
+
+	uint32 CRC32 <comment="CRC32 of data cache">;
+
+	uleb128 Size <comment="Structure size">;
+
+	pos = startof(Size);
+	crcCheck = Checksum(CHECKSUM_CRC32, pos, uleb128_value(Size) + sizeof(Size)) & 0xFFFFFFFF;
+	if (crcCheck != CRC32) {
+		Warning("DataCache CRC mismatch in Block #%Lu", iBlocksCounter);
+		Printf("DataCache CRC mismatch in Block #%Lu: expected CRC is 0x%X, got 0x%X\n", iBlocksCounter, crcCheck, CRC32);
+		++iBadCRCCounter;
+	}
+
+	uleb128 Flag <comment="Structure flags">;
+
+	uleb128 Offset <comment="Data offset">;
+
+	uleb128 DataSize <comment="Data size">;
+
+	byte Data[uleb128_value(DataSize)] <comment="Archive data">;
+};
+
+struct QuickOpenData(RarBlockV5 &block) {
+	local uquad RemainingSize = uleb128_value(block.DataSize);
+
+	while (RemainingSize) {
+		DataCache cache;
+		RemainingSize -= sizeof(cache);
+	}
+};
+
+// Archive v5 block format
+typedef struct {
+	local uquad iOfs = FTell();
+	local uquad size = 0;
+	local uquad flag = 0;
+	local uquad value = 0;
+	local uint32 crcCheck = 0;
+
+	++iBlocksCounter;
+
+	uint32 HEAD_CRC <format=hex, fgcolor=cRed, comment="CRC32 of header">;
+
+	uleb128 HeadSize <fgcolor=cGreen, comment="Size of header data">;
+	pos = startof(HeadSize);
+	size = uleb128_value(HeadSize);
+
+	uleb128 HeadType <comment="Type of archive header">;
+	crcCheck = Checksum(CHECKSUM_CRC32, pos, size + startof(HeadType) - pos) & 0xFFFFFFFF;
+
+	if (crcCheck != HEAD_CRC) {
+		Warning("Header CRC mismatch in Block #%Lu", iBlocksCounter);
+		Printf("Header CRC mismatch in Block #%Lu: expected CRC is 0x%X, got 0x%X\n", iBlocksCounter, crcCheck, HEAD_CRC);
+		++iBadCRCCounter;
+	}
+	size -= sizeof(HeadType);
+
+	uleb128 HeadFlag <comment="Flag of archive header">;
+	flag = uleb128_value(HeadFlag);
+	size -= sizeof(HeadFlag);
+
+	switch (uleb128_value(HeadType)) {
+		case MAIN:
+			value = uleb128_value(HeadFlag);
+
+			if (value & 0x0001) {
+				uleb128 ExtraSize <comment="Size of extra area">;
+				size -= sizeof(ExtraSize);
+			}
+
+			uleb128 ArchiveFlag <comment="Archive flags">;
+			flag = uleb128_value(ArchiveFlag);
+
+			if (flag & 0x0002) {
+				uleb128 VolumeNumber <comment="Volume number", read=VolumeNumberRead>;
+			}
+
+			if (flag & 0x0008) {
+				Printf("Recovery Record is present.\n");
+			}
+
+			if (exists(ExtraSize) && uleb128_value(ExtraSize) > 0) {
+				Records records(this);
+			}
+
+			Printf("It is a %s %s %s RARv5 archive.\n",
+				(flag & 0x0010) > 0 ? "LOCKED" : "non-locked",
+				(flag & 0x0004) > 0 ? "SOLID" : "regular",
+				(flag & 0x0001) > 0 ? "VOLUME'd" : "one-part");
+
+			break;
+		case ENCRYPT:
+			uleb128 EncryptionVersion <comment="Version of encryption algorithm">;
+
+			uleb128 EncryptionFlags <comment="Flag of encryption">;
+
+			ubyte KDFCount <comment="KDF count">;
+
+			byte Salt[16] <comment="Salt value">;
+
+			if (uleb128_value(EncryptionFlags) & 0x0001) {
+				byte Value[12] <comment="Check value">;
+			}
+
+			Warning("It's an encrypted archive. Cannot proceed, exiting...");
+
+			return -2;
+		case END:
+			uleb128 EndFlag <comment="End of archive flags">;
+			flag = uleb128_value(EndFlag);
+
+			if (flag & 0x0001) {
+				Printf("Archive is a part of multivolume set.\n");
+			} else {
+				Printf("Archive is the last part.\n");
+			}
+
+			isArchiveEnd = 1;
+			break;
+		case FILE:
+		case SERVICE:
+			flag = uleb128_value(HeadFlag);
+
+			if (flag & 0x0001) {
+				uleb128 ExtraSize <comment="Size of extra area">;
+				value = uleb128_value(ExtraSize);
+			}
+
+			if (flag & 0x0002) {
+				uleb128 DataSize <comment="Size of data area">;;
+			}
+
+			uleb128 FileFlag <comment="File flags">;
+			flag = uleb128_value(FileFlag);
+
+			uleb128 UnpackedSize <comment="Unpacked size">;
+
+			uleb128 Attributes <comment="File attributes">;
+
+			if (flag & 0x0002) {
+				time_t mtime <comment="File modification time">;
+			}
+
+			if (flag & 0x0004) {
+				uint32 DataCRC32 <comment="CRC32 of data">;
+			}
+
+			uleb128 CompressionInfo <comment="Compression information">;
+
+			uleb128 OS <comment="OS info", read=OSRead>;
+
+			uleb128 NameLength <comment="Name length">;
+
+			byte Name[uleb128_value(NameLength)] <comment="Name", bgcolor=cLtBlue>;
+
+			if (exists(ExtraSize) && value > 0) {
+				Records records(this);
+			}
+
+			value = uleb128_value(DataSize);
+			if (exists(DataSize) && value > 0) {
+				if (uleb128_value(HeadType) == SERVICE && Strncmp(Name, "QO", 2) == 0) {
+					QuickOpenData caches(this);
+				} else {
+					byte DataArea[value] <comment="Data area", bgcolor=0x76EE00>;
+				}
+			}
+			break;
+		default:
+			flag = uleb128_value(HeadFlag);
+
+			if (flag & 0x0001) {
+				uleb128 ExtraSize <comment="Size of extra area">;
+				size -= sizeof(ExtraSize);
+				value = uleb128_value(ExtraSize);
+				size -= value;
+			}
+
+			if (flag & 0x0002) {
+				uleb128 DataSize <comment="Size of data area">;;
+				size -= sizeof(DataSize);
+			}
+
+			byte _reservedFields[size] <comment="Fields specific for block type">;
+
+			if (exists(ExtraSize) && value > 0) {
+				Records records(this);
+			}
+
+			value = uleb128_value(DataSize);
+			if (exists(DataSize) && value > 0) {
+				byte DataArea[value] <comment="Data area">;
+			}
+			break;
+	}
+} RarBlockV5 <read=RarBlockReadV5>;
+
+string RarBlockReadV5(RarBlockV5 &block) {
+	local string s;
+
+	switch (uleb128_value(block.HeadType)) {
+		case MAIN:
+			s = "Main";
+			break;
+		case FILE:
+			s = "File";
+			break;
+		case SERVICE:
+			s = "Service";
+			if (Strncmp(block.Name, "CMT", 3) == 0) {
+				s += "(Archive comment)";
+			} else if (Strncmp(block.Name, "QO", 2) == 0) {
+				s += "(Quick open)";
+			} else if (Strncmp(block.Name, "ACL", 3) == 0) {
+				s += "(NTFS ACL)";
+			} else if (Strncmp(block.Name, "STM", 3) == 0) {
+				s += "(NTFS streams)";
+			} else if (Strncmp(block.Name, "RR", 2) == 0) {
+				s += "(Recovery record)";
+			}
+			break;
+		case ENCRYPT:
+			s = "Encryption";
+			break;
+		case END:
+			s = "End";
+			break;
+		default:
+			s = "Unknown";
+			break;
+	}
+	s += " block";
+    
+    // Add in filename
+    if( uleb128_value(block.HeadType) == FILE )
+        s += " - " + block.Name;
+    return s;
+}
+
+/////////////////
+
+void DecodeFileName(char Name[], char EncName[], uquad iEncSize, wstring &NameW)
+{
+	local quad iEncPos = 0;
+	local quad iDecPos = 0;
+
+	local char HighByte = EncName[iEncPos++];
+
+	local ubyte Flags;
+	local uint32 FlagBits = 0;
+
+	local ubyte iLength;
+	local char iCorrection;
+
+	while (iEncPos < iEncSize)
+	{
+		if (FlagBits == 0)
+		{
+			Flags = EncName[iEncPos++];
+			FlagBits = 8;
+		}
+
+		FlagBits -= 2;
+		switch ((Flags >> FlagBits) & 0x03) {
+		case 0:
+			NameW += EncName[iEncPos++];
+			++iDecPos;
+			break;
+		case 1:
+			NameW += ((wchar_t)HighByte << 8) | EncName[iEncPos++];
+			++iDecPos;
+			break;
+		case 2:
+			NameW += ((wchar_t)EncName[iEncPos+1] << 8) | EncName[iEncPos];
+			++iDecPos;
+			iEncPos += 2;
+			break;
+		case 3:
+			iLength = EncName[iEncPos++];
+			if ((iLength & 0x80) != 0)
+			{
+				iCorrection = EncName[iEncPos++];
+				for (iLength = (iLength & 0x7F) + 2; iLength > 0; --iLength)
+					NameW += ((wchar_t)HighByte << 8) | (Name[iDecPos++] + iCorrection);
+			}
+			else
+			{
+				for (iLength += 2; iLength > 0; --iLength)
+					NameW += Name[iDecPos++];
+			}
+			break;
+		}
+	}
+}
+
+wstring ReadUniName(WideFileNameData &data)
+{
+	local wstring NameW;
+
+	local uquad iLength = Strlen(data.Name);
+	if (sizeof(data) == iLength)
+		NameW = StringToWString(data.Name, CHARSET_UTF8);
+	else
+	{
+		local char EncName[sizeof(data) - (iLength + 1)];
+		Memcpy(EncName, data.Name, sizeof(EncName), 0, iLength + 1);
+		DecodeFileName(data.Name, EncName, sizeof(EncName), NameW);
+	}
+
+	return NameW;
+}
+
+/////////////////
+local uquad pos = 0;
+local quad SignaturePos = FindFirst(RarSignatureV5);
+
+if (SignaturePos >= 0)
+{
+	isVersionV5 = true;
+	if (SignaturePos > 0)
+		ubyte SFX[SignaturePos] <bgcolor=cAqua, comment="Self-extracting module">;
+	FSeek(SignaturePos);
+}
+else
+{
+	SignaturePos = FindFirst(RarSignature);
+	if (SignaturePos >= 0)
+	{
+		if (SignaturePos > 0)
+			ubyte SFX[SignaturePos] <bgcolor=cAqua, comment="Self-extracting module">;
+		FSeek(SignaturePos);
+	}
+	else
+	{
+		Warning("Not a RAR archive!");
+		return -1;
+	}
+}
+
+//StatusMessage("RAR signature found at 0x%08x.", SignaturePos);
+Printf("RAR signature found at 0x%08x.\n", SignaturePos);
+
+if (!isVersionV5)
+{
+	RarBlock Marker;
+
+	RarBlock ArcHeader;
+	if (ArcHeader.HeadType != ARCHIVE)
+	{
+		Warning("Main archive header is either bad or missing!");
+		return -2;
+	}
+	else
+	{
+		Printf("It is a %s%s %s %s RAR archive.\n",
+			SignaturePos > 0 ? "SelF-eXtractable " : "",
+			ArcHeader.HEAD_FLAGS.ARCHIVE_LOCKED ? "LOCKED" : "non-locked",
+			ArcHeader.HEAD_FLAGS.ARCHIVE_SOLID ? "SOLID" : "regular",
+			ArcHeader.HEAD_FLAGS.ARCHIVE_VOLUME ? "VOLUME'd" : "one-part");
+
+		if (ArcHeader.HEAD_FLAGS.ARCHIVE_COMMENT_PRESENT)
+			Printf("Main comment is present.\n");
+		if (ArcHeader.HEAD_FLAGS.AV_PRESENT)
+			Printf("Old style Authenticity Verification is present.\n");
+		if (ArcHeader.HEAD_FLAGS.RECOVERY_PRESENT)
+			Printf("Recovery Record is present.\n");
+
+		if (ArcHeader.HEAD_FLAGS.BLOCK_HEADERS_ENCRYPTED)
+		{
+			Printf("It's an encrypted archive. Cannot proceed, exiting...\n");
+			return -3;
+		}
+	}
+
+	while (!FEof())
+	{
+		RarBlock block;
+	}
+
+	if (block.HeadType != _END_ && iMaxVerToUnpack > 20)
+	{
+		Warning("END Marker block was expected here.");
+	}
+
+	if (iFiles || iDirs)
+	{
+		Printf("Version to unpack: %u.%u\n", iMaxVerToUnpack / 10, iMaxVerToUnpack % 10);
+		if (iMinVerToUnpack != iMaxVerToUnpack)
+			Printf("Some data can also be retrieved by an earlier version of %u.%u\n",
+				iMinVerToUnpack /10, iMinVerToUnpack %10);
+	}
+
+	Printf("Files: %Lu, Dirs: %Lu, Comments: %Lu, SubBlocks: %Lu, Unpacked Size: %Lu\n", iFiles, iDirs, iComments, iSubBlocks, iTotalUnpackedSize);
+	Printf("UNICODE Names: %Lu\n", iUniNames);
+}
+else
+{
+	// Signature
+	byte Signature[8] <format=hex, fgcolor=cLtYellow, comment="Signature">;
+
+	// Archive v5 Layout
+	while (!FEof()) {
+		RarBlockV5 Block;
+
+		// RAR does not read anything after this header.
+		if (isArchiveEnd) {
+			break;
+		}
+	}
+
+	if (!FEof()) {
+		byte ExtraInfo[FileSize() - FTell()] <bgcolor=cAqua, comment="Extra information">;
+	}
+}
+
+if (iBadCRCCounter)
+	Printf("%Lu blocks corrupted.\n", iBadCRCCounter);
+Printf("Done. %Lu blocks processed.\n", iBlocksCounter);

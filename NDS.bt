@@ -1,0 +1,228 @@
+//------------------------------------------------
+//--- 010 Editor v4.0 Binary Template
+//
+//      File: NDS.bt
+//   Authors: gocha
+//   Version: 1.0
+//   Purpose: Defines a template for
+//            Nintendo DS cartridge files.
+//  Category: Game
+// File Mask: *.nds
+//  ID Bytes: [+0x200]
+//   History: 
+//   1.0   2017-08-15 gocha: Initial release.
+//
+// Structure definitions are based on DeSmuME (GNU General Public License v2.0)
+//------------------------------------------------
+
+typedef WORD CRC16;
+
+local int cGrayZone = 0xd9dadc;
+local int cOrange = 0xaae3f9;
+local int cSytrus = 0xaaf7ff;
+local int cGreenGreens = 0xaaecdf;
+local int cCureMarine = 0xffe1ce;
+local int cCureMarine_Alt = 0xfdf1dd;
+local int cPurpleMadness = 0xeec3dd;
+local int cPurpleMadness_Alt = 0xffe1fa;
+
+//-----------------------------------
+// Define structures used in NDS files
+
+// NDS Region
+typedef enum <UBYTE> {
+    normal = 0,
+    korea = 0x40,
+    china = 0x80,
+} NDSRegion;
+
+typedef struct {
+    SetBackColor(cOrange);
+    UCHAR   gameTile[12]        <comment="000 - Game Title (uppercase ASCII, padded with 00h)">;
+    UCHAR   gameCode[4]         <comment="00C - Gamecode (uppercase ASCII, NTR-<code>, 0=homebrew)">;
+    WORD    makerCode           <format=hex, comment="010 - Makercode (uppercase ASCII, 0=homebrew)">;
+    UBYTE   unitCode            <format=hex, comment="012 - Unitcode (00h=Nintendo DS)">;
+    UBYTE   deviceCode          <format=hex, comment="013 - Encryption Seed Select (00..07h, usually 00h)">;
+    UBYTE   cardSize            <comment="014 - Devicecapacity (Chipsize = 128KB SHL nn) (eg. 7 = 16MB)">;
+    SetBackColor(cGrayZone);
+    BYTE    reserved1[8]        <comment="015 - Must be set to 0x00">;
+    SetBackColor(cOrange);
+    NDSRegion region            <format=hex, comment="01D - Specific region: 0x80 - China, 0x40 - Korea, 0x00 - Other">;
+    UBYTE   romversion          <comment="01E - ROM Version (usually 00h)">;
+    UBYTE   autostart           <comment="01F - Autostart (Bit2: Skip \"Press Button\" after Health and Safety)">;
+
+    SetBackColor(cSytrus);
+    DWORD   arm9src             <format=hex, comment="020 - ARM9 rom_offset    (4000h and up, align 1000h)">;
+    DWORD   arm9exe             <format=hex, comment="024 - ARM9 entry_address (2000000h..23BFE00h)">;
+    DWORD   arm9cpy             <format=hex, comment="028 - ARM9 ram_address   (2000000h..23BFE00h)">;
+    DWORD   arm9binSize         <format=hex, comment="02C - ARM9 size          (max 3BFE00h) (3839.5KB)">;
+
+    DWORD   arm7src             <format=hex, comment="030 - ARM7 rom_offset    (8000h and up)">;
+    DWORD   arm7exe             <format=hex, comment="034 - ARM7 entry_address (2000000h..23BFE00h, or 37F8000h..3807E00h)">;
+    DWORD   arm7cpy             <format=hex, comment="038 - ARM7 ram_address   (2000000h..23BFE00h, or 37F8000h..3807E00h)">;
+    DWORD   arm7binSize         <format=hex, comment="03C - ARM7 size          (max 3BFE00h, or FE00h) (3839.5KB, 63.5KB)">;
+
+    DWORD   fNameTblOff         <format=hex, comment="040 - File Name Table (FNT) offset">;
+    DWORD   fNameTblSize        <format=hex, comment="044 - File Name Table (FNT) size">;
+
+    DWORD   fatOff              <format=hex, comment="048 - File Allocation Table (FAT) offset">;
+    DWORD   fatSize             <format=hex, comment="04C - File Allocation Table (FAT) size">;
+
+    DWORD   arm9OverlayOff      <format=hex, comment="050 - File ARM9 overlay_offset">;
+    DWORD   arm9OverlaySize     <format=hex, comment="054 - File ARM9 overlay_size">;
+    DWORD   arm7OverlayOff      <format=hex, comment="058 - File ARM7 overlay_offset">;
+    DWORD   arm7OverlaySize     <format=hex, comment="05C - File ARM7 overlay_size">;
+
+    SetBackColor(cGreenGreens);
+    DWORD   normalCmd           <format=hex, comment="060 - Port 40001A4h setting for normal commands (usually 00586000h)">;
+    DWORD   key1Cmd             <format=hex, comment="064 - Port 40001A4h setting for KEY1 commands   (usually 001808F8h)">;
+
+    DWORD   iconOff             <format=hex, comment="068 - Icon_title_offset (0=None) (8000h and up)">;
+    WORD    crc16               <format=hex, comment="06C - Secure Area Checksum, CRC-16 of [ [20h]..7FFFh] - Calculations with this algorithm use 0xffff as the initial value">;
+    WORD    romTimeout          <format=hex, comment="06E - Secure Area Loading Timeout (usually 051Eh)">;
+    DWORD   arm9autoload        <format=hex, comment="070 - ARM9 Auto Load List RAM Address">;
+    DWORD   arm7autoload        <format=hex, comment="074 - ARM7 Auto Load List RAM Address">;
+
+    SetBackColor(cGrayZone);
+    UBYTE   infoResevedRegion[8]    <comment="078 - ROM Information Reserved Region (must be set to 0x00)">;
+
+    SetBackColor(cCureMarine);
+    DWORD   endROMoffset        <format=hex, comment="080 - Total Used ROM size (remaining/unused bytes usually FFh-padded)">;
+    DWORD   headerSize          <format=hex, comment="084 - ROM Header Size (4000h)">;
+    DWORD   arm9module          <format=hex, comment="088 - ARM9 Module Parameter Address (auto-load parameters)">;
+    DWORD   arm7module          <format=hex, comment="08C - ARM7 Module Parameter Address (auto-load parameters)">;
+
+    SetBackColor(cGrayZone);
+    UBYTE   reserved2[48]       <comment="090 - Must be set to 0x00 - \"PASS\" is contained within here?">;
+
+    SetBackColor(cPurpleMadness);
+    UBYTE   logo[156]           <comment="0C0 - Nintendo Logo (compressed bitmap, same as in GBA Headers)">;
+    CRC16   logoCRC16           <format=hex, comment="15C - Nintendo Logo Checksum, CRC-16 of [0C0h-15Bh], fixed CF56h">;
+    CRC16   headerCRC16         <format=hex, comment="15E - Header Checksum, CRC-16 of [000h-15Dh]">;
+
+    SetBackColor(cGrayZone);
+    UBYTE   reserved[160]       <comment="Must be set to 0x00">;
+} NDS_header;
+
+// File Allocation Table (FAT)
+typedef struct {
+    DWORD start                 <format=hex, comment="Start address (originated at IMG base) (0=Unused Entry)">;
+    DWORD end                   <format=hex, comment="End address   (Start+Len...-1?)        (0=Unused Entry)">;
+} FAT_NITRO;
+
+// FNT Directory Main-Table
+typedef struct {
+    DWORD offset                <format=hex, comment="Offset to Sub-table             (originated at FNT base)">;
+    USHORT firstID              <format=hex, comment="ID of first file in Sub-table   (0000h..EFFFh)">;
+    USHORT parentID             <format=hex, comment="First entry: Total Number of directories (1..4096) / Further entries: ID of parent directory (F000h..FFFEh)">;
+} FNT_MAIN;
+
+// FNT Sub-table Entry
+typedef struct {
+    union {
+        UCHAR value;
+        struct {
+            UBYTE length : 7        <comment="Filename Length">;
+            BYTE isDirectory : 1    <comment="0: File Entry, 1: Sub-Directory Entry">;
+        } fields;
+    } attributes                    <comment="Type/Length">;
+
+    if (attributes.value != 0) {
+        UCHAR filename[attributes.fields.length] <comment="File or Sub-Directory Name, case-sensitive, without any ending zero">;
+        if (attributes.fields.isDirectory) {
+            USHORT directoryID      <format=hex, comment="Sub-Directory ID (F001h..FFFFh) ;see FNT+(ID AND FFFh)*8">;
+        }
+    }
+} FNT_ENTRY;
+
+// FNT Sub-tables
+typedef struct {
+    do {
+        FNT_ENTRY entry;
+    } while (entry.attributes.value != 0);
+} FNT_SUB;
+
+// File Name Table (FNT)
+typedef struct {
+    local quad FNTstart = FTell();
+
+    local USHORT numOfDirectories = ReadUShort(FNTstart + 6);
+    FNT_MAIN directories[numOfDirectories];
+
+    local int iDirectory;
+    for (iDirectory = 0; iDirectory < numOfDirectories; iDirectory++) {
+        FNT_SUB entries;
+    }
+} FNT_NITRO;
+
+// ARM9 and ARM7 Overlay Tables (OVT)
+typedef struct {
+    DWORD id                    <format=hex, comment="Overlay ID">;
+    DWORD RAMaddr               <format=hex, comment="RAM Address ;Point at which to load">;
+    DWORD RAMSize               <format=hex, comment="RAM Size    ;Amount to load">;
+    DWORD BSSSize               <format=hex, comment="BSS Size    ;Size of BSS data region">;
+    DWORD start                 <format=hex, comment="Static initialiser start address">;
+    DWORD end                   <format=hex, comment="Static initialiser end address">;
+    DWORD fileID                <format=hex, comment="File ID  (0000h..EFFFh)">;
+    DWORD reserved              <comment="Reserved (zero)">;
+} OVR_NITRO;
+
+//---------------------------------------------
+
+local quad start = FTell();
+SetBackColor(cGrayZone);
+NDS_header header;
+
+if (start + header.arm9src + header.arm9binSize <= FileSize()) {
+    FSeek(start + header.arm9src);
+    SetBackColor(cOrange);
+    UBYTE arm9code[header.arm9binSize];
+}
+else {
+    Printf("ARM9 ROM offset/size is out of range.\n");
+}
+
+if (start + header.arm7src + header.arm7binSize <= FileSize()) {
+    FSeek(start + header.arm7src);
+    SetBackColor(cSytrus);
+    UBYTE arm7code[header.arm7binSize];
+}
+else {
+    Printf("ARM7 ROM offset/size is out of range.\n");
+}
+
+if (start + header.fNameTblOff + header.fNameTblSize <= FileSize()) {
+    FSeek(start + header.fNameTblOff);
+    SetBackColor(cGreenGreens);
+    FNT_NITRO fnt;
+}
+else {
+    Printf("File Name Table (FNT) offset/size is out of range.\n");
+}
+
+if (start + header.fatOff + header.fatSize <= FileSize()) {
+    FSeek(start + header.fatOff);
+    SetBackColor(cGreenGreens);
+    FAT_NITRO fat[header.fatSize / sizeof(FAT_NITRO)];
+}
+else {
+    Printf("File Name Table (FNT) offset/size is out of range.\n");
+}
+
+if (start + header.arm9OverlayOff + header.arm9OverlaySize <= FileSize()) {
+    FSeek(start + header.arm9OverlayOff);
+    SetBackColor(cCureMarine);
+    OVR_NITRO arm9Overlays[header.arm9OverlaySize / sizeof(OVR_NITRO)];
+}
+else {
+    Printf("ARM9 Overlay Tables (OVT) offset/size is out of range.\n");
+}
+
+if (start + header.arm7OverlayOff + header.arm7OverlaySize <= FileSize()) {
+    FSeek(start + header.arm7OverlayOff);
+    SetBackColor(cPurpleMadness);
+    OVR_NITRO arm7Overlays[header.arm7OverlaySize / sizeof(OVR_NITRO)];
+}
+else {
+    Printf("ARM7 Overlay Tables (OVT) offset/size is out of range.\n");
+}

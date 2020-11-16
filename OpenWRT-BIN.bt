@@ -1,0 +1,515 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: OpenWRT-BIN.bt
+//    Author: Simon N. Thornton
+//    E-mail: datarecovery [at] eazimail.com
+//   Version: 1.2
+//   Purpose: Decode OpenWRT MIPS BIN images.
+//  Category: Operating System
+// File Mask: *.bin
+//  ID Bytes: 27 05 19 56
+//
+//   History:
+//   1.2   2020-01-17 Simon Thornton: Minir corrections on alignment and padding blocks
+//   1.1   2020-01-14 Simon Thornton: Corrections to the SquashFS decoder (alignment of compressed data)
+//   1.0   2020-01-14 Simon Thornton: Corrections to the SquashFS decoder 
+//   0.4   2020-01-12 Simon Thornton: Changes to the SquashFS decode to handle the flag field and pick up metablocks (missing from original SqushFS template)
+//   0.3   2020-01-08 Simon Thornton: Cosmetics on variable display
+//   0.2   2020-01-08 Simon Thornton: Added Kernel, SquashFS and DEADCODE block detection
+//   0.1   2020-01-08 Simon Thornton: Initial version, partial decode
+//--------------------------------------//------------------------------------------------
+
+/*
+This includes code from the SquashFS.bt template by Drake Madison for decoding the embedded file. The code was restructured to fit the parsing method
+
+I'm not a programmer, this code was constructed to fulfil a data recovery requirement.
+If you improve this code or resolve any outstanding issues please let me know.
+
+*/
+
+// This was originally written to decode MIPS (BigEndian), if the .bin is for a LittleEndian processor then set this to 0
+
+#define ENDIAN  1             // 1 = BigEndian (MIPS etc), 0 = LittleEndian
+
+typedef struct {
+    uint32 magic <format=hex>;
+    uint32 uUNK1 <format=hex>;
+    uint32 uUNK2 <format=hex>;
+    uint32 uKernelSize <format=hex>;
+    uint32 uLoadAddr <format=hex>;
+    uint32 uExecAddr <format=hex>;
+    uint32 wpad2[2] <format=hex>;
+    char sVersion[32];
+    uint32 dcsum <format=hex>;
+    uint32 uUNK4 <format=hex>;
+    uint32 uUNK5 <format=hex>;
+    uint32 uUNK6 <format=hex>;
+} _header;
+
+typedef struct _kernel {
+    local uint64 iEnd           <format=hex>;
+    local uint64 iOffset        <format=hex>;
+
+    iEnd=FileSize();
+
+    // Check if one of the section markers is set (these are passed backwards)
+    if (iOff_DeadCode) iEnd=iOff_DeadCode;          // SquashFS from FTell() to iOff_DeadCode
+    if (iOff_SquashFS) iEnd=iOff_SquashFS;          // SquashFS from FTell() to iOff_SquashFS
+
+    uint32 kernel_magic <format=hex,fgcolor=cWhite,bgcolor=cLtGray>;
+
+    if (Header.uKernelSize>0 && (Header.uKernelSize+sizeof(Header))<iEnd) {
+        UBYTE kernel_block[Header.uKernelSize]              <format=hex,bgcolor=cYellow,comment="Linux Kernel">;
+        if (iEnd-FTell()>0) UBYTE kernel_pad[iEnd-FTell()]    <format=hex,bgcolor=cGreen,comment="Padding">;
+    } else {
+        UBYTE kernel_block[iEnd-FTell()]                    <format=hex,bgcolor=cYellow,comment="Linux Kernel">;
+    }
+};
+
+typedef struct _SquashFS {
+    UBYTE SquashFS[FileSize()-FTell()] <format=hex, comment="SquashFS file system">;
+};
+
+
+// Specific metadata structure found in the DEADCODE section of one MIPS image
+typedef struct _OWL_DEADCODE {
+        BYTE   UNK1[8]         <format=hex>;
+        string SIGN_KEY1;
+        BYTE   UNK2[14]        <format=hex>;
+        string BUILD_KEY1;
+        BYTE   UNK3[100]       <format=hex>;
+        string SIGN_KEY2;
+        BYTE   UNK4[11]        <format=hex>;
+        string BUILD_KEY2;
+        BYTE   UNK5[16]        <format=hex>;
+
+        FSeek(FileSize()-33);
+        char OWL_HASH[32]      <comment="MD5 of image using filesize-33 bytes">;
+};
+
+
+// DEADCODE block
+typedef struct _deadcode {
+    local uint64 iOffset;
+
+    uint32 deadcode_magic <format=hex>;
+    iOffset=FTell();                        // Remember the start of the block
+
+    if (FileSize()-iOffset) {
+        uchar deadcode_data[FileSize()-FTell()] <comment="DeadCode block">;
+        r=FindAll("supported_devices*owl*,",true,false,1,0,1,iOff_DeadCode,0,24);     // Is this OWL firmware?
+        if (r.count) {
+            FSeek(iOff_DeadCode+sizeof(deadcode_magic));
+            _OWL_DEADCODE owl_deadcode;
+        }
+    }
+};
+
+
+
+//-------------------------------
+/* This code was taken from the SquashFS template by Drake Madison and reformatted slightly
+   Reference: https://dr-emann.github.io/squashfs/
+              https://www.kernel.org/doc/Documentation/filesystems/squashfs.txt
+
+   Changes:
+   - Added decoders for bit fields and correct alignment of the different blocks
+   - ReadXXXXX functions use iOff_SquashFS + to start at the correct offset not file start 
+   - Set LittleEndian() for processing SquashFS (maybe diff to main OpenWRT image
+   - Revert to endian of OpenWRT image when finished (uses global ENDIAN)
+*/
+
+
+// This is 010Editor specific, it generates a dynamic comment with an offset relative to the file being examined, rather than the to the SquashFS image
+string comment_squashfs_start_loc (uint64 iOffset) {
+    local uchar sMSG[500];
+
+    if (iOffset == 0xFFFFFFFFFFFFFFFF)
+        SPrintf(sMSG,"0xFFFFFFFFFFFFFFFF /-1  indicates item is not present");
+    else
+        SPrintf(sMSG,"Equivalent file offset = 0x%08X",iOffset+iOff_SquashFS);
+
+    return sMSG;
+};
+
+
+// This is 010Editor specific, it generates a dynamic comment
+string comment_squashfs_compression (uint16 compression) {
+    switch(compression) {
+        case 1: return "Compression: GZIP";
+        case 2: return "Compression: LZMA";
+        case 3: return "Compression: LZO";
+        case 4: return "Compression: XZ";
+        case 5: return "Compression: LZ4";
+        case 6: return "Compression: ZSTD";
+        default: return "*** Unrecognised Compression type ***";
+    }
+}
+
+// Decode Flags in the v4 header
+struct SQUASHFS_FLAG_DECODE {
+    uint16 flag_uncompressed_inodes   :  1 <comment="0x0001 Inodes are stored uncompressed">;
+    uint16 flag_uncompressed_data     :  1 <comment="0x0002 Data is stored uncompressed">;
+    uint16 flag_check                 :  1 <comment="0x0004 Unused in SquashFS4,should always be 0">;
+    uint16 flag_uncompressed_frags    :  1 <comment="0x0008 Fragments are stored uncompressed">;
+    uint16 flag_no_fragments          :  1 <comment="0x0010 Fragments are not used">;
+    uint16 flag_always_fragment       :  1 <comment="0x0020 If the last block of a file is smaller than the block size it will instead be stored as a fragment">;
+    uint16 flag_duplicates            :  1 <comment="0x0040 Identical files are recognized and stored only once">;
+    uint16 flag_exportable            :  1 <comment="0x0080 Filesystem has support for export via NFS (the export table is populated">;
+
+    uint16 flag_uncompressed_xattrs   :  1 <comment="0x0100 Xattrs are stored uncompressed">;
+    uint16 flag_no_xattrs             :  1 <comment="0x0200 Xattrs are not stored">;
+    uint16 flag_compressor_options    :  1 <comment="0x0400 The compression options section is present">;
+    uint16 flag_uncompressed_ids      :  1 <comment="0x0800 UID/GIDs are stored uncompressed. Note that the UNCOMPRESSED_INODES flag also has this effect. If that flag is set, this flag has no effect. This flag is currently only available on master in git, no released version of squashfs yet supports it">;
+    uint16 flag_pad                   :  4 <comment="0xF000 unused">; 
+};
+
+// Note: Bitfield moved to separate struct due to bug in decoding
+union SQUASHFS_FLAG {
+    uint16 flags                           <format=binary,comment="SquashFS flags">;
+    SQUASHFS_FLAG_DECODE flag_decode       <comment="SquashFS Superblock Flags decoded">;
+};
+
+// v3 Super block header
+struct SQUASHFS3_SUPER_BLOCK {
+    uchar  s_magic[4];
+    uint32 inodes;
+    uint32 bytes_used_2;
+    uint32 uid_start_2              <format=hex>;
+    uint32 guid_start_2             <format=hex>;
+    uint32 inode_table_start_2      <format=hex>;
+    uint32 directory_table_start_2  <format=hex>;
+    uint16 s_major;
+    uint16 s_minor;
+    uint16 block_size_1;
+    uint16 block_log;
+    ubyte  flags;
+    ubyte  no_uids;
+    ubyte  no_guids;
+    time_t mkfs_time                <comment="time of filesystem creation">;
+    uint64 root_inode               <format=hex,comment=comment_squashfs_start_loc>;
+    uint32 block_size;
+    uint32 fragments;
+    uint32 fragment_table_start_2   <format=hex,comment=comment_squashfs_start_loc>;
+    uint64 bytes_used;
+    uint64 uid_start                <format=hex,comment=comment_squashfs_start_loc>;
+    uint64 guid_start               <format=hex,comment=comment_squashfs_start_loc>;
+    uint64 inode_table_start        <format=hex,comment=comment_squashfs_start_loc>;
+    uint64 directory_table_start    <format=hex,comment=comment_squashfs_start_loc>;
+    uint64 fragment_table_start     <format=hex,comment=comment_squashfs_start_loc>;
+    uint64 lookup_table_start       <format=hex,comment=comment_squashfs_start_loc>;
+};
+
+
+struct SQUASHFS4_SUPER_BLOCK {
+    uchar  s_magic[4];
+    uint32 inodes;
+    time_t mkfs_time                <comment="time of filesystem creation">;
+    uint32 block_size;
+    uint32 fragments;
+    uint16 compression              <comment=comment_squashfs_compression>;
+    uint16 block_log;
+    SQUASHFS_FLAG flags;
+    uint16  no_ids;
+    uint16 s_major;
+    uint16 s_minor;
+    uint64 root_inode;
+    uint64 bytes_used;
+    uint64 id_table_start           <format=hex,comment=comment_squashfs_start_loc>;
+    uint64 xattr_id_table_start     <format=hex,comment=comment_squashfs_start_loc>;
+    uint64 inode_table_start        <format=hex,comment=comment_squashfs_start_loc>;
+    uint64 directory_table_start    <format=hex,comment=comment_squashfs_start_loc>;
+    uint64 fragment_table_start     <format=hex,comment=comment_squashfs_start_loc>;
+    uint64 export_table_start       <format=hex,comment=comment_squashfs_start_loc>;
+};
+
+// This decodes metablocks
+// iBlockType is has a preload value to separate different types, i.e.
+// +100 Compressor Options
+
+//
+struct SQUASHFS_METABLOCK (int iBlockType) {
+    local uint64 iOffset <format=hex>;
+
+    uint16 metablock_size:15                        <comment="Metablock size">;
+    uint16 metablock_uncomp:1                       <comment="Metablock is uncompressed?">;
+    iOffset=FTell();                                // Record start of metadata block
+    switch(iBlockType) {
+        case 101: {
+                    uint32 comp_level               <comment="GZIP compression level">;
+                    uint16 window_size              <comment="GZIP window size">;
+                    uint16 strategies_default:1     <comment="GZIP compression strategies: Default">;
+                    uint16 strategies_filtered:1    <comment="GZIP compression strategies: Filtered">;
+                    uint16 strategies_huffmanonly:1 <comment="GZIP compression strategies: Huffman Only">;
+                    uint16 strategies_rle:1         <comment="GZIP compression strategies: Run Length Encoded">;
+                    uint16 strategies_fixed:1       <comment="GZIP compression strategies: Fixed">;
+                    uint16 strategies_unused:11     <comment="GZIP compression strategies: Unused, should be blank">;
+                    break;
+                }
+
+        case 102:   break;                          // LZMA has no options
+ 
+        case 103: {
+                    uint32 algorithm                <comment="LZO which variant of LZO to use (default 4)">;
+                    uint32 level                    <comment="LZO compression level for algo type 4 (lzo1x_999, range 0-9 (default 8), 0 for other algos">;
+                    break;
+                  }
+        case 104: {
+                    uint32 dictionary_size          <comment="XZ Dictionary Size">;
+                    uint16 exec_filters_x86:1       <comment="XZ Executable Filters: x86">;
+                    uint16 exec_filters_powerpc:1   <comment="XZ Executable Filters: PowerPC">;
+                    uint16 exec_filters_ia64:1      <comment="XZ Executable Filters: IA64">;
+                    uint16 exec_filters_arm:1       <comment="XZ Executable Filters: ARM">;
+                    uint16 exec_filters_armthumb:1  <comment="XZ Executable Filters: ARM Thumb">;
+                    uint16 exec_filters_sparc:1     <comment="XZ Executable Filters: Sparc">;
+                    uint16 exec_filters_unused:10   <comment="XZ Executable Filters: Unused, should be blank">;
+                    break;
+                  }
+        case 105: {
+                    uint32 version                  <comment="LZ4 version (only valjue should be 1)">;
+                    uint32 flags_hcmode:1           <comment="LZ4 Use LZ4 High Compression Mode">;
+                    uint32 flags_unused:31          <comment="LZ4 Unused (should be 0)">;
+                    break;
+                  }
+        case 106: {
+                    uint32 compression_level        <comment="ZSTD compression level (should be in range 1..22)">;
+                    break;
+                  }
+        default: {
+                    if (metablock_size >2)
+                        UBYTE metadata[metablock_size-2] <comment="*** Unrecognised Metadata block type ***">;
+                 }
+    }
+    if (metablock_size-(FTell()-iOffset))                            // This is a catch all due to anomalies found in real files
+        UBYTE metablock_pad[metablock_size-(FTell()-iOffset)-2]       <format=hex,comment="Metadata block padding (not enumerated above)">;
+};
+
+// This is a generic block definition, each one seems to contain a 3 byte header prior to the compressed section
+typedef struct SQUASHFS_BLOCK (uint64 iSize) {
+    local uint64 iBlocks;
+
+    uint16 metablock_size:15                        <comment="Metablock size">;
+    uint16 metablock_uncomp:1                       <comment="Metablock is uncompressed?">;
+
+    iBlocks=(iSize-sizeof(metablock_size))/metablock_size;
+
+//    uint16 prefix                           <format=hex>;
+    UBYTE  data[iSize-sizeof(metablock_size)]       <format=hex,comment="a prefix of 0xfd377a585a000001 would indicate XZ compression">;
+};
+
+// Main entry point for SquashFS decode, assumes File cursor point to start of file system
+typedef struct _SquashFSDecode {
+    LittleEndian();                     // Force Endian (MIPS is big endian but the SquashFS is littleendian
+
+    local uint32 sb_size_bytes;
+    // Index entries are 64-bit file offsets
+    local uint32 index_entry_size_bytes    = 8;
+    local uint32 fragments_per_index_block = 512; // 8192 / 16 bytes per fragment
+    // Major and Minor filesystem version numbers are at the same superblock offset for both 3.x and 4.x
+    local uint32 major_version = ReadUShort( iOff_SquashFS+28 );
+
+    // file starts with superblock
+    if (major_version == 3) {
+        SQUASHFS3_SUPER_BLOCK sqsb;
+        sb_size_bytes = sizeof( SQUASHFS3_SUPER_BLOCK );
+        Printf( "Squashfs 3.x file\n" );
+    }
+    else if (major_version == 4) {
+        SQUASHFS4_SUPER_BLOCK sqsb;
+        sb_size_bytes = sizeof( SQUASHFS4_SUPER_BLOCK );
+        Printf( "Squashfs 4.x file\n" );
+    } else {
+        Warning( "Unsupported squashfile version\n" );
+        return -1;
+    }
+
+    // verify header
+    if (sqsb.s_magic != "hsqs") {
+        Warning( "File is not squashfs. Template stopped." );
+        return -1;
+    }
+
+/*
+    Superblock
+    Compression Options (optional)
+    Datablocks + Fragments
+    inode table
+    directory table
+    fragment table
+    export table
+    uid.gid lookup table
+    xatrr table (optional)
+*/
+    // Is there a Compressor Options metadata block?
+    if (sqsb.flags.flag_decode.flag_compressor_options)
+        SQUASHFS_METABLOCK metablock_compressor_options(100+sqsb.compression) <comment="SquashFS Compressor Options">;
+
+    // This is the actual fragment table, whereas sqsb.fragment_table_start points to the index table
+    // NOTE: This only works if the first index entry points to the earliest fragment block in the
+    //       file. But it appears that is how it is always written.
+    local uint64 frag_table_start           <format=hex>;
+    local uint32 fragment_index_entries = 1 + (sqsb.fragments / fragments_per_index_block);
+
+    frag_table_start       = ReadUInt64( iOff_SquashFS+sqsb.fragment_table_start );
+
+    // TODO: We could more fully define the internals of the File Data, Inode Table, and Directory Table
+    //       by defining a 'compressed block' structure
+
+
+    // Define File Data block
+//    ubyte file_data[sqsb.inode_table_start - sb_size_bytes]                    <format=hex>;
+    SQUASHFS_BLOCK file_data( iOff_SquashFS+sqsb.inode_table_start - FTell() )          <format=hex>;
+
+    // Define Inode Table block
+    SQUASHFS_BLOCK inode_table(sqsb.directory_table_start - sqsb.inode_table_start)     <format=hex>;
+
+    // Define Directory Table block
+    SQUASHFS_BLOCK directory_table(frag_table_start - sqsb.directory_table_start)       <format=hex>;
+
+    // Define Fragment Table
+    SQUASHFS_BLOCK fragment_table(sqsb.fragment_table_start - frag_table_start)         <format=hex>;
+
+    // Define Fragment Table Index
+    int64 fragment_table_index[fragment_index_entries]     <format=hex>;
+
+    // Define NFS Export Lookup Table
+    local uint64 export_table_start           <format=hex>;
+    local uint64 id_table_start     <format=hex>;
+
+    if (major_version == 3) {
+        id_table_start = sqsb.uid_start;
+    }
+    else if (major_version == 4) {
+        // In 4.x files the ID table start points to an index table
+        id_table_start = ReadUInt64( iOff_SquashFS+sqsb.id_table_start );
+    }
+
+    if (sqsb.export_table_start != -1) {
+        export_table_start = ReadUInt64( iOff_SquashFS+sqsb.export_table_start );
+//        SQUASHFS_BLOCK export_table(id_table_start - sqsb.fragment_table_start - (fragment_index_entries * index_entry_size_bytes))     <format=hex>;
+        SQUASHFS_BLOCK export_table(id_table_start - export_table_start)     <format=hex>;
+    }
+
+    // Define UID/GID Table
+    if (major_version == 3) {
+        if (sqsb.no_uids > 0) {
+            uint32 uid_table[sqsb.no_uids]     <format=hex>;
+        }
+    
+        if (sqsb.no_guids > 0) {
+            uint32 gid_table[sqsb.no_guids]     <format=hex>;
+        }
+    }
+    else if (major_version == 4) {
+        local uint32 id_table_size;
+
+        if (sqsb.xattr_id_table_start != -1) {
+            id_table_size = sqsb.xattr_id_table_start - id_table_start;
+        } else {
+            id_table_size = sqsb.bytes_used - id_table_start;
+        }
+
+        Printf( "id_table_size = %d\n", id_table_size );
+        ubyte id_table[id_table_size];
+    }
+
+    // Remainder of the file is padding (out to 4KByte boundary)
+    local uint64 iPadSize <format=hex>;
+    iPadSize=4096 - (sqsb.bytes_used % 4096);
+    if (iOff_DeadCode>0 && iPadSize+FTell()>iOff_DeadCode) iPadSize=iOff_DeadCode-FTell();
+
+    ubyte padding[iPadSize]                 <format=hex,comment="Padding",bgcolor=cLtGreen,fgcolor=cBlack>;
+    fSetEndian();                           // Revert to Endian of image (see ENDIAN)
+
+};
+
+
+/***************************
+    fSetEndian
+
+    Uses the global ENDIAN to determine what the default endianess should be
+    ENDIAN=1    BigEndian
+    ENDIAN=0    LittleEndian
+
+    This is relative to the target CPU of BIN image, not the CPU of this machine
+*/
+void fSetEndian() {
+    if (ENDIAN) {
+        BigEndian();
+    } else {
+        LittleEndian();
+    }
+}
+
+// ---------------------------------------
+local uint64 iSize                      <format=hex>;
+local uint64 iFileLen                   <format=hex>;
+
+fSetEndian();                           // Make sure we use the right ENDIANess
+
+_header Header;
+
+// 
+iFileLen=FileSize();
+iSize=iFileLen-sizeof(Header);
+
+// Find DEADCODE and SquashFS sections
+local TFindResults r;
+local uint64 iOffset            <format=hex>;
+
+local uint64 iOff_SquashFS      <format=hex>;    // Index to SquashFS
+local uint64 iOff_DeadCode      <format=hex>;    // Index to DEADCODE
+
+local uchar bDeadCode[4] <format=hex,comment="0xDEADCODE">; // Search for this marker
+
+iOffset=FTell();                // remember where we are
+
+// ----- Locate various blocks in the firmware
+
+iOff_SquashFS=0;
+r=FindAll( "hsqs" );                // SquashFS marker in LittleEndian
+if (r.count) {
+    iOff_SquashFS=r.start[0];       // This now points to the SquashFS code block
+} else {
+    r=FindAll( "sqsh" );            // SquashFS marker in BigEndian
+    if (r.count) {
+        iOff_SquashFS=r.start[0];   // This now points to the SquashFS code block
+    }
+}
+
+// Set the DEADCODE marker
+bDeadCode[0] = 0xDE;
+bDeadCode[1] = 0xAD;
+bDeadCode[2] = 0xC0;
+bDeadCode[3] = 0xDE;
+iOff_DeadCode=0;
+
+r=FindAll( bDeadCode );         // Find DEADCODE block on end
+if (r.count) {
+    iOff_DeadCode=r.start[0];   // This now points to the DEADCODE block
+}
+
+// Kernel Block
+_kernel Kernel;
+
+
+// Find SquashFS
+if (iOff_SquashFS) {
+    FSeek(iOff_SquashFS);
+    uchar bSquashFS[iOff_DeadCode-iOff_SquashFS] <format=hex, comment="SquashFS file system">;
+
+    FSeek(iOff_SquashFS);
+    _SquashFSDecode SquashFSDecode  <comment="SquashFS decoded">;                 // Code courtesy of the SquashFS routine
+
+    if (iOff_DeadCode>0 && FTell()<iOff_DeadCode) UBYTE pad_SquashFS[iOff_DeadCode-FTell()] <format=hex,comment="Padding",bgcolor=cLtGreen,fgcolor=cBlack>;
+};
+
+
+// Any DEADCODE blocks?
+if (iOff_DeadCode>0) {
+    
+    FSeek(iOff_DeadCode);
+    _deadcode DeadCode <comment="DEADCODE block (may contain more than one)">;
+    FSeek(iOffset);             // Go back to where started
+}

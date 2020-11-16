@@ -1,0 +1,485 @@
+//--------------------------------------
+// 010 Editor v5.0.2 Binary Template
+//--------------------------------------
+// File:        WASM.bt
+// Author:      Harli Aquino 
+// E-mail:      maharlito.aquino@cyren.com/d34ddr34m3r@gmail.com
+// Version:     0.1
+// Purpose:     WebAssembly (WASM) Template
+// Category:    Internet
+// File Mask:   *.wasm
+// ID Bytes:    00 61 73 6D
+//--------------------------------------
+// History:
+//      0.1     2018-09-05  Harli : Initial version
+//--------------------------------------
+// References:
+//   WASM Parsing - https://github.com/athre0z/wasm
+//   LEB128 - https://github.com/strazzere/010Editor-stuff/blob/master/Templates/DEXTemplate.bt
+//--------------------------------------
+// License: This file is released into the public domain. People may
+// use it for any purpose, commercial or otherwise.
+//--------------------------------------
+
+
+//////////////////////////////////////////////////
+// Borrowed LEB128 stuff from DEX template
+//////////////////////////////////////////////////
+
+// struct to read a uleb128 value. uleb128's are a variable-length encoding for
+// a 32 bit value. some of the uleb128/sleb128 code was adapted from dalvik's
+// libdex/Leb128.h
+
+typedef struct {
+    ubyte val <comment="uleb128 element">;
+    if(val > 0x7f) {
+        ubyte val <comment="uleb128 element">;
+        if (val > 0x7f) {
+            ubyte val <comment="uleb128 element">;
+            if(val > 0x7f) {
+                ubyte val <comment="uleb128 element">;
+                if(val > 0x7f) {
+                    ubyte val <comment="uleb128 element">;
+                }
+            }
+        }
+    }
+} uleb128 <read=ULeb128Read, comment="Unsigned little-endian base 128 value">;
+
+// get the actual uint value of the uleb128
+uint uleb128_value(uleb128 &u) {
+    local uint result;
+    local ubyte cur;
+
+    result = u.val[0];
+    if(result > 0x7f) {
+        cur = u.val[1];
+        result = (result & 0x7f) | (uint)((cur & 0x7f) << 7);
+        if(cur > 0x7f) {
+            cur = u.val[2];
+            result |= (uint)(cur & 0x7f) << 14;
+            if(cur > 0x7f) {
+                cur = u.val[3];
+                result |= (uint)(cur & 0x7f) << 21;
+                if(cur > 0x7f) {
+                    cur = u.val[4];
+                    result |= (uint)cur << 28;
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
+typedef struct uleb128 uleb128p1;
+
+int uleb128p1_value(uleb128 &u) {
+    return (int)uleb128_value(u) - 1;
+}
+
+string ULeb128Read(uleb128 &u) {
+    local string s;
+    s = SPrintf(s, "0x%X", uleb128_value(u));
+    return s;
+}
+
+// sleb128
+typedef struct {
+    ubyte val <comment="sleb128 element">;
+    if(val > 0x7f) {
+        ubyte val <comment="sleb128 element">;
+        if (val > 0x7f) {
+            ubyte val <comment="sleb128 element">;
+            if(val > 0x7f) {
+                ubyte val <comment="sleb128 element">;
+                if(val > 0x7f) {
+                    ubyte val <comment="sleb128 element">; 
+                }
+            }
+        }
+    }
+} sleb128 <read=SLeb128Read, comment="Signed little-endian base 128 value">;
+
+// get the actual uint value of the uleb128
+int sleb128_value(sleb128 &u) {
+    local int result;
+    local ubyte cur;
+
+    result = u.val[0];
+    if(result <= 0x7f) {
+        result = (result << 25) >> 25;
+    } else {
+        cur = u.val[1];
+        result = (result & 0x7f) | ((uint)(cur & 0x7f) << 7);
+        if(cur <= 0x7f) {
+            result = (result << 18) >> 18;
+        } else {
+            cur = u.val[2];
+            result |= (uint)(cur & 0x7f) << 14;
+            if(cur <= 0x7f) {
+                result = (result << 11) >> 11;
+            } else {
+                cur = u.val[3];
+                result |= (uint)(cur & 0x7f) << 21;
+                if(cur <= 0x7f) {
+                    result = (result << 4) >> 4;
+                } else {
+                    cur = u.val[4];
+                    result |= (uint)cur << 28;
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
+string SLeb128Read(sleb128 &u) {
+    local string s;
+    s = SPrintf(s, "%i", sleb128_value(u));
+    return s;
+}
+
+//--------------------------------------
+// WASM Parsing Starts Here
+//--------------------------------------
+
+
+typedef enum <ubyte> {
+    SEC_UNK = 0,
+    SEC_TYPE = 1,
+    SEC_IMPORT = 2,
+    SEC_FUNCTION = 3,
+    SEC_TABLE = 4,
+    SEC_MEMORY = 5,
+    SEC_GLOBAL = 6,
+    SEC_EXPORT = 7,
+    SEC_START = 8,
+    SEC_ELEMENT = 9,
+    SEC_CODE = 10,
+    SEC_DATA = 11,
+} SECTION_TYPE;
+
+typedef struct {
+    char Magic[0x04];
+    int Version;
+} _ModuleHeader<read=_HeaderInfo>;
+
+string _HeaderInfo(_ModuleHeader &header) {
+    local string s;
+    local char magic[3];
+    local int i;
+    for (i=0;i<3;i++){
+        magic[i]=header.Magic[i+1];
+    }
+    SPrintf(s, "Magic: \\x00%s, Version: %d", magic, header.Version);
+    return s;
+}
+
+typedef struct {
+    uleb128 Type;
+} _FunctionImportEntryData;
+
+typedef struct {
+    uleb128 Flags;
+    uleb128 Initial;
+    if (uleb128_value(Flags) & 1) {
+        uleb128 Maximum;
+    }
+} _ResizableLimits;
+
+
+typedef struct {
+    uleb128 ElementType;
+    _ResizableLimits Limits;
+} _TableType;
+
+typedef struct {
+    _ResizableLimits Limits;
+} _MemoryType;
+
+typedef struct {
+    uleb128 ContentType;
+    uleb128 Mutability;
+} _GlobalType;
+
+typedef struct {
+    uleb128 ModuleLen;
+    if (uleb128_value(ModuleLen)) {
+        uleb128 ModuleStr[uleb128_value(ModuleLen)]<optimize=false>;
+    }
+    uleb128 FieldLen;
+    char FieldStr[uleb128_value(FieldLen)]<optimize=false>;
+    uleb128 Kind;
+    switch (uleb128_value(Kind)) {
+        case 0:
+            uleb128 Type;
+            break;
+        case 1:
+            uleb128 ElementType;
+            _ResizableLimits Limits;
+            break;
+        case 2:
+            _ResizableLimits Limits;
+            break;
+        case 3:
+            uleb128 ContentType;
+            uleb128 Mutability;
+            break;
+    }
+} _ImportEntry<optimize=false, read=_ShowImportName>;
+
+string _ShowImportName(_ImportEntry &entry) {
+    return entry.FieldStr;
+}
+typedef struct {
+    uleb128 Count;
+    _ImportEntry Entries[uleb128_value(Count)]<optimize=false>;
+} _ImportSection<optimize=false>;
+
+typedef struct  {
+    uleb128 Form;
+    uleb128 ParamCount;
+    uleb128 ParamTypes[uleb128_value(ParamCount)]<optimize=false>;
+    uleb128 ReturnCount;
+    if (uleb128_value(ReturnCount)>0) {
+        uleb128 ReturnType;
+    }
+} _FuncType<optimize=false>;
+
+typedef struct {
+    uleb128 Count;
+    _FuncType Entries[uleb128_value(Count)]<optimize=false>;
+} _TypeSection<optimize=false>;
+
+typedef struct {
+    uleb128 Count;
+    uleb128 Types[uleb128_value(Count)]<optimize=false>;
+} _FunctionSection<optimize=false>;
+
+typedef struct {
+    uleb128 Count;
+    _TableType Types[uleb128_value(Count)]<optimize=false>;
+} _TableSection<optimize=false>;
+
+typedef struct {
+    uleb128 Count;
+    _MemoryType Entries[uleb128_value(Count)]<optimize=false>;
+} _MemorySection;
+
+typedef struct {
+    local int pos = FTell();
+    while(ReadByte(pos)!=0x0B){
+        pos=pos+1;
+    }
+    FSeek(pos+1);
+} _InitExpr <optimize=false>;
+
+typedef struct {
+    _GlobalType Type;
+    _InitExpr Init;
+} _GlobalEntry <optimize=false>;
+
+typedef struct {
+    uleb128 Count;
+    _GlobalEntry Globals[uleb128_value(Count)] <optimize=false>;
+    //local int pos = FTell()-2;
+    //if (ReadByte(pos)==0x0B){
+    //    FSeek(pos+1);
+    //}
+} _GlobalSection;
+
+typedef struct {
+    uleb128 FieldLen;
+    if (uleb128_value(FieldLen)) {
+        char FieldStr[uleb128_value(FieldLen)];
+    }
+    uleb128 Kind;
+    uleb128 Index;
+} _ExportEntry<optimize=false, read=_ShowExportName>;
+
+string _ShowExportName(_ExportEntry &entry) {
+    return entry.FieldStr;
+}
+typedef struct {
+    uleb128 Count;
+    _ExportEntry Entries[uleb128_value(Count)]<optimize=false>;
+} _ExportSection;
+
+typedef struct {
+    uleb128 Index;
+} _StartSection;
+
+typedef struct {
+    uleb128 Index;
+    _InitExpr Offset;
+    uleb128 NumElem;
+    uleb128 Elems[uleb128_value(NumElem)]<optimize=false>;
+} _ElementSegment;
+
+typedef struct {
+    uleb128 Count;
+    _ElementSegment Entries[uleb128_value(Count)]<optimize=false>;
+} _ElementSection;
+
+typedef struct {
+    uleb128 Count;
+    uleb128 Type;
+} _LocalEntry;
+
+typedef struct {
+    uleb128 BodySize;
+    local int local_start = FTell();
+    uleb128 LocalCount;
+    _LocalEntry Locals[uleb128_value(LocalCount)]<optimize=false>;
+    uleb128 Code[uleb128_value(BodySize) - (FTell()-local_start)];
+} _FunctionBody <optimize=false>;
+
+typedef struct {
+    uleb128 Count;
+    _FunctionBody Bodies[uleb128_value(Count)]<optimize=false>;
+} _CodeSection;
+
+typedef struct {
+    uleb128 Index;
+    _InitExpr Offset;
+    uleb128 Size;
+    byte Data[uleb128_value(Size)]<optimize=false>;
+} _DataSegment <optimize=false>;
+
+typedef struct {
+    uleb128 Count;
+    _DataSegment Entries[uleb128_value(Count)]<optimize=false>;
+} _DataSection;
+
+typedef struct {
+    uleb128 Index;
+    uleb128 NameLen;
+    if (NameLen) {
+        uleb128 NameStr[NameLen]<optimize=false>;
+    }
+} _Naming <optimize=false>;
+
+typedef struct {
+    uleb128 Count;
+    _Naming Names[uleb128_value(Count)]<optimize=false>;
+} _NameMap;
+
+typedef struct {
+    uleb128 Index;
+    _NameMap LocalMap;
+} _LocalNames;
+
+typedef struct {
+    uleb128 Count;
+    _LocalNames Funcs[uleb128_value(Count)]<optimize=false>;
+} _LocalNameMap;
+
+
+typedef struct {
+    uleb128 Id;
+    if (uleb128_value(Id) == SEC_UNK){
+        uleb128 NameLen;
+        char Name[uleb128_value(NameLen)]<optimize=false>;
+    }
+    uleb128 PayloadLen;
+    switch ((SECTION_TYPE) uleb128_value(Id)){
+        case SEC_UNK:
+            uleb128 Payload[uleb128_value(PayloadLen)]<optimize=false>;
+            break;
+        case SEC_TYPE:
+            _TypeSection Payload;
+            break;
+        case SEC_IMPORT:
+            _ImportSection Payload;
+            break;
+        case SEC_FUNCTION:
+            _FunctionSection Payload;
+            break;
+        case SEC_TABLE:
+            _TableSection Payload;
+            break;
+        case SEC_MEMORY:
+            _MemorySection Payload;
+            break;
+        case SEC_GLOBAL:
+            _GlobalSection Payload;
+            break;
+        case SEC_EXPORT:
+            _ExportSection Payload;
+            break;
+        case SEC_START:
+            _StartSection Payload;
+            break;
+        case SEC_ELEMENT:
+            _ElementSection Payload;
+            break;
+        case SEC_CODE:
+            _CodeSection Payload;
+            break;
+        case SEC_DATA:
+            _DataSection Payload;
+            break;
+        default:
+            break;
+    }
+    //uleb128 Overhang[uleb128_value(PayloadLen) - sizeof(Name) - sizeof(NameLen) - sizeof(Payload)];
+} _Section <read=_GetSectionType>;
+
+string _GetSectionType(_Section &section){
+    switch ((SECTION_TYPE) uleb128_value(section.Id)){
+        case SEC_UNK:
+            return "UNKNOWN";
+            break;
+        case SEC_TYPE:
+            return "TYPE";
+            break;
+        case SEC_IMPORT:
+            return "IMPORT";
+            break;
+        case SEC_FUNCTION:
+            return "FUNCTION";
+            break;
+        case SEC_TABLE:
+            return "TABLE";
+            break;
+        case SEC_MEMORY:
+            return "MEMORY";
+            break;
+        case SEC_GLOBAL:
+            return "GLOBAL";
+            break;
+        case SEC_EXPORT:
+            return "EXPORT";
+            break;
+        case SEC_START:
+            return "START";
+            break;
+        case SEC_ELEMENT:
+            return "ELEMENT";
+            break;
+        case SEC_CODE:
+            return "CODE";
+            break;
+        case SEC_DATA:
+            return "DATA";
+            break;
+        default:
+            return "UNKNOWN";
+            break;
+    }
+    return "UNKNOWN";
+}
+
+_ModuleHeader ModuleHeader;
+while (FTell()!=FileSize()) {
+    if (ReadByte(FTell())==0x00) {
+        break;
+    }
+    _Section Section;
+}
+
+//--------------------------------------
+// ~nuninuninu~
+//--------------------------------------

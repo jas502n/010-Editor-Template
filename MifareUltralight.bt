@@ -1,0 +1,31 @@
+//------------------------------------------------
+//--- 010 Editor v8.0 Binary Template
+//
+//      File: MifareUltralight.bt
+//   Authors: ceres-c
+//   Version: 1.0
+//   Purpose: Mifare Ultralight structure parsing.
+//            Commonly used in tickets.
+//  Category: Electronics
+// File Mask: 
+//  ID Bytes: 
+//   History: 
+//   1.0   2017-07-14 ceres-c: Initial release
+//------------------------------------------------
+
+struct FILE {
+        struct Manufacturer_pages {
+            char    UID_Part_1[3] <fgcolor=cDkGreen>;
+            char    Check_Byte_1[1] <fgcolor=cLtRed>;
+            char    Manufacturer_Data[4] <fgcolor=cLtAqua>;
+            char    Check_Byte_2[1] <fgcolor=cLtRed>;
+            char    Internal[1] <fgcolor=cLtBlue>;
+            char    Lock_Bytes[2] <fgcolor=cDkRed>;
+            char    OTP_Page[4] <fgcolor=cPurple>;
+        } manufacturer_pages;
+
+        struct Pages {
+            char    Data[4];
+        } pages[ 16 ];
+
+    } file <bgcolor=cSilver>;

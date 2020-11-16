@@ -1,0 +1,81 @@
+//------------------------------------------------
+//--- 010 Editor v8.0 Binary Template
+//
+//      File: MongoDBWireProtocol.bt
+//   Authors: Raymond Hulha
+//   Version: 0.1
+//   Purpose: Analyze captured data from a MongoDB client request.
+//  Category: Database
+// File Mask: 
+//  ID Bytes: 
+//   History: 
+//   0.1   2017-07-14 Raymond Hulha: Initial Release
+//------------------------------------------------
+
+void ReadData()
+{
+  struct {
+    int32 length;
+    int32 id;
+    int32 responseTo;
+    int32 operation;
+    int32 flags;
+    
+    if( operation == 1 ) { // RESPONSE
+        int64 cursor;
+        int32 startingFrom;
+        int32 num;
+        ReadBson(1);
+    } else if( operation == 2002 ) { // INSERT
+        string namespc;
+        ReadBson(1);
+    } else if( operation == 2004 ) { // FIND
+        string namespc;
+        int32 numToSkip;
+        int32 batchSize;
+        ReadBson(1);
+    }
+  } mongoData;
+}
+
+//ReadBson(1);
+ReadData();
+//ReadData();
+//ReadData();
+
+void ReadBson(int mode)
+{
+    int32 bsonLength;
+    if(mode==0)  {
+    	char bson[bsonLength-4];
+    } else {
+        local int pos = FTell();
+// +5 because of +4 for length+=4 and +1 for some c reason
+// the c reason might instead be the trailing null byte...
+        while( FTell()+5 < pos + bsonLength ) {
+            struct {
+                byte type; // bolean
+                string name; // isMaster
+                switch( type ) {
+                  case 1: double value; break;
+                  case 2:
+                     int32 strLen;
+                     char utf8str[strLen];
+                  break;
+                  case 3: ReadBson(1); break;
+                  case 8: byte value; break;
+                  case 16: int32 value; break;
+                  default: Printf( "unknown type = %d\n", type);
+                }
+            } bsonDoc;
+        }
+        byte null; 
+    }
+}
+
+
+
+
+
+
+

@@ -1,0 +1,54 @@
+//------------------------------------------------
+//--- 010 Editor v7.0 Binary Template
+//
+//      File: ShpcAnim.bt
+//   Authors: jam1garner
+//   Version: 1.0
+//   Purpose: Parse shpc animation archives.
+//  Category: Archive
+// File Mask: *.shpcanim
+//  ID Bytes: 53 48 41 4E // SHAN
+//   History: Smash Ultimate
+//   1.0   2018-12-31 jam1garner: Initial Commit
+//------------------------------------------------
+
+LittleEndian();
+struct ShanHeader {
+    char magic[4]<bgcolor=cYellow>;
+    uint defaultId;
+    uint count<bgcolor=cLtGreen>;
+    FSeek(0x80);
+    uint idMaybe[count]<bgcolor=cLtBlue>;
+    uint offsets[count]<bgcolor=cLtRed>;
+} header;
+
+struct TpcbFile {
+    local uint BASE = FTell();
+    struct TpcbHeader {
+        char magic[4]<bgcolor=cYellow>;
+        uint sectionOneOffset<bgcolor=cRed>;
+        uint sectionTwoOffset<bgcolor=cRed>;
+        uint paddingProbably;
+        uint unk<bgcolor=cGray>, unk2<bgcolor=cGray>, unk3<bgcolor=cGray>, unk4<bgcolor=cGray>;
+        float unkFloats[0xC]<bgcolor=cPurple>;
+        uint unk5<bgcolor=cGray>; // probably a size?
+        float unkFloats2[2]<bgcolor=cPurple>;
+        uint count<bgcolor=cLtGreen>;
+    } header;
+    
+    FSeek(BASE + header.sectionOneOffset);
+    uint16 frameNums[header.count]<bgcolor=cLtBlue>;
+    
+    FSeek(BASE + header.sectionTwoOffset);
+    struct TpcbEntry {
+        ubyte data[0xC]<bgcolor=cGray>;
+    } entries[header.count];
+};
+
+local int i;
+for(i = 0; i < header.count; i++){
+    FSeek(header.offsets[i]);
+    TpcbFile tpcb;
+}
+
+

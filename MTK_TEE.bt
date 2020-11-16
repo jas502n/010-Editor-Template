@@ -1,0 +1,79 @@
+//------------------------------------------------
+//--- 010 Editor v10 Binary Template
+//
+//      File: MTK_TEE.bt
+//   Authors: Bjoern Kerler
+//   Version: 1.2
+//   Purpose: Mediatek Tee Parser
+//  Category: Operating System
+// File Mask: *
+//  ID Bytes: 88 16 88 58
+//   History: 
+//   1.2   2020-10-24 Bjoern Kerler: Added Structure fixes
+//   1.1   2020-01-22 Bjoern Kerler: Added MTK6771 Tee
+//   1.0   2019-09-13 Bjoern Kerler: Added MTK6580 Tee
+//   0.9   2019-10-18 Bjoern Kerler: Added MTK6771 Tee
+//------------------------------------------------
+
+typedef union
+{
+    struct
+    {
+        unsigned int magic<format=hex>;     /* partition magic */
+        unsigned int dsize<format=hex>;     /* partition data size */
+        char name[32];          /* partition name */
+        unsigned int maddr<format=hex>;     /* partition memory address */
+	unsigned int mode<format=hex>;
+    } info;
+    unsigned char data[512];
+} part_hdr_t;
+
+
+struct info_t
+{
+        unsigned int magic1<format=hex>; /* TEE */
+        unsigned int magic2<format=hex>; /* MTK */
+        unsigned int hdr_size<format=hex>;
+        unsigned char opt1<format=hex>; 
+        unsigned char is_encrypted<format=hex>;
+        unsigned char is_signed<format=hex>;
+        unsigned char opt2<format=hex>;  
+	    unsigned int mode<format=hex>;
+        unsigned int signaturelen1<format=hex>;
+        unsigned int signaturelen2<format=hex>;
+        unsigned char reserved[0x120];
+        unsigned char signature[0x100];
+        unsigned int dram_size<format=hex>;
+};
+
+struct content
+{   
+    info_t info;
+    unsigned char data[info.signaturelen1];
+};
+
+local int64 pos=0;
+local int64 filesize=FileSize();
+while (!FEof())
+{
+    part_hdr_t hdr;
+    if (hdr.info.name=="tee")
+    {
+        content tee;
+    }
+    else if (hdr.info.name=="atf")
+    {
+        content atf;
+    }
+    else if (hdr.info.name=="atf_dram")
+    {
+        unsigned char dram_data[hdr.info.dsize];
+    }
+    pos+=(hdr.info.dsize/0x10*0x10)+512;
+    if (hdr.info.dsize%0x10)
+    {
+      pos+=0x10;
+    }
+    Printf("%08X",pos);
+    FSeek(pos);    
+}

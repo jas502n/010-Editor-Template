@@ -1,0 +1,325 @@
+//------------------------------------------------
+//--- 010 Editor v8.0.1 Binary Template
+//
+//      File: MFT.bt
+//   Authors: Eric R. Zimmerman
+//   Version: 0.1
+//   Purpose: Parse a file containing NTFS MFT FILE records.
+//  Category: Drives
+// File Mask: *MFT*
+//  ID Bytes: 46 49 4C 45 //FILE
+//   History: 
+//   0.1   2018-06-30 Eric R. Zimmerman: Initial release
+//------------------------------------------------
+
+LittleEndian();
+
+typedef enum <short> {
+    Free = 0,
+    InUse = 1
+} HeaderFlags; 
+
+typedef enum <byte> { 
+    IsResident = 0,
+    NonResident = 1
+} ResidentFlag; 
+
+typedef enum <byte> {
+    Posix = 0x0,
+    Windows = 0x1,
+    Dos = 0x2,
+    DosWindows = 0x3
+} FileNameType;
+
+typedef enum <int> {
+    ReadOnly = 0x01,
+    Hidden = 0x02,
+    System = 0x04,
+    VolumeLabel = 0x08,
+    Directory = 0x010,
+    Archive = 0x020,
+    Device = 0x040,
+    Normal = 0x080,
+    Temporary = 0x0100,
+    SparseFile = 0x0200,
+    ReparsePoint_ = 0x0400,
+    Compressed = 0x0800,
+    Offline = 0x01000,
+    NotContentIndexed = 0x02000,
+    Encrypted = 0x04000,
+    IntegrityStream = 0x08000,
+    Virtual = 0x010000,
+    NoScrubData = 0x020000,
+    HasEa = 0x040000,
+    IsDirectory = 0x10000000,
+    IsIndexView = 0x20000000
+} AttributeFlag;
+
+typedef enum <int> {
+    EndOfAttributes = -0x1,
+    Unused = 0x0,
+    StandardInformation = 0x10,
+    AttributeList = 0x20,
+    FileName = 0x30,
+    VolumeVersionObjectId = 0x40,
+    SecurityDescriptor = 0x50,
+    VolumeName = 0x60,
+    VolumeInformation = 0x70,
+    Data = 0x80,
+    IndexRoot = 0x90,
+    IndexAllocation = 0xa0,
+    Bitmap = 0xb0,
+    ReparsePoint = 0xc0,
+    EaInformation = 0xd0,
+    Ea = 0xe0,
+    PropertySet = 0xf0,
+    LoggedUtilityStream = 0x100,
+    UserDefinedAttribute = 0x1000
+} AttribType;
+
+typedef struct (int recordSize) {
+    local int startPosition = FTell();
+
+    AttribType AttributeType <format=hex, fgcolor=cBlack, bgcolor=cGray>;
+    int RecordSize <format=hex, fgcolor=cBlack, bgcolor=cLtGray>;
+
+    FSeek(startPosition);
+    FSkip(recordSize);
+
+} Attribute;
+
+typedef struct (int recordSize) {
+    AttribType AttributeType <format=hex, fgcolor=cBlack, bgcolor=cGray>;
+
+} END_OF_ATTRIBUTES;
+
+typedef struct (int recordSize) {
+     local int startPosition = FTell();
+    AttribType AttributeType <format=hex, fgcolor=cBlack, bgcolor=cGray>;
+    int RecordSize <format=hex, fgcolor=cBlack, bgcolor=cLtGray>;
+
+    FSeek(startPosition);
+    FSkip(recordSize);
+
+} SECURITY_DESCRIPTOR;
+
+typedef struct (int recordSize) {
+    AttribType AttributeType <format=hex, fgcolor=cBlack, bgcolor=cGray>;
+    int RecordSize <format=hex, fgcolor=cBlack, bgcolor=cLtGray>;
+    ResidentFlag Resident <fgcolor=cBlack, bgcolor=0x2FE4FF>;
+
+    byte NameSize <fgcolor=cBlack, bgcolor=0x001f00>;
+    short NameOffset <fgcolor=cBlack, bgcolor=0x10ef00>;
+    short Unknown;
+    short AttributeId <fgcolor=cWhite, bgcolor=0x201f00>;
+    int ContentLength  <fgcolor=cBlack, bgcolor=0x30f900>;
+    short ContentOffset  <fgcolor=cWhite, bgcolor=0x424f00>;
+    short Padding;
+
+    FILETIME CreationTime <fgcolor=cBlack, bgcolor=0x2FE4FF>;
+    FILETIME ContentModifiedTime <fgcolor=cBlack, bgcolor=0xDFA4FF>;
+    FILETIME MetadataModifiedTime <fgcolor=cBlack, bgcolor=0xDBF4FF>;
+    FILETIME LastAccessedTime <fgcolor=cBlack, bgcolor=0xDFC4FF>;
+
+    AttributeFlag Flags <fgcolor=cBlack, bgcolor=0x50aa00>; //TODO make this look right with the actual flags
+    int MaxVersions <fgcolor=cWhite, bgcolor=0x601200>;
+    int VersionNumber <fgcolor=cBlack, bgcolor=0x00ffff>;
+    int ClassId <fgcolor=cWhite, bgcolor=0x785200>;
+    int OwnerId <fgcolor=cBlack, bgcolor=0x90ff00>;
+    int SecurityId <fgcolor=cBlack, bgcolor=0xa0ff00>;
+    uint64 QuoataCharged <fgcolor=cBlack, bgcolor=0xb0ff00>;
+    uint64 UpdateSequenceNumber <fgcolor=cBlack, bgcolor=0xc0ff00>;
+
+} STANDARD_INFO;
+
+typedef struct (int recordSize) {
+
+    local int startPosition = FTell();
+
+    AttribType AttributeType <format=hex, fgcolor=cBlack, bgcolor=cGray>;
+    int RecordSize <format=hex, fgcolor=cBlack, bgcolor=cLtGray>;
+    ResidentFlag Resident;
+
+    byte NameSize;
+    short NameOffset;
+    short Unknown;
+    short AttributeId;
+    int ContentLength;
+    short ContentOffset;
+    short Padding;
+
+    uint64 ParentMFTReference;
+
+    FILETIME CreationTime <fgcolor=cBlack, bgcolor=0x2FE4FF>;
+    FILETIME ContentModifiedTime <fgcolor=cBlack, bgcolor=0xDFA4FF>;
+    FILETIME MetadataModifiedTime <fgcolor=cBlack, bgcolor=0xDBF4FF>;
+    FILETIME LastAccessedTime <fgcolor=cBlack, bgcolor=0xDFC4FF>;
+
+    uint64 PhysicalSize;
+    uint64 LogicalSize;
+
+    AttributeFlag Flags; //TODO make this look right with the actual flags
+    int ExtendedAttributeSize;
+    byte NameLength;
+    FileNameType NameType;
+    
+    wchar_t Filename [NameLength];
+
+    FSeek(startPosition);
+    FSkip(recordSize);
+   
+} FILE_NAME;
+
+typedef struct (int recordSize) {
+
+    local int startPosition = FTell();
+
+    AttribType AttributeType <format=hex, fgcolor=cBlack, bgcolor=cGray>;
+    int RecordSize <format=hex, fgcolor=cBlack, bgcolor=cLtGray>;
+
+
+    FSeek(startPosition);
+    FSkip(recordSize);
+   
+} BITMAP;
+
+typedef struct (int recordSize) {
+
+local int startPosition = FTell();
+
+    AttribType AttributeType <format=hex, fgcolor=cBlack, bgcolor=cGray>;
+    int RecordSize <format=hex, fgcolor=cBlack, bgcolor=cLtGray>;
+    ResidentFlag Resident;
+    byte NameSize;
+    short NameOffset;
+    short Unknown;
+    short AttributeId;
+   
+
+if (Resident == NonResident)
+{
+    uint64 StartingVirtualClusterNumber;
+    uint64 EndingVirtualClusterNumber;
+    short OffsetToDataRuns;
+    FSkip(6);
+    uint64 AllocatedSize;
+    uint64 TrueSize;
+    uint64 InitializedSize;
+
+if (NameSize > 0)
+    {
+        local wstring Name = ReadWString(startPosition + NameOffset,NameSize);// [NameSize]; //wstring ReadWString( int64 pos, int maxLen=-1 )
+
+    }
+
+
+
+    //data runs here TODO
+  //  local byte dataRunInfo = ReadByte();
+  //  while (dataRunInfo != 0)
+ //   {
+ //       dataRunInfo = ReadByte();
+ //   }
+
+
+}
+else
+{
+    int ContentLength;
+    short ContentOffset;
+    short Padding;
+
+    if (NameSize > 0)
+    {
+        wchar_t Name [NameSize];
+        byte PaddingName[ContentOffset - NameSize];
+    }
+
+    byte Content[ContentLength];
+
+
+}
+ 
+    //temp for now
+    FSeek(startPosition);
+    FSkip(recordSize);
+
+
+} DATA;
+
+
+typedef struct {
+    
+
+    char Signature[4] <fgcolor=cBlack, bgcolor=0x00ff10>; 
+    short OFfsetToFixupArray <fgcolor=cBlack, bgcolor=cRed>; 
+    short NumberOfFixupBytePairs <fgcolor=cBlack, bgcolor=cLtRed>; 
+    uint64 LogfileSequenceNumber <fgcolor=cBlack, bgcolor=cPurple>; 
+    short SequenceNumber <fgcolor=cBlack, bgcolor=cLtRed>;
+    short HardLinkCount <fgcolor=cBlack, bgcolor=cLtRed>;  
+    short OffsetToFirstAttribute <fgcolor=cBlack, bgcolor=cLtRed>; 
+    HeaderFlags Flags <fgcolor=cBlack, bgcolor=cLtRed>; 
+    uint ActualRecordSize <fgcolor=cBlack, bgcolor=cLtPurple>; 
+    uint AllocatedRecordSize <fgcolor=cBlack, bgcolor=cPurple>; 
+    uint64 FileReferenceToBaseRecord <fgcolor=cBlack, bgcolor=cAqua>; 
+    short NextAvailableAttributeId <fgcolor=cBlack, bgcolor=cLtGreen>; 
+    short Unknown;
+    uint EntryNumber <fgcolor=cBlack, bgcolor=cLtBlue>; 
+
+    short FixupExpected <fgcolor=cBlack, bgcolor=cLtRed>; 
+    local int i;
+    local int expectedPairs = NumberOfFixupBytePairs - 1;
+    for( i = 0; i < expectedPairs; i++ )
+    {
+       ushort FixUpActual  <fgcolor=cBlack, bgcolor=cRed>;
+    } 
+
+    short Padding;
+
+
+
+    //start attributes
+
+    local AttribType attribType = ReadInt(FTell());
+    local int attributeSize = ReadInt(FTell()+4);
+
+    local int EndFound = 0;
+    
+    while( EndFound !=1)
+    {
+      
+    if (attribType == SecurityDescriptor)
+    {
+    break;
+}
+
+        switch( attribType ) 
+        {
+            case StandardInformation : STANDARD_INFO StandardInfo (attributeSize); break;
+            case FileName : FILE_NAME FileName (attributeSize); break;
+            case Data: DATA Data (attributeSize); break;
+            case Bitmap: BITMAP Bitmap (attributeSize); break;
+            case SecurityDescriptor: SECURITY_DESCRIPTOR SecDesc (attributeSize); break;
+            case EndOfAttributes: END_OF_ATTRIBUTES EndOfAttributes(4); EndFound=1; break;
+            default : 
+            Printf( "unknown attr at FTell = %d\n", FTell() ); 
+            Attribute attr(attributeSize); break;
+        } 
+
+        if (EndFound == 1)
+        {
+            break;
+        }
+
+        attribType = ReadInt(FTell());
+        attributeSize = ReadInt(FTell() + 4);
+    }
+    
+    byte Slack[AllocatedRecordSize - ActualRecordSize + 4];
+
+} FileEntry <size=1024, optimize=true>; 
+
+while (!FEof())
+{
+    FileEntry entry ;
+}
