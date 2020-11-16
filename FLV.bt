@@ -1,0 +1,364 @@
+//------------------------------------------------
+//--- 010 Editor v9.0.2 Binary Template
+//
+//      File: FLV.bt
+//   Authors: zozobreak@163.com
+//   Version: 3.0
+//   Purpose: Template for Flash Video (FLV) files including sei and nalu.
+//  Category: Video
+// File Mask: *.flv
+//  ID Bytes: 46 4C 56 //FLV
+//   History: 
+//   3.0   2020-05-17 zozobreak: boost up the original FLV.bt, parse more detail with sei and nalu.
+//   2.2   2016-01-29 SweetScape: Updated header for repository submission.
+//   2.1   lafei: Public release.
+//------------------------------------------------
+
+BigEndian();
+
+void ErrorOutput(const char desc[]) {
+    Printf("*Error(pos:%Ld) %s.\n", FTell(), desc);
+    Warning("%s.", desc);
+}
+
+string flv_tag_type_string(uint32 tag_type)
+{
+    switch(tag_type)
+    {
+    case 8:
+        return "audio";
+    case 9:
+        return "video";
+    case 18:
+        return "metadata";
+    default:
+        local string t;
+        SPrintf(s, "%u", tag_type);
+        return t;
+    }
+}
+
+typedef struct {
+    char    signature[3];
+    uchar   version;
+    uchar   : 5;
+    uchar   has_audio : 1;
+    uchar   : 1;
+    uchar   has_video : 1;
+    uint    body_offset;   // body_offset + 4 = tag1 start
+    uint    pre_tag_size;
+} flv_file_header_t <read=flv_file_header_desc>;
+
+string flv_file_header_desc(flv_file_header_t& h)
+{
+    string desc;
+    SPrintf(desc, "has_audio: %d, has_video: %d", h.has_audio, h.has_video);
+    return desc;
+}
+
+typedef struct {
+    uint32 tag_type: 8;
+    uint32 tag_data_size: 24;
+    uint32 timestamp: 32 <read=tag_timestamp>;
+
+    uchar  stream_id[3];
+} flv_tag_header_t;
+
+string tag_timestamp(uint32 timestamp)
+{
+    uint32 t = timestamp>>8 | timestamp<<24;
+    string s;
+    SPrintf(s, "%u", t);
+    return s;
+}
+
+string flv_tag_header_desc(flv_tag_header_t& flv_tag_header)
+{
+    local string desc;
+    local string type = flv_tag_type_string(flv_tag_header.tag_type);
+    SPrintf(desc, "%s, size:%u, time:%s", type, flv_tag_header.tag_data_size, tag_timestamp(flv_tag_header.timestamp));
+    return desc;
+}
+
+typedef struct (uint len) {
+    uchar   a_codecid: 4;
+    uchar   a_sample_rate: 2;
+    uchar   : 2;
+
+    if(a_codecid == 10)
+    {
+        uchar a_aac_type;
+        uchar a_data[len-2];
+    }
+    else
+    {
+        uchar a_data[len-1];
+    }
+
+} flv_audio_tag_data_t <optimize=false>;
+
+string flv_audio_tag_data_desc(flv_audio_tag_data_t& audio_tag_data)
+{
+    if(audio_tag_data.a_codecid == 10)
+    {
+        if(audio_tag_data.a_aac_type == 0)
+        {
+            return "audio aac header";
+        }
+        else
+        {
+            return "audio aac data";
+        }
+    }
+    else
+    {
+        local string desc;
+        SPrintf(desc, "audio %u", (uint)audio_tag_data.a_codecid);
+        return desc;       
+    }
+}
+
+typedef struct (int max_len){
+    if(max_len < 5) {
+        uchar nalu[max_len];
+        return;
+    }
+
+    local int  real_nal_size;
+
+    uint    nal_size;
+    uchar   nal_forbidden : 1;
+    uchar   nal_nri : 2;
+    uchar   nal_type : 5;
+
+    real_nal_size = nal_size;
+    if ( real_nal_size + sizeof(nal_size) > max_len) {
+        real_nal_size = max_len - sizeof(nal_size);
+        ErrorOutput("nalu size not match flv tag size");
+    }
+
+    if (nal_type != 6)
+    {
+        uchar   nal_data[real_nal_size-1];
+        return;
+    }
+    if(nal_type == 6) {
+        local uchar sei_type <hidden=true> = ReadUByte();
+        if(sei_type == 5) {
+            FSkip(1);
+
+            local uint  sei_payload_size = 0;
+            local uint  sei_payload_size_bytes <hidden=true> = 0;
+            local uchar parse_byte <hidden=true>;
+            
+            do {
+                parse_byte = ReadUByte(); FSkip(1);
+                sei_payload_size += parse_byte;
+                ++sei_payload_size_bytes;
+            } while(parse_byte==0xff);
+        
+            local int64 sei_payload_pos <hidden=true> = FTell();
+            local uint  sei_payload_bytes = real_nal_size - 2 - sei_payload_size_bytes;
+        
+            local uchar payload[sei_payload_bytes] <hidden=true>;
+            local uchar unescape_payload[sei_payload_bytes] <hidden=true>;
+            ReadBytes(payload, sei_payload_pos, sei_payload_bytes);
+
+            local uchar b1 <hidden=true> = 255;
+            local uchar b2 <hidden=true> = 255;
+            local uchar b3 <hidden=true>;
+            local uint i <hidden=true>, j <hidden=true>;
+            for (j=0, i=0; i<sei_payload_bytes; i++) {
+                b3 = payload[i];
+                if (b1 == 0 && b2 == 0 && b3 == 3 ) {
+                    b1 = b2;
+                    b2 = b3;
+                    continue;
+                }
+                unescape_payload[j++] = b3;
+                b1 = b2;
+                b2 = b3;
+            }
+
+            local uint unescape_payload_size = j;
+
+            local char  uuid[16]; 
+            Memcpy(uuid, unescape_payload, 16);  
+            local uchar sei_data[sei_payload_bytes-16];
+            Memcpy(sei_data, unescape_payload, sei_payload_bytes-16, 0, 16);
+
+            uchar sei_payload[sei_payload_bytes];
+
+            FSeek(sei_payload_pos+sei_payload_bytes);
+        } else {
+            uchar sei[real_nal_size-1];
+        }
+    }
+} h264_nalu_t <optimize=false, read=h264_nalu_desc>;
+
+string h264_nalu_desc(h264_nalu_t& nalu) {
+    if (nalu.nal_type == 6) {
+        if ( nalu.sei_type == 5 ) {
+            return "sei: " + nalu.uuid;
+        }
+        return "sei";
+    } else {
+        string nal_type;
+        SPrintf(nal_type, "%u", nalu.nal_type);
+        return nal_type;
+    }
+}
+
+typedef struct (uint len){
+    uchar       v_frame_type: 4;
+    uchar       v_codecid: 4;
+    if(v_codecid == 7) {
+        uint    v_avc_pkt_type: 8;
+        uint    v_avc_cts: 24;
+        
+        if(v_avc_pkt_type == 1) {
+            local   int nal_units_size <hidden=true> = len - 5;
+            while(nal_units_size>0) {
+                h264_nalu_t nalu(nal_units_size);
+                nal_units_size -= sizeof(nalu);
+            }
+        } else {
+            uchar   v_data[len-5];
+        }
+    } else {
+        uchar   v_data[len-1];
+    }
+} flv_video_tag_data_t <optimize=false>;
+
+string flv_video_tag_data_desc(flv_video_tag_data_t& video_tag)
+{
+    local string frame_type;
+    local string codec_id;
+    switch(video_tag.v_frame_type)
+    {
+    case 1:
+        frame_type = "I frame";
+        break;
+    case 2:
+        frame_type = "P or B frame";
+        break;
+    case 3:
+        frame_type = "disponable innter frame";
+        break;
+    case 4:
+        frame_type = "generated key frame";
+        break;
+    case 5:
+        frame_type = "info/command frame";
+    default:
+        SPrintf(frame_type, "%u", (uint)video_tag.v_frame_type);
+        break;
+    }
+    switch(video_tag.v_codecid)
+    {
+    case 1:
+        codec_id = "JPEG";
+        break;
+    case 2:
+        codec_id = "H263";
+        break;
+    case 3:
+        codec_id = "Screen Video";
+        break;
+    case 4:
+        codec_id = "On2 VP6";
+        break;
+    case 5:
+        codec_id = "On2 VP6 with alpha";
+        break;
+    case 6:
+        codec_id = "Screen Video V2";
+        break;
+    case 7:
+        if(video_tag.v_avc_pkt_type == 0)
+        {
+            codec_id = "AVC header";
+        }
+        else
+        {
+            codec_id = "AVC";
+        }
+        
+        break;
+    default:
+        SPrintf(codec_id, "%u", (uint)video_tag.v_codecid);
+        break;
+    }
+
+    return frame_type + " codec:" + codec_id;
+}
+
+typedef struct (uint len){
+    uchar   tag_data[len];
+} flv_metadata_tag_data_t <optimize=false>;
+
+string flv_metadata_tag_data_desc(flv_metadata_tag_data_t& metadata_tag)
+{
+    return "metadata";
+}
+
+typedef struct {
+    flv_tag_header_t    tag_header;
+    switch(tag_header.tag_type)
+    {
+    case 8:
+        flv_audio_tag_data_t audio_tag_data(tag_header.tag_data_size);
+        break;
+    case 9:
+        flv_video_tag_data_t video_tag_data(tag_header.tag_data_size);
+        break;
+    case 18:
+        flv_metadata_tag_data_t metadata_tag_data(tag_header.tag_data_size);
+        break;
+    default:
+        uchar           tag_data[tag_header.tag_data_size];
+        break;
+    }
+    
+    uint32              pre_tag_size;
+    if(pre_tag_size != sizeof(tag_header)+tag_header.tag_data_size) {
+        ErrorOutput( "pre_tag_size not match tag size");
+    }
+} flv_tag_t <optimize=false, read=flv_tag_desc>;
+
+string flv_tag_desc(flv_tag_t& tag)
+{
+    switch(tag.tag_header.tag_type)
+    {
+    case 8:
+        return flv_audio_tag_data_desc(tag.audio_tag_data);
+    case 9:
+        return flv_video_tag_data_desc(tag.video_tag_data);
+    case 18:
+        return flv_metadata_tag_data_desc(tag.metadata_tag_data);
+    default:
+        local string o;
+        SPrintf(o, "%u", (uint)flv_tag.tag_header.tag_type);
+        return o;
+    }
+}
+
+flv_file_header_t   flv_file_header;
+
+// Check for header
+if( flv_file_header.signature != "FLV" )
+{
+    ErrorOutput("File is not a FLV. Template stopped");
+    return -1;
+}
+
+if( flv_file_header.version != 1 )
+{
+    ErrorOutput( "Unsupported FLV version. Template stopped" );
+    return -1;
+}
+
+while( !FEof() )
+{
+    flv_tag_t flv_tag;
+}

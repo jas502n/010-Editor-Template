@@ -1,0 +1,159 @@
+//------------------------------------------------
+//--- 010 Editor v6.0.3 Binary Template
+//
+//      File: EatonAPR48.bt
+//   Authors: Glaukon Ariston
+//   Version: 1.0
+//   Purpose: Eaton APR48 power supply's EEPROM structure. 
+//  Category: Electronics
+// File Mask: *.bin
+//  ID Bytes: FF EE FF C0 04
+//   History: 
+//   1.0   2018-05-07 Glaukon Ariston: Initial release.
+//
+/*
+    010Editor Binary Template (*.bt)
+    http://www.sweetscape.com/
+
+    Reverse engineering of Eaton APR48 power supply's EEPROM structure in
+    order to be able to change the output voltage.
+    Note that Eaton APR48 is an older version of Eaton APR48-3G power supply.
+
+    010Editor 
+        File|Open File... -> EatonAPR48_EEPROM_145294054_copy.bin
+        Template|Open Template... -> EatonAPR48.bt
+        Template|Run Template
+        > Expand the first 'struct EatonEEPROMParams' and change the outputVoltage.
+        File|Save As... -> EatonAPR48_EEPROM_145294054_modified.bin
+
+
+[1] APR48_APU48_E_Letter.pdf
+
+The APR48 has a 1500W output and it is designed for operation at up to 70°C (158°F) 
+and under a wide range of AC power conditions.
+
+Input
+    AC Supply
+    APR48: 220/240V, 50/60Hz (nominal)
+        185-275V full output power up to 50°C [122°F]
+        150-185V full output power up to 30°C [86°F]
+    Power Factor                >0.99 (50 – 100% Output Current)
+    Efficiency                  90% (50 – 100% Output Current)
+
+Output
+    DC Output Voltage Range     48V: 43 – 57.5V
+    DC Output (maximum)         APR48: 1500W, 31A @ 48V
+
+Environmental
+    Operating Temperature Range
+        -40°C – +70°C [-40°F – +158°F]
+        Output current is derated above 50°C [122°F] and below -10°C [14°F]
+    Cooling     Temperature controlled, high reliability fans
+
+Mechanical
+    Dimensions      3U: 133mm [5.25”], 13E: 66mm [2.6”], 257mm [10.1”]
+    H,W,D           overall
+    Weight          1.9kg [4.2lb ]
+*/
+//------------------------------------------------
+
+
+typedef struct {
+    ubyte unknown<format=hex, comment="fixed value 0xFF">;
+    uint16 unknown<format=hex, comment="fixed value 0xFFEE">;
+    uint16 unknown<format=hex, comment="fixed value 0x04C0">;
+} EatonEEPROMHeader;
+
+
+typedef struct {
+    uint32 serial<format=decimal, comment="Serial number, written on the sticker on the side of the power supply">;
+    char name[14]<comment="space padded, zero terminated power supply name (e.g. APR48, APR48-G, EPR48-G)">;
+    float outputVoltage<write=recompute_checksum, comment="Output voltage, default 54.5V in my APR48">;
+    float currentLimit<write=recompute_checksum, comment="Current limit, default 31A in my APR48">;
+    float temperatureLimit<write=recompute_checksum, comment="Temperature limit, default 150F in my APR48">;
+    float unknown1<comment="?, default 150.0007 in my APR48">;
+    float unknown2<comment="?, default 10.3 in my APR48">;
+    ubyte unknownA[3]<format=hex, comment="?, default 96 96 B9 in my APR48">;
+    float unknown3<comment="?, default 83 in my APR48">;
+    float unknown4<comment="?, default 0 in my APR48">;
+    uint16 checksum<bgcolor=cLtPurple, format=hex, comment="neg(checksum 8bit)">;
+
+    local uint16 computed_checksum = calc_checksum(startof(this), startof(checksum)-startof(this));
+	if(checksum != computed_checksum) {
+		Printf("Checksum check failed: computed %02X real %02X\n", computed_checksum, checksum);
+	}
+} EatonEEPROMParams;
+
+
+typedef struct {
+    float unknownA[18]<comment="Calibration data?">;
+    uint32 unknown<format=hex, comment="?, default 21 AA D2 B3 in my APR48">;
+    ubyte unknown<format=hex, comment="?, default 85h in my APR48">;
+    uint16 checksum<bgcolor=cLtPurple, format=hex, comment="neg(checksum 8bit)">;
+
+    local uint16 computed_checksum = calc_checksum(startof(this), startof(checksum)-startof(this));
+	if(checksum != computed_checksum) {
+		Printf("Checksum check failed: computed %02X real %02X\n", computed_checksum, checksum);
+	}
+} EatonEEPROMCalibration;
+
+
+typedef struct {
+	LittleEndian();
+    EatonEEPROMHeader header;
+	EatonEEPROMParams params<bgcolor=cLtAqua>;
+	EatonEEPROMParams params<bgcolor=cLtYellow>;
+    EatonEEPROMCalibration calibration<bgcolor=cLtAqua>;
+    EatonEEPROMCalibration calibration<bgcolor=cLtYellow>;
+    ubyte padding[FileSize()-FTell()]<comment="FFs or 00s">;
+} EatonEEPROM;
+
+
+//=================================================================== STRUCTURE
+EatonEEPROM eatonEEPROM;
+
+
+void copy(EatonEEPROMParams& d, const EatonEEPROMParams& s) {
+    d.serial = s.serial;
+    d.name = s.name;
+    d.outputVoltage = s.outputVoltage;
+    d.currentLimit = s.currentLimit;
+    d.temperatureLimit = s.temperatureLimit;
+    d.unknown1 = s.unknown1;
+    d.unknown2 = s.unknown2;
+    Memcpy(d.unknownA, s.unknownA, sizeof(s.unknownA));
+    d.unknown3 = s.unknown3;
+    d.unknown4 = s.unknown4;
+    d.checksum = s.checksum;
+}
+
+
+void recompute_checksum(float& f, string s) {
+	//Printf("recompute_checksum: %s\n", s);
+	f = Atof(s);
+	//Printf("recompute_checksum: this %02X\n", eatonEEPROM.params[0].checksum);
+    
+    // assume we are making the change to the first copy of the data. i.e. eatonEEPROM.params[0]
+    local int i;
+    local uint16 computed_checksum = calc_checksum(
+        startof(eatonEEPROM.params[0])
+        , startof(eatonEEPROM.params[0].checksum)-startof(eatonEEPROM.params[0])
+    );
+    eatonEEPROM.params[0].checksum = computed_checksum;
+
+    // make a new copy
+    copy(eatonEEPROM.params[1], eatonEEPROM.params[0]);
+}
+
+
+uint16 calc_checksum(uint pos, uint size) {
+	//Printf("calc_checksum: pos %02X size %02X\n", pos, size);
+	local uint16 crc = 0;
+	local uint16 i;
+    for(i=0; i < size; ++i) {
+		crc = crc + ReadUByte(pos + i);
+	}
+	return ~crc;
+}
+
+

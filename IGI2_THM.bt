@@ -1,0 +1,65 @@
+//------------------------------------------------
+//--- 010 Editor v9.0.1 Binary Template
+//
+//      File: IGI2_THM.bt
+//   Authors: Rotari Artiom
+//    E-mail: ordersone@gmail.com
+//   Version: 1.0
+//   Purpose: 'IGI 2: Covert Strike' Terrain Height Map
+//  Category: Game
+// File Mask: *.thm
+//  ID Bytes: 49 4c 53 46 // ILSF
+//   History: 
+//   1.0   2019-03-03 Rotari Artiom: _1, _2 and _3 remain unknow
+//------------------------------------------------
+
+// This format is a float32 heigth map.
+// But measurement units remain a secret for me.
+
+
+// pixel struct
+typedef struct REAL_32
+{
+    float H;
+};
+
+// main struct
+struct
+{
+    LittleEndian();
+
+    DWORD _0;      // unknown (allways 1008981770)
+
+    struct
+    {
+        DWORD Year;
+        DWORD Month;
+        DWORD Day;
+        DWORD Hour;
+        DWORD Minute;
+        DWORD Second;
+        DWORD Milisecond;
+    } DATE_TIME;   // creation date-time
+
+    DWORD _1;      // unknown (allways 2). May be encoded pixel format
+    DWORD _2;      // unknown (allways 0)
+    DWORD _3;      // unknown (allways 1065353216)
+
+    DWORD Width;   // bitmap width
+    DWORD Heigth;  // bitmap heigth
+
+    // Color data
+    REAL_32 Heigthmap[Width * Heigth];
+
+    if(!FEof()) REAL_32 Lod_1[ (Width / 2)   * (Heigth / 2)   ];
+    if(!FEof()) REAL_32 Lod_2[ (Width / 4)   * (Heigth / 4)   ];
+    if(!FEof()) REAL_32 Lod_3[ (Width / 8)   * (Heigth / 8)   ];
+    if(!FEof()) REAL_32 Lod_4[ (Width / 16)  * (Heigth / 16)  ];
+    if(!FEof()) REAL_32 Lod_5[ (Width / 32)  * (Heigth / 32)  ];
+    if(!FEof()) REAL_32 Lod_6[ (Width / 64)  * (Heigth / 64)  ];
+    if(!FEof()) REAL_32 Lod_7[ (Width / 128) * (Heigth / 128) ];
+    if(!FEof()) REAL_32 Lod_8[ (Width / 256) * (Heigth / 256) ];
+} IGI2_THM;
+
+
+Assert(FEof());

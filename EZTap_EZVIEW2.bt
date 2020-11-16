@@ -1,0 +1,90 @@
+//--------------------------------------
+//--- 010 Editor v4.0.3 Binary Template
+//
+//   File: EZTap_EZVIEW2.bt
+//   Authors: Benjamin Vernoux
+//   E-mail: bvernoux@gmail.com
+//   Version: 0.1
+//   Purpose: Template for EZ-Tap EZView to EZVIEW2 .dat file.
+//   Category: Electronics
+//   File Mask: *.dat
+//   ID Bytes: 45 5A 56 69 65 77 32
+//   History: 
+//   0.1   2017-09-15 Benjamin Vernoux: Initial release
+// Information source: https://www.stratusengineering.com/downloads/
+
+typedef unsigned char t_u8;
+typedef unsigned short t_u16;
+typedef unsigned int t_u32;
+typedef uint64 t_u64;
+
+#define EZVIEW2_SIGNATURE_SIZE (7)
+
+typedef struct
+{
+    char signature[EZVIEW2_SIGNATURE_SIZE] <format=hex,comment="EZVIEW2 Signature = EZView2">;
+    t_u8 header[37] <format=hex>;
+    t_u32 nb_total_ezview2_frames <format=decimal,comment="Total number of data frames">;
+    t_u32 reserved <format=hex,comment="Reserved">;
+    t_u64 filetime_filecreation <format=hex,comment="FILETIME file creation">;
+    t_u64 filetime_datastart <format=hex,comment="FILETIME data capture start">;
+} t_hdr;
+
+typedef struct
+{
+    t_u16 RTS:1 <comment="0x0001 RTS">;
+    t_u16 DTR:1 <comment="0x0002 DTR">;
+    t_u16 CTS:1 <comment="0x0004 CTS">;
+    t_u16 DSR:1 <comment="0x0008 DSR">;
+    t_u16 CD:1  <comment="0x0010 CD">;
+    t_u16 RI:1  <comment="0x0020 RI">;
+    t_u16 RES:10<comment="Reserved">;
+} t_flags <comment="U16">;
+
+typedef struct
+{
+    t_u32 delta;
+    t_u8 dte_dce; // 1 = DTE, 2=DCE
+    t_u8 data <format=hex>;
+    t_flags flags <format=hex>;
+} t_ezview2_frame <read=ReadEZVIEW2_Frame>;
+
+string ReadEZVIEW2_Frame(t_ezview2_frame &entry )
+{
+    FILETIME ft;
+    t_u32 val_us;
+    t_u32 val_ft;
+    string str;
+    string s_us;
+
+    val_us = (entry.delta - ezview2_frm[0].delta) % 1000;
+    val_ft = ((entry.delta - ezview2_frm[0].delta) - val_us) * 10; // Value from microsec to 100ns unit
+    ft = hdr.filetime_datastart + val_ft;
+    
+    string s = FileTimeToString(ft, "MM/dd/yy hh:mm:ss.zzz");
+    SPrintf(s_us, ".%03d", val_us);
+    s += s_us;
+    if(entry.dte_dce == 1)
+    {
+        SPrintf(str,"%s 0x%02X DTE", s, entry.data);
+    }else
+    {
+        SPrintf(str,"%s 0x%02X DCE", s, entry.data);
+    }
+    return str;
+}
+
+LittleEndian(); 
+/* Check File Signature */
+local char local_signature[EZVIEW2_SIGNATURE_SIZE];
+ReadBytes(local_signature, 0, EZVIEW2_SIGNATURE_SIZE);
+if(Memcmp(local_signature, "EZView2", EZVIEW2_SIGNATURE_SIZE) != 0)
+{
+    Warning( "Unknown file format. EZView2 Identifier not found." );
+    return -1;
+}
+t_hdr hdr;
+while( !FEof() )
+{
+    t_ezview2_frame ezview2_frm;
+}

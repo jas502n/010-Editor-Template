@@ -1,0 +1,100 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: Batch.bt
+//   Authors: SweetScape Software
+//   Version: 1.0
+//   Purpose: Syntax highlighting for Windows batch files.
+//  Category: Syntax
+// File Mask: *.bat,*.cmd
+//  ID Bytes: 
+//   History: 
+//   1.0   2018-11-22 SweetScape Software: Initial version.
+//------------------------------------------------
+RequiresVersion( 9 );
+
+// To save memory, allow a single copy of this template to provide 
+//  syntax highlighting for all open files that match the file mask.
+HighlightAllowInstanceSharing( true );
+
+// Get list of coloring styles
+local int commentStyle  = HighlightFindStyle( "code-comment" );
+local int keywordStyle  = HighlightFindStyle( "code-keyword" );
+local int dataTypeStyle = HighlightFindStyle( "code-data-type" );
+local int stringStyle   = HighlightFindStyle( "code-string" );
+
+// Types of rules we may be applying that may span multiple lines
+const int RULE_NONE              = 0;
+
+// Build list of keywords
+local TKeywordList keywordList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD | HIGHLIGHT_IGNORECASE,
+    "assoc", "attrib", "break", "bcdedit", "cacls", "call", "cd", "chcp", 
+    "chdir", "chkdsk", "chkntfs", "cls", "cmd", "color", "comp", "compact", 
+    "convert", "copy", "con", "date", "del", "dir", "do", "diskpart", "doskey", 
+    "driverquery", "echo", "else", "endlocal", "erase", "errorlevel", "exist", 
+    "exit", "fc", "find", "findstr", "for", "format", "fsutil", "ftype", "goto", 
+    "gpresult", "graftabl", "help", "icacls", "if", "in", "label", "md", "mkdir", 
+    "mklink", "mode", "more", "move", "not", "nul", "openfiles", "path", "pause", 
+    "popd", "print", "prompt", "pushd", "rd", "recover", "ren", "rename", 
+    "replace", "rmdir", "robocopy", "set", "setlocal", "sc", "schtasks", "shift", 
+    "shutdown", "sort", "start", "subst", "systeminfo", "tasklist", "taskkill", 
+    "time", "title", "tree", "type", "ver", "verify", "vol", "xcopy", "wmic" );
+ 
+// Main function to apply syntax highlighting to a line of text.
+//  flags is preserved between lines and allows us to do multi-line comments.
+void HighlightLineRealtime( int64 line, wchar_t text[], int foreColors[], int backColors[], int count, ushort &flags )
+{
+    int i, len, pos, next, match, rule = flags;
+    while( i < count )
+    {  
+        // Check single-line comments, :: or REM
+        if( (text[i] == ':') &&
+            HighlightCheckCommentRule( text, count, "::", i, 
+            foreColors, backColors, commentStyle ) ) 
+            continue;
+        if( ((text[i] == 'R') || (text[i] == 'r')) &&
+            HighlightCheckCommentRule( text, count, "rem", i, 
+            foreColors, backColors, commentStyle, HIGHLIGHT_IGNORECASE ) ) 
+            continue;
+
+        // Check double-quote string
+        if( (text[i] == '"') &&
+            HighlightCheckSingleLineRule( text, count, "\"", "\"", i, 
+            foreColors, backColors, stringStyle ) ) 
+            continue;
+
+        // Check keywords
+        if( HighlightCheckKeywordRule( text, count, keywordList, i, 
+            foreColors, backColors, keywordStyle ) )
+            continue;
+
+        // Check variables starting with %
+        if( text[i] == '%' )
+        {
+            // Match %(num), %*, %word%, %%(alphanum)
+            match = HighlightMatchString( text, count, "%\\d|%\\*|%%\\w|%\\w*%", i, HIGHLIGHT_REGEX );
+            if( match > 0 )
+            {
+                HighlightApplyStyle( foreColors, backColors, i, match, dataTypeStyle );
+                i += match;
+                continue;
+            }
+        }
+
+        // Check for labels - either at start of a line or after a space
+        if( (text[i] == ':') && ((i == 0) || (text[i-1] == ' ')) )
+        {
+            // Highlight the next word as a label
+            next = HighlightGetNextToken( text, count, i+1 );
+            if( next > i )
+                HighlightApplyStyle( foreColors, backColors, i, next-i, dataTypeStyle );
+            i = next;
+        }
+
+        // Nothing found - skip over whole words
+        i = HighlightGetNextToken( text, count, i );
+    }
+
+    // Save rule in the flags for the next line
+    flags = rule;
+}

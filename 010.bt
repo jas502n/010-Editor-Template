@@ -1,0 +1,105 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: 010.bt
+//   Authors: SweetScape Software
+//   Version: 1.1
+//   Purpose: Syntax highlighting for 010 Editor
+//            Binary Templates and Scripts.
+//  Category: Syntax
+// File Mask: *.bt;*.1sc
+//  ID Bytes: 
+//   History: 
+//   1.1   2020-09-15 SweetScape Software: Added highlighting for GUID type.
+//   1.0   2018-10-03 SweetScape Software: Initial version.
+//------------------------------------------------
+RequiresVersion( 9 );
+
+// To save memory, allow a single copy of this template to provide 
+//  syntax highlighting for all open files that match the file mask.
+HighlightAllowInstanceSharing( true );
+
+// Get list of coloring styles
+local int commentStyle    = HighlightFindStyle( "code-comment" );
+local int keywordStyle    = HighlightFindStyle( "code-keyword" );
+local int dataTypeStyle   = HighlightFindStyle( "code-data-type" );
+local int stringStyle     = HighlightFindStyle( "code-string" );
+local int calculatorStyle = HighlightFindStyle( "calculator-result" );
+
+// Types of rules we may be applying
+const int RULE_NONE              = 0;
+const int RULE_MULTILINE_COMMENT = 1;
+const int RULE_STRING            = 2;
+
+// Build list of keywords
+local TKeywordList keywordList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD,
+    "#define", "#else", "#endif", "#error", "#ifdef", "#ifndef", "#include", "#undef", 
+    "#warning", "FALSE", "TRUE", "break", "case", "continue", "default", "do", "else", 
+    "exists", "false", "for", "function_exists", "if", "parentof", "return", "sizeof", 
+    "startof", "switch", "this", "true", "typedef", "while", "#link", "#endlink" );
+
+// Build list of datatypes
+local TKeywordList dataTypeList = HighlightBuildKeywordList( HIGHLIGHT_WHOLEWORD,
+    "BYTE", "CHAR", "DOSDATE", "DOSTIME", "DOUBLE", "DWORD", "FILETIME", "FLOAT", 
+    "HFLOAT", "INT", "INT16", "INT32", "INT64", "LONG", "OLETIME", "QUAD", "QWORD", 
+    "SHORT", "UBYTE", "UCHAR", "UINT", "UINT16", "UINT32", "UINT64", "ULONG", "UQUAD", 
+    "USHORT", "WORD", "__int64", "__uint64", "byte", "char", "const", "double", 
+    "enum", "float", "hfloat", "int", "int16", "int32", "int64", "local", "long", 
+    "quad", "short", "signed", "string", "struct", "time64_t", "time_t", "ubyte", 
+    "uchar", "uint", "uint16", "uint32", "uint64", "ulong", "union", "unsigned", 
+    "uquad", "ushort", "void", "wchar_t", "wstring", "GUID" );
+
+// Main function to apply syntax highlighting to a line of text.
+//  flags is preserved between lines and allows us to do multi-line comments.
+void HighlightLineRealtime( int64 line, wchar_t text[], int foreColors[], int backColors[], int count, ushort &flags )
+{
+    int i, len, pos, rule = flags;
+    while( i < count )
+    {  
+        // Check multi-line comment - could be continued from a previous line
+        if( (text[i] == '/' || rule == RULE_MULTILINE_COMMENT) && 
+            HighlightCheckMultiLineRule( text, count, "/*", "*/", i, 
+            rule, RULE_NONE, RULE_MULTILINE_COMMENT, foreColors, backColors, commentStyle ) ) 
+            continue;
+
+        // Check multi-line string - could be continued from a previous line
+        if( (text[i] == '\"' || rule == RULE_STRING) &&
+            HighlightCheckMultiLineRule( text, count, "\"", "\"", i, 
+            rule, RULE_NONE, RULE_STRING, foreColors, backColors, stringStyle, HIGHLIGHT_CSTRING ) ) 
+            continue;
+
+        // Check single-line comments
+        if( (text[i] == '/') &&
+            HighlightCheckCommentRule( text, count, "//", i, 
+            foreColors, backColors, commentStyle ) ) 
+            continue;
+
+        // Check calculator result
+        if( (text[i] == '<') &&
+            HighlightCheckCommentRule( text, count, "<<<", i, 
+            foreColors, backColors, calculatorStyle ) ) 
+            continue;
+
+        // Check character constant
+        if( (text[i] == '\'') &&
+            HighlightCheckSingleLineRule( text, count, "\'", "\'", i, 
+            foreColors, backColors, stringStyle, HIGHLIGHT_CSTRING ) ) 
+            continue;
+
+        // Check keywords
+        if( HighlightCheckKeywordRule( text, count, keywordList, i, 
+            foreColors, backColors, keywordStyle ) )
+            continue;
+
+        // Check data types
+        if( HighlightCheckKeywordRule( text, count, dataTypeList, i, 
+            foreColors, backColors, dataTypeStyle ) )
+            continue;
+
+        // Nothing found - skip over whole words
+        i = HighlightGetNextToken( text, count, i );
+    }
+
+    // Save rule in the flags for the next line
+    flags = rule;
+}

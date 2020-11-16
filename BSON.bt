@@ -1,0 +1,108 @@
+//------------------------------------------------
+//--- 010 Editor v7.0 Binary Template
+//
+//      File: BSON.bt
+//   Authors: Chris Russell (Gnorizo)
+//   Version: 0.1
+//   Purpose: Parse BSON (binary JSON) files, per v1.0 spec at http://bsonspec.org/spec.html. Used by MongoDB et al.
+//  Category: Programming
+// File Mask: *.bson
+//  ID Bytes: 
+//   History: 
+//   0.1   2016-05-14 Chris Russell: Initial release.
+//------------------------------------------------
+
+LittleEndian();
+
+struct CountedString {
+    int32 size;
+    byte value[size+1];
+};
+
+// Note: The types "Undefined" and "Symbol" are deprecated
+enum <ubyte> Type {
+    Double=0x01, String, EmbeddedDocument, Array, Binary, Undefined, ObjectId,
+    Boolean, UTCDatetime, Null, Regex, DBPointer, JavaScript, Symbol,
+    JavaScriptWithScope, Int32, Timestamp, Int64, MinKey=0xff, MaxKey=0x7f
+};
+
+struct BinaryData {
+    int32 size;
+    enum <ubyte> Subtype {
+        Generic, Function, BinaryOld, UuidOld, Uuid, Md5, UserDefined=0x80
+    } subtype;
+    byte data[size];
+};
+
+struct Document {
+    int32 size;
+    while (ReadByte() != 0x00) {
+        struct {
+            Type type;
+            string name;
+            switch (type) {
+                case Double:
+                    double value;
+                    break;
+                case String:
+                    struct CountedString value;
+                    break;
+                case EmbeddedDocument:
+                    struct Document value;
+                    break;
+                case Array:
+                    struct Document value;
+                    break;
+                case Binary:
+                    struct BinaryData value;
+                    break;
+                case ObjectId:
+                    byte value[12];
+                    break;
+                case Boolean:
+                    ubyte value;
+                    break;
+                case UTCDatetime:
+                    int64 value;
+                    break;
+                case Regex:
+                    struct {
+                        string pattern;
+                        string options;
+                    } value;
+                    break;
+                case DBPointer:
+                    struct {
+                        typedef CountedString namespace;
+                        byte id[12];
+                    } value;
+                    break;
+                case JavaScript:
+                    struct CountedString value;
+                    break;
+                case Symbol:
+                    struct CountedString value;
+                    break;
+                case JavaScriptWithScope:
+                    struct {
+                        int32 size;
+                        struct CountedString code;
+                        struct Document scope;
+                    } value;
+                    break;
+                case Int32:
+                    int32 value;
+                    break;
+                case Timestamp:
+                    int64 value;
+                    break;
+                case Int64:
+                    int64 value;
+                    break;
+            }
+        } element;
+    }
+    ubyte EndOfDocument <comment="Should equal 0x00">;
+};
+
+Document document;

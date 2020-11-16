@@ -1,0 +1,1078 @@
+//------------------------------------------------
+//--- 010 Editor v10.0 Binary Template
+//
+//      File: JSC.bt
+//   Authors: hluwa
+//   Version: 1.0.0
+//   Purpose: Parse a compiled JavaScript file of form SpiderMonkey_v52.
+//  Category: Programming
+// File Mask: *.jsc
+//  ID Bytes:
+//   History: 
+//   1.0.0    2020-8-13 hluwa: Initial version is completed parse XDRScript structure, but not opcode and srcnote.
+//------------------------------------------------
+
+
+struct XDRScript;
+struct InterpretedFunctionList;
+const uint NumInnerFunctionsBits = 20;
+const uint NumClosedOverBindingsBits = 21;
+
+enum SrcNoteType {
+    SRC_NULL,
+    SRC_IF,
+    SRC_IF_ELSE,
+    SRC_COND,
+    SRC_FOR,
+    SRC_WHILE,
+    SRC_FOR_IN,
+    SRC_FOR_OF,
+    SRC_CONTINUE,
+    SRC_BREAK,
+    SRC_BREAK2LABEL,
+    SRC_SWITCHBREAK,
+    SRC_TABLESWITCH,
+    SRC_CONDSWITCH,
+    SRC_NEXTCASE,
+    SRC_ASSIGNOP,
+    SRC_TRY, 
+    SRC_COLSPAN,
+    SRC_NEWLINE,
+    SRC_SETLINE,
+    SRC_UNUSED20,
+    SRC_UNUSED21,
+    SRC_UNUSED22,
+    SRC_UNUSED23,
+    SRC_XDELTA,
+    SRC_LAST,
+    SRC_LAST_GETTABLE = SRC_TRY
+};
+
+enum OpCode
+{
+    JSOP_NOP,
+    JSOP_UNDEFINED,
+    JSOP_GETRVAL,
+    JSOP_ENTERWITH,
+    JSOP_LEAVEWITH,
+    JSOP_RETURN,
+    JSOP_GOTO,
+    JSOP_IFEQ,
+    JSOP_IFNE,
+    JSOP_ARGUMENTS,
+    JSOP_SWAP,
+    JSOP_POPN,
+    JSOP_DUP,
+    JSOP_DUP2,
+    JSOP_CHECKISOBJ,
+    JSOP_BITOR,
+    JSOP_BITXOR,
+    JSOP_BITAND,
+    JSOP_EQ,
+    JSOP_NE,
+    JSOP_LT,
+    JSOP_LE,
+    JSOP_GT,
+    JSOP_GE,
+    JSOP_LSH,
+    JSOP_RSH,
+    JSOP_URSH,
+    JSOP_ADD,
+    JSOP_SUB,
+    JSOP_MUL,
+    JSOP_DIV,
+    JSOP_MOD,
+    JSOP_NOT,
+    JSOP_BITNOT,
+    JSOP_NEG,
+    JSOP_POS,
+    JSOP_DELNAME,
+    JSOP_DELPROP,
+    JSOP_DELELEM,
+    JSOP_TYPEOF,
+    JSOP_VOID,
+    JSOP_SPREADCALL,
+    JSOP_SPREADNEW,
+    JSOP_SPREADEVAL,
+    JSOP_DUPAT,
+    JSOP_SYMBOL,
+    JSOP_STRICTDELPROP,
+    JSOP_STRICTDELELEM,
+    JSOP_STRICTSETPROP,
+    JSOP_STRICTSETNAME,
+    JSOP_STRICTSPREADEVAL,
+    JSOP_CLASSHERITAGE,
+    JSOP_FUNWITHPROTO,
+    JSOP_GETPROP,
+    JSOP_SETPROP,
+    JSOP_GETELEM,
+    JSOP_SETELEM,
+    JSOP_STRICTSETELEM,
+    JSOP_CALL,
+    JSOP_GETNAME,
+    JSOP_DOUBLE,
+    JSOP_STRING,
+    JSOP_ZERO,
+    JSOP_ONE,
+    JSOP_NULL,
+    JSOP_IS_CONSTRUCTING,
+    JSOP_FALSE,
+    JSOP_TRUE,
+    JSOP_OR,
+    JSOP_AND,
+    JSOP_TABLESWITCH,
+    JSOP_RUNONCE,
+    JSOP_STRICTEQ,
+    JSOP_STRICTNE,
+    JSOP_THROWMSG,
+    JSOP_ITER,
+    JSOP_MOREITER,
+    JSOP_ISNOITER,
+    JSOP_ENDITER,
+    JSOP_FUNAPPLY,
+    JSOP_OBJECT,
+    JSOP_POP,
+    JSOP_NEW,
+    JSOP_OBJWITHPROTO,
+    JSOP_GETARG,
+    JSOP_SETARG,
+    JSOP_GETLOCAL,
+    JSOP_SETLOCAL,
+    JSOP_UINT16,
+    JSOP_NEWINIT,
+    JSOP_NEWARRAY,
+    JSOP_NEWOBJECT,
+    JSOP_INITHOMEOBJECT,
+    JSOP_INITPROP,
+    JSOP_INITELEM,
+    JSOP_INITELEM_INC,
+    JSOP_INITELEM_ARRAY,
+    JSOP_INITPROP_GETTER,
+    JSOP_INITPROP_SETTER,
+    JSOP_INITELEM_GETTER,
+    JSOP_INITELEM_SETTER,
+    JSOP_CALLSITEOBJ,
+    JSOP_NEWARRAY_COPYONWRITE,
+    JSOP_SUPERBASE,
+    JSOP_GETPROP_SUPER,
+    JSOP_STRICTSETPROP_SUPER,
+    JSOP_LABEL,
+    JSOP_SETPROP_SUPER,
+    JSOP_FUNCALL,
+    JSOP_LOOPHEAD,
+    JSOP_BINDNAME,
+    JSOP_SETNAME,
+    JSOP_THROW,
+    JSOP_IN,
+    JSOP_INSTANCEOF,
+    JSOP_DEBUGGER,
+    JSOP_GOSUB,
+    JSOP_RETSUB,
+    JSOP_EXCEPTION,
+    JSOP_LINENO,
+    JSOP_CONDSWITCH,
+    JSOP_CASE,
+    JSOP_DEFAULT,
+    JSOP_EVAL,
+    JSOP_STRICTEVAL,
+    JSOP_GETELEM_SUPER,
+    JSOP_SPREADCALLARRAY,
+    JSOP_DEFFUN,
+    JSOP_DEFCONST,
+    JSOP_DEFVAR,
+    JSOP_LAMBDA,
+    JSOP_LAMBDA_ARROW,
+    JSOP_CALLEE,
+    JSOP_PICK,
+    JSOP_TRY,
+    JSOP_FINALLY,
+    JSOP_GETALIASEDVAR,
+    JSOP_SETALIASEDVAR,
+    JSOP_CHECKLEXICAL,
+    JSOP_INITLEXICAL,
+    JSOP_CHECKALIASEDLEXICAL,
+    JSOP_INITALIASEDLEXICAL,
+    JSOP_UNINITIALIZED,
+    JSOP_GETINTRINSIC,
+    JSOP_SETINTRINSIC,
+    JSOP_CALLITER,
+    JSOP_INITLOCKEDPROP,
+    JSOP_INITHIDDENPROP,
+    JSOP_NEWTARGET,
+    JSOP_TOASYNC,
+    JSOP_POW,
+    JSOP_THROWING,
+    JSOP_SETRVAL,
+    JSOP_RETRVAL,
+    JSOP_GETGNAME,
+    JSOP_SETGNAME,
+    JSOP_STRICTSETGNAME,
+    JSOP_GIMPLICITTHIS,
+    JSOP_SETELEM_SUPER,
+    JSOP_STRICTSETELEM_SUPER,
+    JSOP_REGEXP,
+    JSOP_INITGLEXICAL,
+    JSOP_DEFLET,
+    JSOP_CHECKOBJCOERCIBLE,
+    JSOP_SUPERFUN,
+    JSOP_SUPERCALL,
+    JSOP_SPREADSUPERCALL,
+    JSOP_CLASSCONSTRUCTOR,
+    JSOP_DERIVEDCONSTRUCTOR,
+    JSOP_THROWSETCONST,
+    JSOP_THROWSETALIASEDCONST,
+    JSOP_INITHIDDENPROP_GETTER,
+    JSOP_INITHIDDENPROP_SETTER,
+    JSOP_INITHIDDENELEM_GETTER,
+    JSOP_INITHIDDENELEM_SETTER,
+    JSOP_INITHIDDENELEM,
+    JSOP_GETIMPORT,
+    JSOP_DEBUGCHECKSELFHOSTED,
+    JSOP_OPTIMIZE_SPREADCALL,
+    JSOP_THROWSETCALLEE,
+    JSOP_PUSHVARENV,
+    JSOP_POPVARENV,
+    JSOP_UNUSED182,
+    JSOP_UNUSED183,
+    JSOP_CALLPROP,
+    JSOP_FUNCTIONTHIS,
+    JSOP_GLOBALTHIS,
+    JSOP_UNUSED187,
+    JSOP_UINT24,
+    JSOP_CHECKTHIS,
+    JSOP_CHECKRETURN,
+    JSOP_CHECKTHISREINIT,
+    JSOP_UNUSED192,
+    JSOP_CALLELEM,
+    JSOP_MUTATEPROTO,
+    JSOP_GETXPROP,
+    JSOP_TYPEOFEXPR,
+    JSOP_FRESHENLEXICALENV,
+    JSOP_RECREATELEXICALENV,
+    JSOP_PUSHLEXICALENV,
+    JSOP_POPLEXICALENV,
+    JSOP_DEBUGLEAVELEXICALENV,
+    JSOP_INITIALYIELD,
+    JSOP_YIELD,
+    JSOP_FINALYIELDRVAL,
+    JSOP_RESUME,
+    JSOP_ARRAYPUSH,
+    JSOP_FORCEINTERPRETER,
+    JSOP_DEBUGAFTERYIELD,
+    JSOP_UNUSED209,
+    JSOP_UNUSED210,
+    JSOP_UNUSED211,
+    JSOP_GENERATOR,
+    JSOP_BINDVAR,
+    JSOP_BINDGNAME,
+    JSOP_INT8,
+    JSOP_INT32,
+    JSOP_LENGTH,
+    JSOP_HOLE,
+    JSOP_UNUSED219,
+    JSOP_UNUSED220,
+    JSOP_UNUSED221,
+    JSOP_UNUSED222,
+    JSOP_UNUSED223,
+    JSOP_REST,
+    JSOP_TOID,
+    JSOP_IMPLICITTHIS,
+    JSOP_LOOPENTRY,
+    JSOP_TOSTRING,
+    JSOP_NOP_DESTRUCTURING,
+    JSOP_JUMPTARGET
+};
+
+enum JSVersion
+{
+    JSVERSION_ECMA_3=148,
+    JSVERSION_1_6=160,
+    JSVERSION_1_7=170,
+    JSVERSION_1_8=180,
+    JSVERSION_ECMA_5=185,
+    JSVERSION_DEFAULT=0,
+    JSVERSION_UNKNOWN=-1,
+    JSVERSION_LATEST=JSVERSION_ECMA_5
+};
+
+enum FunctionKind {
+    NormalFunction = 0,
+    Arrow,                      /* ES6 '(args) => body' syntax */
+    Method,                     /* ES6 MethodDefinition */
+    ClassConstructor,
+    Getter,
+    Setter,
+    AsmJS,                      /* function is an asm.js module or exported function */
+    FunctionKindLimit
+};
+
+enum FunctionFlags {
+    INTERPRETED      = 0x0001,  /* function has a JSScript and environment. */
+    CONSTRUCTOR      = 0x0002,  /* function that can be called as a constructor */
+    EXTENDED         = 0x0004,  /* structure is FunctionExtended */
+    BOUND_FUN        = 0x0008,  /* function was created with Function.prototype.bind. */
+    EXPR_BODY        = 0x0010,  /* arrow function with expression body or
+                                    * expression closure: function(x) x*x */
+    HAS_GUESSED_ATOM = 0x0020,  /* function had no explicit name, but a
+                                    name was guessed for it anyway */
+    LAMBDA           = 0x0040,  /* function comes from a FunctionExpression, ArrowFunction, or
+                                    Function() call (not a FunctionDeclaration or nonstandard
+                                    function-statement) */
+    SELF_HOSTED      = 0x0080,  /* function is self-hosted builtin and must not be
+                                    decompilable nor constructible. */
+    HAS_REST         = 0x0100,  /* function has a rest (...) parameter */
+    INTERPRETED_LAZY = 0x0200,  /* function is interpreted but doesn't have a script yet */
+    RESOLVED_LENGTH  = 0x0400,  /* f.length has been resolved (see fun_resolve). */
+    RESOLVED_NAME    = 0x0800,  /* f.name has been resolved (see fun_resolve). */
+
+    FUNCTION_KIND_SHIFT = 13,
+    FUNCTION_KIND_MASK  = 0x7 << FUNCTION_KIND_SHIFT,
+
+    ASMJS_KIND = AsmJS << FUNCTION_KIND_SHIFT,
+    ARROW_KIND = Arrow << FUNCTION_KIND_SHIFT,
+    METHOD_KIND = Method << FUNCTION_KIND_SHIFT,
+    CLASSCONSTRUCTOR_KIND = ClassConstructor << FUNCTION_KIND_SHIFT,
+    GETTER_KIND = Getter << FUNCTION_KIND_SHIFT,
+    SETTER_KIND = Setter << FUNCTION_KIND_SHIFT,
+
+    /* Derived Flags values for convenience: */
+    NATIVE_FUN = 0,
+    NATIVE_CTOR = NATIVE_FUN | CONSTRUCTOR,
+    NATIVE_CLASS_CTOR = NATIVE_FUN | CONSTRUCTOR | CLASSCONSTRUCTOR_KIND,
+    ASMJS_CTOR = ASMJS_KIND | NATIVE_CTOR,
+    ASMJS_LAMBDA_CTOR = ASMJS_KIND | NATIVE_CTOR | LAMBDA,
+    INTERPRETED_METHOD = INTERPRETED | METHOD_KIND,
+    INTERPRETED_METHOD_GENERATOR = INTERPRETED | METHOD_KIND,
+    INTERPRETED_CLASS_CONSTRUCTOR = INTERPRETED | CLASSCONSTRUCTOR_KIND | CONSTRUCTOR,
+    INTERPRETED_GETTER = INTERPRETED | GETTER_KIND,
+    INTERPRETED_SETTER = INTERPRETED | SETTER_KIND,
+    INTERPRETED_LAMBDA = INTERPRETED | LAMBDA | CONSTRUCTOR,
+    INTERPRETED_LAMBDA_ARROW = INTERPRETED | LAMBDA | ARROW_KIND,
+    INTERPRETED_LAMBDA_GENERATOR = INTERPRETED | LAMBDA,
+    INTERPRETED_NORMAL = INTERPRETED | CONSTRUCTOR,
+    INTERPRETED_GENERATOR = INTERPRETED,
+    NO_XDR_FLAGS = RESOLVED_LENGTH | RESOLVED_NAME,
+
+    STABLE_ACROSS_CLONES = CONSTRUCTOR | EXPR_BODY | HAS_GUESSED_ATOM | LAMBDA |
+                            SELF_HOSTED |  HAS_REST | FUNCTION_KIND_MASK
+};
+
+typedef enum
+{
+    NoScriptRval,
+    Strict,
+    ContainsDynamicNameAccess,
+    FunHasExtensibleScope,
+    FunHasAnyAliasedFormal,
+    ArgumentsHasVarBinding,
+    NeedsArgsObj,
+    HasMappedArgsObj,
+    FunctionHasThisBinding,
+    FunctionHasExtraBodyVarScope,
+    IsGeneratorExp,
+    IsLegacyGenerator,
+    IsStarGenerator,
+    IsAsync,
+    OwnSource,
+    ExplicitUseStrict,
+    SelfHosted,
+    HasSingleton,
+    TreatAsRunOnce,
+    HasLazyScript,
+    HasNonSyntacticScope,
+    HasInnerFunctions,
+    NeedsHomeObject,
+    IsDerivedClassConstructor,
+    IsDefaultClassConstructor
+} ScriptBits <read=ScriptBitsRead>;
+
+typedef enum
+{
+    SCRIPT_INT=0,
+    SCRIPT_DOUBLE=1,
+    SCRIPT_ATOM=2,
+    SCRIPT_TRUE=3,
+    SCRIPT_FALSE=4,
+    SCRIPT_NULL=5,
+    SCRIPT_OBJECT=6,
+    SCRIPT_VOID=7,
+    SCRIPT_HOLE=8
+} ConstTag;
+
+typedef enum
+{
+    // FunctionScope
+    Function,
+
+    // VarScope
+    FunctionBodyVar,
+    ParameterExpressionVar,
+
+    // LexicalScope
+    Lexical,
+    SimpleCatch,
+    Catch,
+    NamedLambda,
+    StrictNamedLambda,
+
+    // WithScope
+    With,
+
+    // EvalScope
+    Eval,
+    StrictEval,
+
+    // GlobalScope
+    Global,
+    NonSyntactic,
+
+    // ModuleScope
+    Module
+} ScopeKind;
+
+typedef enum {
+    CK_RegexpObject,
+    CK_JSFunction,
+    CK_JSObject
+} XDRClassKind;
+
+typedef enum {
+    FirstWordFlag_HasAtom             = 0x1,
+    FirstWordFlag_IsStarGenerator     = 0x2,
+    FirstWordFlag_IsLazy              = 0x4,
+    FirstWordFlag_HasSingletonType    = 0x8
+} FirstWordFlag;
+
+string ScriptBitsRead(ScriptBits b)
+{
+    string ret="";
+    string bits="";
+    ScriptBits i=0;
+
+    while (i <= IsDefaultClassConstructor)
+    {
+        if (b & (1 << i))
+        {
+            bits += EnumToString(i) + " ";
+        }
+        i=i + 1;
+    }
+    SPrintf(ret, "(0x%X) %s", b, bits);
+    return ret;
+}
+
+typedef struct
+{
+    byte hasSource;
+    byte retrievable;
+    if (hasSource && !retrievable)
+    {
+        uint sourceLen;
+        uint compressedLength;
+        byte argumentsNotIncluded;
+        local uint byteLen=compressedLength ? compressedLength : sourceLen * sizeof(short);
+        if (compressedLength)
+        {
+            byte codeBytes[byteLen];
+        }
+        else
+        {
+            char codeBytes[byteLen];
+        }
+    }
+
+    byte haveSourceMap;
+    if (haveSourceMap)
+    {
+        uint sourceMapURLLen;
+        wchar_t sourceMapURL[sourceMapURLLen];
+    }
+
+    byte haveDisplayURL;
+    if (haveDisplayURL)
+    {
+        uint displayURLLen;
+        wchar_t displayURL[displayURLLen];
+    }
+
+    byte haveFileName;
+    if (haveFileName)
+    {
+        string fileName;
+    }
+} OwnSourceInfo;
+
+typedef struct
+{
+    uint natoms <format=hex>;
+    uint nsrcnotes <format=hex>;
+    uint nconsts <format=hex>;
+    uint nobjects <format=hex>;
+    uint nscopes <format=hex>;
+    uint ntrynotes <format=hex>;
+    uint nscopenotes <format=hex>;
+    uint nyieldoffsets <format=hex>;
+    uint nTypeSets <format=hex>;
+    uint funLength <format=hex>;
+
+} SyntxMetaData;
+
+typedef struct
+{
+    local uint offset = FTell();
+    uint lengthAndEncoding <read=readLengthAndEncoding>;
+    local uint length = lengthAndEncoding >> 1;
+    local uint latin1 = lengthAndEncoding & 0x1;
+    if (latin1 && length)
+    {
+        char atom[length];
+    }
+    if (!latin1 && length)
+    {
+        wchar_t atom[length];
+    }
+} Atom <read=readAtom>;
+
+string readAtom(Atom &atom)
+{
+    return atom.length ? atom.atom : "";
+}
+
+string readLengthAndEncoding(uint &lengthAndEncoding)
+{
+    string s;
+    SPrintf(s, "length=0x%x, latin1=%s", lengthAndEncoding >> 1, (lengthAndEncoding & 0x1) ? "true" : "false");
+    return s;
+}
+
+typedef struct(uint size)
+{
+    local int i;
+    for (i=0; i < size; i++)
+    {
+        Atom atom;
+    }
+}
+atom_list<read=readAtomList>;
+
+string readAtomList(atom_list &list)
+{
+    string res;
+    SPrintf(res, "has %d atom", list.i);
+    return res;
+}
+
+typedef struct
+{
+
+    local uint offset = FTell();
+    ConstTag tag;
+    switch (tag)
+    {
+    case SCRIPT_INT:
+        uint value;
+        break;
+    case SCRIPT_DOUBLE:
+        double value;
+        break;
+    case SCRIPT_ATOM:
+        Atom value;
+        break;
+    case SCRIPT_TRUE:
+        break;
+    case SCRIPT_FALSE:
+        break;
+    case SCRIPT_NULL:
+        break;
+    case SCRIPT_OBJECT:
+        break;
+    case SCRIPT_VOID:
+        break;
+    case SCRIPT_HOLE:
+        break;
+    };
+} Const;
+
+typedef struct(uint size)
+{
+    local int i;
+    for (i=0; i < size; i++)
+    {
+        Const consts;
+    }
+}
+const_list <read=readConstList>;
+
+string readConstList(const_list &list)
+{
+    string res;
+    SPrintf(res, "has %d const", list.i);
+    return res;
+}
+
+typedef struct
+{
+    ubyte u8;
+    Atom atom;
+
+} XDRBinding <read=readBindingName>;
+
+string readBindingName(XDRBinding &binding)
+{
+    return readAtom(binding.atom);
+}
+
+typedef struct
+{
+    uint length;
+    local int i;
+    for (i=0; i < length; i++)
+    {
+        XDRBinding binding;
+    }
+} XDRBindingList <read=readXDRBindingList>;
+
+string readXDRBindingList(XDRBindingList &list){
+    string res;
+    SPrintf(res, "%d XDRBinding", list.i);
+    return res;
+}
+
+typedef struct
+{
+    local uint offset = FTell();
+    XDRBindingList bindings;
+    ubyte needsEnvironment;
+    ubyte hasParameterExprs;
+    ushort nonPositionalFormalStart;
+    ushort varStart;
+    uint nextFrameSlot;
+
+} FunctionScope <read=readFunctionScope>;
+
+string readFunctionScope(FunctionScope &scope){
+    string res;
+    SPrintf(res, "%s, needsEnvironment=%d, hasParameterExprs=%d, nonPositionalFormalStart=%x, varStart=%x, nextFrameSlot=%d", 
+            readXDRBindingList(scope.bindings), scope.needsEnvironment,  scope.hasParameterExprs,  scope.nonPositionalFormalStart,  scope.varStart,  scope.nextFrameSlot);
+    return res;
+}
+
+typedef struct
+{
+    XDRBindingList bindings;
+
+    ubyte needsEnvironment;
+    uint firstFrameSlot;
+    uint nextFrameSlot;
+
+} VarScope <read=readVarScope>;
+
+string readVarScope(VarScope &scope){
+    string res;
+    SPrintf(res, "%s, needsEnvironment=%d, firstFrameSlot=%d, nextFrameSlot=%d", 
+            readXDRBindingList(scope.bindings), scope.needsEnvironment,  scope.firstFrameSlot,  scope.nextFrameSlot);
+    return res;
+}
+
+typedef struct
+{
+    XDRBindingList bindings;
+
+    uint constStart;
+    uint firstFrameSlot;
+    uint nextFrameSlot;
+} LexicalScope;
+
+typedef struct
+{
+    XDRBindingList bindings;
+} EvalScope;
+
+typedef struct
+{
+    XDRBindingList bindings;
+
+    uint letStart;
+    uint constStart;
+
+} GlobalScope;
+
+typedef struct
+{
+    ScopeKind scopeKind;
+    uint enclosingScopeIndex <format=hex>;
+    switch (scopeKind)
+    {
+    case Function:
+        FunctionScope scope;
+        break;
+    case FunctionBodyVar:
+    case ParameterExpressionVar:
+        VarScope scope;
+        break;
+    case Lexical:
+    case SimpleCatch:
+    case Catch:
+    case NamedLambda:
+    case StrictNamedLambda:
+        LexicalScope scope;
+        break;
+    case With:
+        break;
+    case Eval:
+    case StrictEval:
+        EvalScope scope;
+        break;
+    case Global:
+    case NonSyntactic:
+        GlobalScope scope;
+        break;
+    case Module:
+        break;
+    };
+} Scope;
+
+typedef struct (uint size)
+{
+    local int i;
+    for (i=0; i < size; i++)
+    {
+        Scope scope;
+    }
+} scope_list<read=readScopeList>;
+
+string readScopeList(scope_list &list)
+{
+    string res;
+    SPrintf(res, "has %d scope", list.i);
+    return res;
+}
+
+typedef struct
+{
+    Atom atom;
+    uint flagsword;
+
+} RegExpObject;
+
+typedef struct
+{
+    uint begin;
+    uint end;
+    uint lineno;
+    uint column;
+    uint64 packedFields;
+
+    ubyte endOfScopeSentinel;
+    Atom atom;
+
+    InterpretedFunctionList functions(NumInnerFunctionsBits);
+} XDRLazyScript;
+
+typedef struct 
+{
+    local uint offset = FTell();
+
+    uint firstword <format=hex>;
+
+    if (firstword & FirstWordFlag_HasAtom){
+        Atom atom;
+    }
+    FunctionFlags flagsword <format=hex>;
+    if (firstword & FirstWordFlag_IsLazy) {
+        XDRLazyScript lazyscript;
+    }else{
+        XDRScript script;
+    }
+
+} InterpretedFunction <read=readInterpretedFunction>;
+
+string readInterpretedFunction(InterpretedFunction &function){
+    if(exists(function.atom)){
+        return readAtom(function.atom);
+    }
+    return "";
+}
+
+typedef struct (uint size)
+{
+    local int i;
+    for(i=0; i< size; i++){
+        InterpretedFunction function;
+    }
+} InterpretedFunctionList;
+
+typedef struct 
+{
+    uint isArray;
+
+    if(isArray){
+        uint initialized;
+        const_list consts(initialized);
+        uint copyOnWrite;
+    }
+    else{
+        uint nproperties;
+        local int i;
+        for(i=0; i<nproperties; i++){
+            Const tmpIdValue;
+            Const tmpValue;
+        }
+
+        uint isSingleton;
+    }
+
+} XDRObjectLiteral;
+
+typedef struct
+{
+    XDRClassKind classKind;
+    switch (classKind) {
+        case CK_RegexpObject: 
+            RegExpObject object;
+            break;
+        case CK_JSFunction:
+            uint funEnclosingScopeIndex;
+            InterpretedFunction object;
+            break;
+        case CK_JSObject:
+            XDRObjectLiteral object;
+            break;
+    }
+} Object;
+
+typedef struct (uint size)
+{
+    local int i;
+    for (i=0; i < size; i++)
+    {
+        Object object;
+    }
+} object_list <read=readObjectList>;
+
+string readObjectList(object_list &list)
+{
+    string res;
+    SPrintf(res, "has %d object", list.i);
+    return res;
+}
+
+typedef struct
+{
+    ubyte kind;
+    uint stackDepth;
+    uint start;
+    uint length;
+
+} TryNote;
+
+typedef struct (uint size)
+{
+    local int i;
+    for (i=0; i < size; i++)
+    {
+        TryNote trynote;
+    }
+} trynote_list <read=readTryNoteList>;
+
+string readTryNoteList(trynote_list &list)
+{
+    string res;
+    SPrintf(res, "has %d trynote", list.i);
+    return res;
+}
+
+typedef struct
+{
+    uint index;
+    uint start;
+    uint length;
+    uint parent;
+
+} ScopeNote;
+
+typedef struct (uint size)
+{
+    local int i;
+    for (i=0; i < size; i++)
+    {
+        ScopeNote scopenote;
+    }
+} scopenote_list <read=readScopeNoteList>;
+
+string readScopeNoteList(scopenote_list &list)
+{
+    string res;
+    SPrintf(res, "has %d scopenote", list.i);
+    return res;
+}
+
+typedef struct
+{
+    uint64 packedFields;
+
+    XDRBindingList bindings(NumClosedOverBindingsBits);
+} XDRRelazificationInfo;
+
+typedef struct 
+{
+    uint sourceStart <format=hex>;
+    uint sourceEnd <format=hex>;
+    uint lineno;
+    uint column;
+    uint nfixed;
+    uint nslots;
+    uint bodyScopeIndex;
+} SourceInfo;
+
+typedef struct
+{
+    local uint offset = FTell();
+    uint length <format=hex>;
+    uint mainOffset <format=hex, comment="prologueLength">;
+    JSVersion version;
+    SyntxMetaData syntx_meta_data;
+    ScriptBits scriptBits <format=hex>;
+    if (scriptBits & (1 << OwnSource))
+    {
+        OwnSourceInfo own_src_info;
+    }
+
+    SourceInfo src_info;
+    
+    ubyte code[length];
+    ubyte srcnotes[syntx_meta_data.nsrcnotes];
+    
+    if(syntx_meta_data.natoms)
+        atom_list atoms(syntx_meta_data.natoms);
+    if(syntx_meta_data.nconsts)
+        const_list consts(syntx_meta_data.nconsts);
+    if(syntx_meta_data.nscopes)
+        scope_list scopes(syntx_meta_data.nscopes);
+    if(syntx_meta_data.nobjects)
+        object_list objects(syntx_meta_data.nobjects);
+    if(syntx_meta_data.ntrynotes)
+        trynote_list trynotes(syntx_meta_data.ntrynotes);
+    if(syntx_meta_data.nscopenotes)
+        scopenote_list scopenotes(syntx_meta_data.nscopenotes);
+    if(syntx_meta_data.nyieldoffsets)
+        uint yieldOffset[syntx_meta_data.nyieldoffsets];
+
+    if (scriptBits & (1 << HasLazyScript)) {
+        XDRRelazificationInfo relazificationInfo;
+    }
+} XDRScript;
+
+
+struct JSC
+{
+
+    uint build_id_length;
+    char build_id[build_id_length];
+
+    XDRScript script;
+
+} file;
+
+
+local int script_count = 0;
+void AllXDRScript(XDRScript &script){
+    local int cursor = FTell();
+    script_count += 1;
+    FSeek(script.offset);
+    XDRScript script;
+
+    local int i;
+    for(i=0; i<script.syntx_meta_data.nobjects;i++){
+        if(exists(script.objects.object[i].object.script)){
+            AllXDRScript(script.objects.object[i].object.script);
+        }
+    }
+    FSeek(cursor);
+}
+
+void AllFunctions(){
+    local int cursor = FTell();
+    local int i;
+    local int y;
+    for(i=0;i<script_count;i++)
+    {
+        for(y=0;y<scripts.script[i].syntx_meta_data.nobjects;y++)
+        {
+            if(scripts.script[i].objects.object[y].classKind == CK_JSFunction){
+                FSeek(scripts.script[i].objects.object[y].object.offset);
+                InterpretedFunction function;
+            }
+        }
+    }
+    FSeek(cursor);
+}
+
+void AllFunctionScope(){
+    local int cursor = FTell();
+    local int i;
+    local int y;
+    for(i=0;i<script_count;i++)
+    {
+        for(y=0;y<scripts.script[i].syntx_meta_data.nscopes;y++)
+        {
+            if(scripts.script[i].scopes.scope[y].scopeKind == Function){
+                FSeek(scripts.script[i].scopes.scope[y].scope.offset);
+                FunctionScope functionScopes;
+            }
+        }
+    }
+    FSeek(cursor);
+}
+
+void AllAtom(){
+    local int cursor = FTell();
+    local int i;
+    local int y;
+    for(i=0;i<script_count;i++)
+    {
+        for(y=0;y<scripts.script[i].syntx_meta_data.natoms;y++)
+        {
+            FSeek(scripts.script[i].atoms.atom[y].offset);
+            Atom atom;
+        }
+    }
+    FSeek(cursor);
+}
+
+void AllConst(){
+    local int cursor = FTell();
+    local int i;
+    local int y;
+    for(i=0;i<script_count;i++)
+    {
+        for(y=0;y<scripts.script[i].syntx_meta_data.nconsts;y++)
+        {
+            FSeek(scripts.script[i].consts.consts[y].offset);
+            Const consts;
+        }
+    }
+    FSeek(cursor);
+}
+
+
+FSeek(0);
+struct SCRIPTS{
+    AllXDRScript(file.script);
+} scripts;
+
+struct FUNCTIONS{
+    AllFunctions();
+} functions;
+
+struct FUNCTIONSCOPES{
+    AllFunctionScope();
+} functionScopes;
+
+struct ATOMS{
+    AllAtom();
+} atoms;
+
+struct CONSTS{
+    AllConst();
+} consts;

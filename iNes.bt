@@ -1,0 +1,36 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: iNes.bt
+//   Authors: Alexandre Frigon
+//   Version: 1.0
+//   Purpose: Get information from the nes emulator standard format iNes.
+//  Category: Game
+// File Mask: *.nes
+//  ID Bytes: 4E 45 53 1A
+//   History: 
+//   1.0   2018-10-28 Alexandre Frigon: Initial release.
+//------------------------------------------------
+
+BigEndian();
+
+struct INES {
+    SetForeColor(cPurple);    struct HEADER {        DWORD magic <format=hex, comment="4E45531Ah -> NES^", name="Magic">;
+        BYTE prgSize <name="Program ROM Size", comment="Unit of 16KB">;
+        BYTE chrSize <name="Character ROM Size", comment="Unit of 8KB">;
+        BYTE control1 <format=binary, name="Control Flag 1", comment="">;
+        BYTE control2 <format=binary, name="Control Flag 2", comment="">;
+        BYTE ramSize <name="RAM size">;
+        BYTE padding[7] <name="Padding">;    } header <name="Header">;
+
+    SetForeColor(cGreen);
+    if (header.control1 & 0b100) {
+        BYTE trainer[512];
+    }
+ 
+    SetForeColor(cBlue);    BYTE prg[header.prgSize * 16 * 1024] <name="Program ROM">;
+
+    SetForeColor(cNone);
+    BYTE chr[header.chrSize * 8 * 1024] <name="Character ROM">;
+
+    SetForeColor(cRed);} file <name="iNes">;

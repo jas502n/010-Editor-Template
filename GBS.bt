@@ -1,0 +1,142 @@
+//------------------------------------------------
+//--- 010 Editor v11.0 Binary Template
+//
+//      File: GBS.bt
+//   Authors: Devyatyi9
+//   Version: 0.2
+//   Purpose: Parser for Aonyx Software's OtterUI scene files https://github.com/ppiecuch/OtterUI
+//  Category: Game
+// File Mask: *.gbs
+//  ID Bytes: 43 53 47 47 //CSGG
+//   History: 
+//   0.2   2020-11-13 Devyatyi9: Added syntax highlighting
+//------------------------------------------------
+
+typedef struct Header {
+char GGSC_Header[4] <name="GGSC Lable",bgcolor=0x0C649C,comment="Заголовок файла сцены",open=suppress>; //0x47475343
+uint LayoutSize1 <name="File Length",bgcolor=cDkRed,fgcolor=0xA0D7FA,comment="Общая длина файла, при добавлении символов сюда нужно прибавлять их длинну (Layout Size 1)">;
+float Data_Version <name="Data Version",comment="Практически все файлы созданы с версией 0.95">;
+uint Scene_ID <name="Scene ID">;
+uint Fonts_Count <name="Fonts Count",fgcolor=0xDEFFFD,comment="Количество GFNT-таблиц">;
+uint Textures_Count <name="Textures Count">;
+uint Sounds_Count <name="Sounds Count">;
+uint Views_Count <name="Views Count",comment="Gets a list of all the views within the scene (GUIView)">;
+uint Messages_Count <name="Messages Count">;
+uint UnknownData <name="Unknown Data">;
+uint LayoutSize2 <name="Layout Size 2",bgcolor=cDkRed,comment="При добавлении символов сюда нужно прибавлять их длинну. Отображает длинну всех шрифтов">;
+uint LayoutSize3 <name="Layout Size 3",bgcolor=cDkRed,comment="При добавлении символов сюда нужно прибавлять их длинну">;
+uint LayoutSize4 <name="Layout Size 4",bgcolor=cDkRed,comment="При добавлении символов сюда нужно прибавлять их длинну">;
+uint LayoutSize5 <name="Layout Size 5",bgcolor=cDkRed,comment="При добавлении символов сюда нужно прибавлять их длинну. Отображает длину от конца заголовка файла до начала маркера конца файла">;
+};
+
+Header hds <name="Header File Structure (Game Gui Scene)",open=true,bgcolor=cYellow,comment="/Tool/OtterUI/UI/GUIScene.cs">;
+
+typedef enum <uint> {
+No=0,
+Yes=1
+} ImageGlyphFlg;// <bgcolor=cLtBlue>;
+
+typedef struct CharData {
+wchar_t Char_Code[2] <name="Char Code",bgcolor=cDkPurple,open=suppress>;
+ImageGlyphFlg igf <write=igfWrite,name="Is Image Glyph?">;
+uint Char_X_Offs <name="Char X Offset",bgcolor=cLtGreen>;
+uint Char_Y_Offs <name="Char Y Offset",bgcolor=cLtBlue>;
+uint Char_Width <name="Char Width">;
+uint Char_Height <name="Char Height">;
+uint Char_Top <name="Char Top">;
+uint Char_Advance <name="Char Advance">;
+uint Char_LeftBearing <name="Char Left Bearing">;
+uint Char_Atlas_Index <name="Char Atlas Index",bgcolor=cDkGray,comment="Номер png файла на котором нарисован символ">;
+} CharData;
+
+
+string igfWrite (string &s)
+{
+    Printf(  "%s\n", s );
+    return s;
+}
+
+//typedef struct FontTableHeader {
+typedef struct FontTableHeader {
+char GFNT[4] <name="GFNT Lable",bgcolor=cDkAqua,open=suppress>; //0x47464E54
+uint Font_Length <name="Font Length",bgcolor=cSilver,fgcolor=0xA0D7FA,comment="Длина всего шрифта в байтах">;
+uint Font_ID <name="Font ID">;
+char Font_Name[64] <bgcolor=cAqua,name="Font Name",open=suppress>;
+uint Font_Size <name="Font Size",fgcolor=cLtAqua>;
+uint Atlas_Width <name="Atlas Width",comment="Ширина каждого png файла">;
+uint Atlas_Height <name="Atlas Height",comment="Высота каждого png файла">;
+uint MaxTop <name="MaxTop",fgcolor=cSilver>;
+uint Atlas_Count <name="Atlas Count",fgcolor=cBlack,comment="Колличество *_n.png файлов">;
+uint Chars_Count <name="Chars Count",bgcolor=cSilver,fgcolor=0x8DD658,comment="Колличество символов в шрифте">;
+//парс Char блоков
+struct CharBlock chb <name="Chars Block",comment="Символы и картиночные глифы (значки)",open=suppress>;
+struct CharBlock {
+    local uint i;
+    for (i = 0; i < Chars_Count; i++) {
+            CharData chsd <name=GetCharName,bgcolor=cGray>;
+            //Printf( chsd.ImageGlyphFlg.igf );
+        };
+};
+} FontTableHeader;
+
+
+//End of file marker
+typedef uint EndfM; //0x12344321
+
+//check header
+if( hds.GGSC_Header != "CSGG" )
+{
+    Warning( "File is not a valid GBS file. Template stopped." );
+    return -1;
+}
+
+string GetFntName(FontTableHeader &fnts)
+{
+    return fnts.Font_Name;
+}
+wstring GetCharName(CharData &chsd)
+{
+    //if 
+    //Printf( igfWrite);
+    return chsd.Char_Code;
+}
+
+// Define the file
+local uint tag;
+LittleEndian(); 
+while( !FEof() )
+{
+    // Read a tag
+    tag = ReadUInt( FTell() );
+
+    if( tag == 0x47464E54 )
+    {
+        SetBackColor( cLtGray );
+        FontTableHeader fnts <name=GetFntName,comment="/Tool/OtterUI/UI/GUIFont.cs">;
+        //<name="Font Table (GUI Font)">;
+        //Printf( fnts.Font_Name + "\n" );
+    }
+//   else if( tag == 0x08074b50 )
+//    {
+//        SetBackColor( cLtGreen );
+//        ZIPDATADESCR dataDescr;
+//    }
+
+     //else if( tag != 0x12344321 )
+    //{   
+        //Warning( "Warning! End of file marker not found." );
+        //return 1;
+    //}
+    //else if( tag == 0x12344321 )
+    //{   
+        //SetBackColor( cLtBlack );
+        //EndfM efm <name="End of file marker">;
+    //} 
+
+    else
+    {
+        Printf( "Done." );
+        return 0;
+    }
+
+}

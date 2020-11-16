@@ -1,0 +1,33 @@
+//------------------------------------------------
+//--- 010 Editor v9.0.1 Binary Template
+//
+//      File: IGI2_WAV.bt
+//   Authors: Rotari Artiom
+//   Version: 1.0
+//   Purpose: 'IGI 2: Covert Strike' game sound format
+//  Category: Game
+// File Mask: *.wav
+//  ID Bytes: 49 4c 53 46  // ILSF
+//   History: 
+//   1.0   2019-03-03 Rotari Artiom: WORD _1 remain unknown. It can be 0 or 4097.
+//                                   4097 is only for few files with FrameRate 22050 or higher
+//------------------------------------------------
+
+
+struct
+{
+	CHAR  Signature[4];  // format signature (allways "ILSF" - InnerLoop Sound Format)
+
+	WORD  _0;            // unknown (allways 1). May be format version
+	WORD  SampleWidth;   // sample width in bits (allways 16)
+	WORD  NumChannels;   // number of channels (1 = MONO; 2 = STEREO)
+	WORD  _1;            // unknown (0 or 4097)
+	DWORD FrameRate;     // framerate (11025, 22050 or 44100) Hz
+	DWORD NumFrames;     // number of frames
+
+    // frames raw data
+    // divide SampleWidth by 8 because we parse bytes but SampleWidth is bit width
+	BYTE  FramesData[(SampleWidth / 8) * NumFrames * NumChannels];
+} IGI2_WAV;
+
+Assert(FEof());

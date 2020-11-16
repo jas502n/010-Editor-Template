@@ -1,0 +1,912 @@
+//------------------------------------------------
+//--- 010 Editor v5.0 Binary Template
+//
+//      File: ISO.bt
+//   Authors: Anton Kochkov, Richard Perrott
+//   Version: 0.7
+//   Purpose: Parse the file system headers for ISO disk images, and print Directory tree. 
+//  Category: Drives
+// File Mask: *.iso
+//  Id_ Bytes: 67 68 48 48 49 //CD001 @ 8001h
+//   History: 
+//   0.7   2019-01-29 R Perrott: Improved number formatting, including using 64-bit *Printf tokens, and added some more file validation.
+//   0.6   2019-01-23 R Perrott: Added Volume Descriptor validation, started hiding all "." and ".." binary/named hard links, and made other refinements.
+//   0.5   2019-01-15 R Perrott: Typedef'd most Little&Big Endian field definitions, removed Rock Ridge suffix from FileIds, and fixed %,d like formatting.
+//   0.4   2019-01-14 R Perrott: Bug fixes and tidy-up.
+//   0.3   2019-01-10 R Perrott: A significantly re-write as far as listing Directory tree. Used free ECMA-119, 3rd Edition (2017) spec. as reference.
+//   0.2   2016-02-11 SweetScape Software: Updated header for repository submission.
+//   0.1   A Kochkov: Initial release.
+//------------------------------------------------
+
+// I suggest being very wary of adding write support, because you may need to add validation for
+// modifying 7-bit character-set fields, and account for Directory Ids in both the root Directory and Path
+// structures!
+
+// Only add a call to LittleEndian() or BigEndian(), before DefaultBigEndian definition, if you want the opposite of the native endian type.
+
+//
+// Constants
+//
+
+// Identify native endian type, because ISO9660 provides struct fields for both Little-Endian and Big-Endian.
+const int DefaultBigEndian = IsBigEndian();
+
+// Only for seeking to and sizing Descriptors; don't use for anything else!
+#define DEFAULT_BLOCK_SIZE 2048
+
+// Expand as needed.
+enum CharSetEnum {UNKNOWN=-1, ASCII=0, BIG_ENDIAN_16_BIT_UNICODE=1};
+
+// Yes, this does uses bitfields.
+BitfieldRightToLeft();
+BitfieldDisablePadding();
+
+//
+// Options for functions and main code
+//
+
+local int PreferDirectory = 1;
+
+// Restores initial endian type after an endian specific operation.
+void RestoreEndian() {
+    if (DefaultBigEndian != IsBigEndian()) {
+        if (DefaultBigEndian) {
+            BigEndian();
+        } else {
+            LittleEndian();
+        }
+    }
+}   
+
+//
+// Mutable state for functions and main code, including for some typedef read functions, so don't move!
+//
+
+// A variable because Primary and Secondary Descriptors can change this!
+local uint16  logBlockSize = DEFAULT_BLOCK_SIZE;
+
+// Descriptor FSeek positions; 0 if not found.
+local int64 partitionPos=0;
+local int64 bootPos=0;
+local int64 primaryPos=0;
+local int64 supplementaryPos=0;
+local int64 TerminatorPos=0;
+
+// Used to read Id_ typedef.
+local CharSetEnum Charset = ASCII;
+
+// A function to convert a block number into a file position, using mutable blockNumber variable.
+uint64 BlockPos(uint32 blockNumber) {
+    return blockNumber*logBlockSize;
+}
+
+//
+// String Functions
+//
+
+// Provides missing SPrintf "%,d" functionality.
+string ToCommaNumString(int64 x) {
+    local char str1[22];
+    SPrintf(str1,"%Ld",x);
+    // Copy with added commas.
+    local char str2[27];
+    local uint log10 = Strlen(str1)-1; // log10 of digit.
+    local int i1=0, i2=0;
+    while (log10>0) {
+        str2[i2++] = str1[i1++];
+        if (log10--%3==0) {
+            str2[i2++] = ',';
+        }
+    }
+    // Not in loop, to stop errant commas
+    str2[i2++] = str1[i1++];
+    str2[i2++] = 0;
+    return str2;
+}
+
+void StrcatfCommaNum(char target[], string format, int64 x, string separator) {
+    if (Strlen(target) > 0 && Strlen(separator)>0) Strcat(target,separator);
+    local char str[80];
+    SPrintf(str,format,ToCommaNumString(x));
+    Strcat(target,str);
+}
+
+// Pretty SPrintf Hexadecimal values
+string ToColonHexNumString(int64 x) {
+    local char str1[9];
+    SPrintf(str1,"%LXh",x);
+    // Copy with added colons.
+    local char str2[12];
+    local uint len = Strlen(str1);
+    local uint log16 = len-1; // log16 of digit.
+    local int i1=0, i2=0;
+    // Tweaked ToCommaNumString algorithm
+    while (log16>1) {
+        str2[i2++] = str1[i1++];
+        if (--log16%4==0) {
+            str2[i2++] = ':';
+        }
+    }
+    // Here, to stop errant colons
+    if (len > 1) { // Skip if only 1 digit.
+        str2[i2++] = str1[i1++];
+    }
+    str2[i2++] = str1[i1++];
+    str2[i2++] = 0;
+    return str2;
+}
+
+void StrcatfColonHexNum(char target[], string format, int64 x, string separator) {
+    if (Strlen(target) > 0 && Strlen(separator)>0) Strcat(target,separator);
+    local char str[80];
+    SPrintf(str,format,ToColonHexNumString(x));
+    Strcat(target,str);
+}
+
+// Pretty SPrintf decimal byte sizes
+string ToSciBytesString(int64 x) {
+    local char str[12];
+    if (x >= GiB) {
+        SPrintf(str,"%Ld GiB", x / GiB);
+    } else if (x >= MiB) {
+        SPrintf(str,"%Ld MiB", x / MiB);
+    } else if (x >= KiB) {
+        SPrintf(str,"%Ld KiB", x / KiB);
+    } else {
+        SPrintf(str,"%Ld B", x);
+    }
+    return str;
+}
+
+const int64 KiB = 1024;
+const int64 MiB = KiB * KiB;
+const int64 GiB = MiB * KiB;
+void StrcatfSciBytes(char target[], string format, int64 x, string separator) {
+    if (Strlen(target) > 0 && Strlen(separator)>0) Strcat(target,separator);
+    local char str[64];
+    SPrintf(str,format,ToSciBytesString(x));
+    Strcat(target,str);
+}
+
+string StrTrim(const char s[]) {
+    local uint len = Strlen(s);
+    // No need to trim leading spaces, because ISO Ids are Left justified as standard.
+    local int eoff = len -1;
+    while (eoff >= 0 && s[eoff]==' ') eoff--;
+    return (++eoff < len) ? SubStr(s, 0, eoff) : s;
+}    
+    
+wstring WStrTrim(const wchar_t s[]) {
+    local uint len = Strlen(s);
+    // No need to trim leading spaces, because ISO Ids are Left justified as standard.
+    local int eoff = len -1;
+    while (eoff >= 0 && s[eoff]==' ') eoff--;
+    return (++eoff+1 < len) ? WSubStr(s, 0, eoff) : s;
+}    
+
+void StrcatfNum(char target[], string format, int64 x, string separator) {
+    if (x!=0) {
+        if (Strlen(target) > 0 && Strlen(separator)>0) Strcat(target,separator);
+        local char str[20];
+        SPrintf(str,format,x);
+        Strcat(target,str);
+    }
+}
+
+void StrcatfStr(char target[], string format, string x, string separator) {
+    if (Strlen(x)>0) {
+        if (Strlen(target) > 0 && Strlen(separator)>0) Strcat(target,separator);
+        local char str[20];
+        SPrintf(str,format,x);
+        Strcat(target,str);
+    }
+}
+
+//
+// Zoned Date and Time typedefs and functions to convert them to ISO formatted date, time, and timezone strings.
+//
+
+// Format as ISO 8601 string.
+string ConvertTimeZone15mDateTimeToString(char str[], int year, int month, int day, int hour, int minute, int second, int ms, int tz15m) {
+    local char tz_str[8];
+    if (tz15m != 0) {
+        local char tz_pre[];
+        if (tz15m<0) {
+            tz_pre = "Z-";
+            tz15m = -tz15m;
+        } else {
+            tz_pre = "Z+";
+        }   
+        local int tzh = tz15m/4;
+        local int tzm = (tz15m%4)*15;
+        if (tzm == 0) {            
+            SPrintf(tz_str,"%s%02d", tz_pre,tzh);
+        } else {
+            SPrintf(tz_str,"%s%02d:%02d", tz_pre,tzh,tzm);
+        }
+    } else {
+        tz_str[0]='Z';
+        tz_str[1]=0;
+    }
+    local char ms_str[5];
+    if (ms > 0) {
+        SPrintf(ms_str,".%03d", ms);
+    }
+    SPrintf(str,"%4d-%02d-%02dT%02d:%02d:%02d%s%s", year,month,day,hour,month,second,ms_str,tz_str);
+    return str;
+}
+
+typedef struct {
+    char  Year[4];
+    char  Month[2];
+    char  Day[2];
+    char  Hour[2];
+    char  Minute[2];
+    char  Second[2];
+    char  HSecond[2];
+    byte  TimeZone15min <name="Time Zone Offset (15min units)">;
+} DigitsZonedDateTime_ <read=ReadDigitsZonedDateTime>;
+
+// Format as ISO 8601.
+string ReadDigitsZonedDateTime(DigitsZonedDateTime_ &z) {
+    local int year = Atoi(z.Year);
+    if (year==0) {
+        return "";
+    }
+
+    local int month = Atoi(z.Month);
+    local int day = Atoi(z.Day);
+    local int hour = Atoi(z.Hour);
+    local int minute = Atoi(z.Minute);
+    local int second = Atoi(z.Second);
+    local int ms = Atoi(z.HSecond)*10;
+    local int tz15m = z.TimeZone15min;
+    local char str[80];
+    return ConvertTimeZone15mDateTimeToString(str,year,month,day,hour,minute,second,ms,tz15m);
+}
+
+void StrcatfDigitsZonedDateTime(char target[], string format, DigitsZonedDateTime_ &x, string separator) {
+    StrcatfStr(target,format,ReadDigitsZonedDateTime(x), separator);
+}
+
+typedef struct {
+    ubyte  Year2;
+    ubyte  Month;
+    ubyte  Day;
+    ubyte  Hour;
+    ubyte  Minute;
+    ubyte  Second;
+    byte   TimeZone15min;
+} BytesZonedDateTime_ <read=ReadBytesZonedDateTime>;
+
+// Format as ISO 8601.
+string ReadBytesZonedDateTime(BytesZonedDateTime_ &z) {
+  local char str[30];
+  if (z.Year2==0) {
+    return str;
+  }
+  return ConvertTimeZone15mDateTimeToString(str, 1900+z.Year2,z.Month,z.Day,z.Hour,z.Minute,z.Second,0,z.TimeZone15min);
+}
+
+void StrcatfBytesZonedDateTime(char target[], string format, BytesZonedDateTime_ &x, string separator) {
+    StrcatfStr(target,format,ReadBytesZonedDateTime(x), separator);
+}
+
+//
+// Id_ Data Type
+//
+// This is a hack, because the library Unicode functions are useless for BigEndian Unicode, it's probably faster too!
+union Id_(uint32 size) {
+    char Ascii[size];
+    if (size>1) {
+        BigEndian();
+        wchar_t Unicode16BE[size/2];
+        LittleEndian();
+        wchar_t Unicode16LE[size/2];
+        RestoreEndian();
+    }
+};
+
+// Only for Primary Descriptor and odd length Ids, because always ASCII, at least a subset.
+string ReadAsciiId(Id_ &x) {
+    return StrTrim(x.Ascii);
+}
+
+void StrcatfAsciiId(char target[], string format, Id_ &x, string separator) {
+    StrcatfStr(ReadAsciiId(x));
+}
+
+local string UnknownEscapeSequence = "";
+
+// Based on tests with decades of CD images, seems reliable so far.
+void IdentifyCharsetFromEscapeSequence(char escapeSequence[]) {
+    if (Strlen(escapeSequence) > 0) {
+        if (Strcmp(escapeSequence,"%/@")==0 || Strcmp(escapeSequence,"%/E")==0) {
+   	        Charset = BIG_ENDIAN_16_BIT_UNICODE;
+        } else {
+            Charset = UNKNOWN;
+            UnknownEscapeSequence = escapeSequence;
+        }
+    }
+}
+
+// Provided for everything else.
+wstring ReadId(Id_ &x) {
+    // Trap special Directory names.
+    local int len = sizeof(x);
+    if (len==0) {
+        return "";
+    }
+    if (sizeof(x)==1) {
+        if(x.Ascii[0]==0) {
+          return "."; // A hard link to the start of this Directory list.
+        } else if (x.Ascii[0]==1) {
+          return ".."; // A hard link to the start of parent Directory list.
+        } else {
+          return "?";
+        }
+    }
+    switch(Charset) {
+        case UNKNOWN:
+            char err[40];
+            AsCharsetError1(err,"Unknown escape sequence, needing support : %s",UnknownEscapeSequence);
+            return err;
+        case ASCII:
+            return StrTrim(x.Ascii);
+        case BIG_ENDIAN_16_BIT_UNICODE:
+            if (sizeof(x)%2==1) {
+                return "ERROR: use ReadAsciiId() to read this Id_!";
+            }
+            return WStrTrim(x.Unicode16BE);
+        default:
+            char err[40];
+            SPrintf(err,"Unsupported escape sequence, needing support : %s",UnknownEscapeSequence);
+            return err;
+    } 
+}
+void StrcatfId(char target[], string format, Id_ &x, string separator) {
+    StrcatfStr(ReadId(x));
+}
+
+wstring ReadFileId(Id_ &x) {
+    // Section to remove annoying Rock Ridge ";1" filename suffix, by looking for ";" and cutting there.
+    local wstring str = ReadId(x);
+    local int i = WStrstr(str,";");
+    if (i > 0) {
+        local wchar_t str2[i+1];
+        WStrncpy(str2,str,i);
+        return str2;
+    }
+    return str;
+}
+void StrcatfFileId(char target[], string format, Id_ &x, string separator) {
+    StrcatfStr(ReadFileId(x));
+}
+
+
+
+//
+// Both-endian 16bit and 32-bit data-types, to make some typedef definitions more readable, with readers for structure viewing.
+//
+typedef struct {
+    if (IsLittleEndian()) {
+        uint16  value;
+        uint16  value_BE <hidden=true>;
+    } else {
+        uint16  value_LE <hidden=true>;
+        uint16  value;
+    }
+} uint16_LE_BE_ <read=Read_uint16_LE_BE_>;
+
+string Read_uint16_LE_BE_(uint16_LE_BE_ &x) {
+    local char str[8];
+    StrcatfCommaNum(str,"%s", x.value,"");
+    return str;
+}
+
+typedef struct {
+    if (IsLittleEndian()) {
+        uint32  value;
+        uint32  value_BE <hidden=true>;
+    } else {
+        uint32  value_LE <hidden=true>;
+        uint32  value;
+    }
+} uint32_LE_BE <read=Read_uint32_LE_BE>;
+
+string Read_uint32_LE_BE(uint32_LE_BE &x) {
+    local char str[15];
+    StrcatfCommaNum(str,"%s", x.value,"");
+    return str;
+}
+
+//
+// Records
+//
+typedef struct { // Optional extension of a DirectoryRecord_
+    uint16_LE_BE_ OwnerId;
+    uint16_LE_BE_ GroupId;
+    //struct {
+    BigEndian();
+        int16 DenyAdminRead:1;
+        int16              :1;
+        int16 DenyAdminExecute:1;
+        int16              :1;
+        int16 DenyOwnerRead:1;
+        int16              :1;
+        int16 DenyOwnerExecute:1;
+        int16              :1;
+        int16 DenyGroupRead:1;
+        int16              :1;
+        int16 DenyGroupExecute:1;
+        int16              :1;
+        int16 DenyNonGroupRead:1;
+        int16              :1;
+        int16 DenyNonGroupExecute:1;
+        int16              :1;
+    RestoreEndian();
+    //} Permissions;
+    DigitsZonedDateTime_ CreationTime;
+    DigitsZonedDateTime_ ModifyTime;
+    DigitsZonedDateTime_ ExpireTime;
+    DigitsZonedDateTime_ EffectiveTime;
+    ubyte RecordFormat;
+    ubyte RecordAttributes;
+    char  SystemId[32];
+    byte  SystemUse[64];
+    ubyte RecordVersion;
+    ubyte LEN_ESC<name="Length of Escape Sequences",hidden=true>;
+    ubyte Reserver246[64];
+    uint16_LE_BE_ LEN_AU;
+    byte  ApplicationUse[LEN_AU.value];
+    byte  EscapeSequences[LEN_ESC];
+} ExtendedAttributes_ <read=ReadExtendedAttributes>;
+
+string ReadExtendedAttributes(ExtendedAttributes_ &x) {
+    local char str[80];
+    StrcatfNum(str, "Owner=%Ld",x.OwnerId," ");
+    StrcatfNum(str, "Group=%Ld",x.GroupId," ");
+    StrcatfDigitsZonedDateTime(str, "Created=%-24s",x.CreationTime," ");
+    StrcatfDigitsZonedDateTime(str, "Modified=%-24s",x.ModifyTime," ");
+    StrcatfDigitsZonedDateTime(str, "Expires=%-24s",x.ExpireTime," ");
+    StrcatfDigitsZonedDateTime(str, "Effective=%-24s",x.EffectiveTime," ");
+    StrcatfNum(str, "Format=%Ld",x.RecordFormat," ");
+    StrcatfNum(str, "Attrs=%Ld",x.RecordAttributes," ");
+    StrcatfNum(str, "Version=%Ld",x.RecordVersion," ");
+    return str;
+}
+
+typedef struct { // This can be a directory (a pointer to a sequence of these structures) or a file (a pointer to a block of bytes)
+    local uint64 start = FTell();
+    ubyte   LEN_DR <name="Length of Directory Record", hidden=true>;
+    ubyte   ExtendedAttributeRecordLength;
+    uint32_LE_BE LocationOfExtent;
+    uint32_LE_BE DataLength;
+    BytesZonedDateTime_  RecTime <name="Recording Data and Time">;
+    // Start of FileFlags
+    byte hidden:1;
+    byte Directory:1;
+    byte AssociatedFile:1;
+    byte Record:1;
+    byte Protection:1;
+    byte Reserved5:1;
+    byte Reserved6:1;
+    byte Multi_Extent:1;
+    // End of FileFlags
+    ubyte   FileUnitSize;
+    ubyte   InterleaveGapSize;
+    uint16_LE_BE_ VolumeSequenceNumber;
+    ubyte   LEN_FI <name="Length of File Identifier">;
+    if (LEN_FI > 0) {
+        Id_   FileId(LEN_FI) <name="File Identifier",read=ReadFileId>;
+    }
+    if (FTell()%2==1) {
+        byte padding <hidden=true>;
+    }
+    local int32 sysLen = start+LEN_DR-FTell();
+    if (sysLen>0) {
+        ubyte   SystemUse[sysLen];
+    }
+
+    // Hopefully this is how ExtendedAttributes are read.
+    if (ExtendedAttributeRecordLength > 0) {
+       local uint64 attrStart = FTell();
+       ExtendedAttributes_ attrs <hidden=true>;
+       if (FTell()-attrStart < ExtendedAttributeRecordLength) {
+         Printf(" ExtendedAttributes experiment failed\n");
+       } else {
+         ExtendedAttributes_ attrs; // My guess that this is how it is used.
+         Printf(" has extended attributes\n");
+       }
+    } 
+} DirectoryRecord_ <read=ReadDirectoryRecord>;
+
+string ReadDirectoryRecord(DirectoryRecord_ &x) {
+    local uint64 pos = BlockPos(x.LocationOfExtent.value);
+    local uint32 len = x.DataLength.value;
+    local char str[256];
+    StrcatfBytesZonedDateTime(str, "%-23s | ",x.RecTime,"");
+    //StrcatfNum(str, "% 8LXh",pos,"");
+    //StrcatfNum(str, "..% 8LXh",pos+len-1,"");
+    StrcatfSciBytes(str, "% 7s",len,"");
+    if (x.LEN_FI>0) {
+        if (x.Directory) {
+            StrcatfStr(str, "%s/",ReadFileId(x.FileId)," | ");
+        } else {
+            StrcatfStr(str, "%s",ReadFileId(x.FileId)," | ");
+        }
+    } else {
+        Strcat(str,"?");
+    }
+    return str;
+}
+
+typedef struct {
+    ubyte   LEN_DI <name="Length of Directory Identifier",hidden=true>;
+    ubyte   ExtendedAttributeRecordLength;
+    uint32  LocationOfExtent;
+    uint16  ParentDirectoryNumber;
+    if (LEN_DI > 0) {
+        Id_    DirectoryId(LEN_DI) <read=ReadId>;
+    }
+    if (FTell()%2==1) {
+        byte padding <hidden=true>;
+    }
+} PathTable <read=ReadPathTable>;
+
+string ReadPathTable(PathTable &x) {
+    local uint64 pos = BlockPos(x.LocationOfExtent);
+    local char str[40];
+    StrcatfNum(str, "[%d]", x.ParentDirectoryNumber,"");
+    StrcatfStr(str, " -> '%s'", ReadId(x.DirId),"");
+    StrcatfColonHex(str, " -> %s", pos,"");
+    StrcatfColonHex(str," (%d)", pos,"");
+    StrcatfNum(str, ", Extra[%d]", x.ExtAttrRecLength,"");
+    return str;
+}
+
+//
+// Descriptors
+//
+enum <ubyte> VolumeDescriptorTypeEnum {BOOT=0, PRIMARY=1, SUPPLEMENTARY=2,PARTITION=3,TERMINATOR=255};
+
+typedef struct {
+    ubyte VolDescType;
+    Id_   StandardIdentifier(5);
+    ubyte  VolumeDescriptorVersion;
+} VolumeDescriptor_ <read=ReadVolumeDescriptor>;
+
+string ReadVolumeDescriptor(VolumeDescriptor_ &x) {
+    local char str[80];
+    SPrintf(str,"%d '%s' v%d", 
+        x.VolDescType,
+        ReadAsciiId(x.StandardIdentifier),
+        x.VolumeDescriptorVersion
+    );
+    return str;
+}
+
+typedef struct {
+    VolumeDescriptor_ header;
+    Id_    BootSystemId(32);
+    Id_    BootId(32);
+    byte    SystemUse[1970];
+} BootRecordDescriptor_ <size=DEFAULT_BLOCK_SIZE,read=ReadBootRecordDescriptor>;
+
+string ReadBootRecordDescriptor(BootRecordDescriptor_ &x) {
+    local char str[80];
+    SPrintf(str,"BootSystemId='%s' BootId='%s'", 
+        ReadAsciiId(x.BootSystemId),
+        ReadAsciiId(x.BootId)
+    );
+    return str;
+}
+
+// The core fields needed for filesystem navigation; a hack to simulate a polymorphic interface.
+typedef struct {
+    uint32_LE_BE VolumeSpaceSize;
+    byte    EscSeq[32]; 
+    uint16_LE_BE_ VolumeSetSize;
+    uint16_LE_BE_ VolumeSequenceNumber;
+    uint16_LE_BE_ LogicalBlockSize;
+    uint32_LE_BE PathTableSize;
+    // An annoying inconsistency by ISO/ECMA
+    if (IsLittleEndian()) {
+        uint32  LocationOfPathTable;
+        uint32  LocationOfOptionalPathTable;
+        uint32  LocPathTable_BE <hidden=true>;
+        uint32  LocOptPathTable_BE <hidden=true>;
+    } else {
+        uint32  LocPathTable_LE <hidden=true>;
+        uint32  LocOptPathTable_LE <hidden=true>;
+        uint32  LocationOfPathTable;
+        uint32  LocationOfOptionalPathTable;
+    }
+    DirectoryRecord_ Directory;
+} VolumeRoot_;
+
+typedef struct {
+    // Primary Ids are always ASCII.
+    VolumeDescriptor_ header;
+    ubyte   Unused8;
+    Id_    SystemId(32) <read=ReadAsciiId>;
+    Id_    VolumeId(32) <read=ReadAsciiId>;
+    ubyte   Unused72[8];
+    VolumeRoot_ VolumeRoot;
+    Id_    VolumeSetId(128) <read=ReadAsciiId>;
+    Id_    PublisherId(128) <read=ReadAsciiId>;
+    Id_    DataPreparerId(128) <read=ReadAsciiId>;
+    Id_    ApplicationId(128) <read=ReadAsciiId>;
+    Id_    CopyrightFileId(37) <read=ReadAsciiId>;
+    Id_    AbstractFileId(37) <read=ReadAsciiId>;
+    Id_    BibliographicFileId(37) <read=ReadAsciiId>;
+    DigitsZonedDateTime_ CreationTime;
+    DigitsZonedDateTime_ ModifyTime;
+    DigitsZonedDateTime_ ExpireTime;
+    DigitsZonedDateTime_ EffectiveTime;
+    ubyte   FileStructureVersion;
+    ubyte   Reserved882 <hidden=true>;
+    byte    ApplicationUse[512];
+    byte    Reserved1395[653] <hidden=true>;
+} PrimaryVolumeDescriptor_ <size=DEFAULT_BLOCK_SIZE,read=ReadPrimary>;  
+string ReadPrimary(PrimaryVolumeDescriptor_ &x) {
+    local char str[1024];
+    StrcatfStr(str, "Sys='%s'",ReadAsciiId(x.SystemId)," ");
+    StrcatfStr(str, "Vol='%s'",ReadAsciiId(x.VolumeId)," ");
+    StrcatfStr(str, "VolSet='%s'",ReadAsciiId(x.VolumeSetId)," ");
+    StrcatfStr(str, "Pub='%s'",ReadAsciiId(x.PublisherId)," ");
+    StrcatfStr(str, "Prep='%s'",ReadAsciiId(x.DataPreparerId)," ");
+    StrcatfStr(str, "App='%s'",ReadAsciiId(x.ApplicationId)," ");
+    StrcatfStr(str, "Copy='%s'",ReadAsciiId(x.CopyrightFileId)," ");
+    StrcatfStr(str, "Abst='%s'",ReadAsciiId(x.AbstractFileId)," ");
+    StrcatfStr(str, "Bib='%s'",ReadAsciiId(x.BibliographicFileId)," ");
+    StrcatfDigitsZonedDateTime(str, "Created=%-23s",x.CreationTime," ");
+    StrcatfDigitsZonedDateTime(str, "Modified=%-23s",x.ModifyTime," ");
+    StrcatfDigitsZonedDateTime(str, "Expires=%-23s",x.ExpireTime," ");
+    StrcatfDigitsZonedDateTime(str, "Effective=%-23s",x.EffectiveTime," ");
+    return str;
+}
+
+typedef struct {
+    VolumeDescriptor_ header;
+    ubyte  Flags <name="Volume Flags">;
+    Id_ SystemId(32) <read=ReadId>;
+    Id_ VolumeId(32) <read=ReadId>;
+    ubyte  Unused72[8];
+    // EscSeq (in VolumeRoot) MUST always be read and interpreted, because the Character Set
+    // indicated affects all the even length Ids in the SupplementaryVolumeDescriptor_ structure
+    // and the FileId in DirectoryRecord_.  If all zeros, all Ids are ASCII, as I've seen on very old ISO images.
+    VolumeRoot_ VolumeRoot;
+    Id_   VolumeSetId(128) <read=ReadId>;
+    Id_   PublisherId(128) <read=ReadId>;
+    Id_   DataPreparerId(128) <read=ReadId>;
+    Id_   ApplicationId(128) <read=ReadId>;
+    Id_   CopyrightFileId(37) <read=ReadAsciiId>;
+    Id_   AbstractFileId(37) <read=ReadAsciiId>;
+    Id_   BibliographicFileId(37) <read=ReadAsciiId>;
+    DigitsZonedDateTime_ CreationTime;
+    DigitsZonedDateTime_ ModifyTime;
+    DigitsZonedDateTime_ ExpireTime;
+    DigitsZonedDateTime_ EffectiveTime;
+    ubyte   FileStructureVersion;
+    ubyte   Reserved882 <hidden=true>;
+    byte    ApplicationUse[512] <name="Application Use">;
+    byte    Reserved1395[653] <hidden=true>;
+} SupplementaryVolumeDescriptor_  <size=DEFAULT_BLOCK_SIZE,read=Read_Supplementary>;
+string Read_Supplementary(SupplementaryVolumeDescriptor_ &x) {
+    local char str[1024];
+    StrcatfStr(str, "Sys='%s'",ReadId(x.SystemId)," ");
+    StrcatfStr(str, "Vol='%s'",ReadId(x.VolumeId)," ");
+    StrcatfStr(str, "VolSet='%s'",ReadId(x.VolumeSetId)," ");
+    StrcatfStr(str, "Pub='%s'",ReadId(x.PublisherId)," ");
+    StrcatfStr(str, "Prep='%s'",ReadId(x.DataPreparerId)," ");
+    StrcatfStr(str, "App='%s'",ReadId(x.ApplicationId)," ");
+    StrcatfStr(str, "Copy='%s'",ReadAsciiId(x.CopyrightFileId)," ");
+    StrcatfStr(str, "Abst='%s'",ReadAsciiId(x.AbstractFileId)," ");
+    StrcatfStr(str, "Bib='%s'",ReadAsciiId(x.BibliographicFileId)," ");
+    StrcatfStr(str, "Bib='%s'",ReadAsciiId(x.BibliographicFileId)," ");
+    StrcatfStr(str, "Bib='%s'",ReadAsciiId(x.BibliographicFileId)," ");
+    StrcatfStr(str, "Bib='%s'",ReadAsciiId(x.BibliographicFileId)," ");
+    StrcatfStr(str, "Bib='%s'",ReadAsciiId(x.BibliographicFileId)," ");
+    StrcatfStr(str, "Bib='%s'",ReadAsciiId(x.BibliographicFileId)," ");
+    StrcatfStr(str, "Bib='%s'",ReadAsciiId(x.BibliographicFileId)," ");
+    StrcatfDigitsZonedDateTime(str, "Created=%-23s",x.CreationTime," ");
+    StrcatfDigitsZonedDateTime(str, "Modified=%-23s",x.ModifyTime," ");
+    StrcatfDigitsZonedDateTime(str, "Expires=%-23s",x.ExpireTime," ");
+    StrcatfDigitsZonedDateTime(str, "Effective=%-23s",x.EffectiveTime," ");
+    return str;
+}
+
+typedef struct {
+    VolumeDescriptor_ Header;
+    ubyte  Unused8 <hidden=true>;
+    byte   SystemIdentifier[32];
+    byte   VolumePartitionIdentifier[32];
+    uint32  VolumePartionLocationLSB;
+    uint32  VolumePartionLocationMSB;
+    uint32  VolumePartitionSizeLSB;
+    uint32  VolumePartitionSizeMSB;
+} VolumePartitionDescriptor_ <size=DEFAULT_BLOCK_SIZE>;
+
+typedef struct {
+    VolumeDescriptor_ Header;
+    byte rest[2048-sizeof(Header)];
+} TerminatorDescriptor_ <size=DEFAULT_BLOCK_SIZE>;
+
+// ======================
+// = Start of main code =
+// ======================
+
+if (FileSize() < DEFAULT_BLOCK_SIZE * 17) {
+    Printf("ERROR: File is too small to be an ISO9660 image\n");
+    Exit(1);
+}
+
+// Scan for Volume descriptors until TerminatorDescriptor or an invalid Descriptor header, like all zero 'ISO' images, ouch!
+local int64 pos;
+local int64 invalidDescriptorPos = 0;
+for (pos = DEFAULT_BLOCK_SIZE * 16; TerminatorPos == 0; pos += DEFAULT_BLOCK_SIZE) {
+
+    // Read VolumeDescriptor_ and validate StandardIdentifier
+    FSeek(pos);
+    VolumeDescriptor_ head <hidden=true>;
+    if (Strcmp(ReadAsciiId(head.StandardIdentifier),"CD001")!=0) {
+        FSeek(pos);
+        invalidDescriptorPos = pos;
+        break;
+    }
+    
+    // OK, so try VolDescType
+    FSeek(pos);
+    switch(head.VolDescType) {
+      case BOOT:
+        bootPos=pos;
+        BootRecordDescriptor_ boot;
+        break;
+      case PRIMARY:
+        primaryPos=pos;
+        PrimaryVolumeDescriptor_ primary;
+        break;
+      case SUPPLEMENTARY:
+        supplementaryPos=pos;
+        // 1st load only to get escape sequences, to figure out charset;
+        // this maybe redundant now, given wide use of 16-bit Unicode, generally Big-Endian.
+        SupplementaryVolumeDescriptor_ test <hidden=true>;
+        IdentifyCharsetFromEscapeSequence(test.VolumeRoot.EscSeq);
+        // 2nd load to get with the correct charset
+        FSeek(supplementaryPos);
+        SupplementaryVolumeDescriptor_ supplementary;
+        break;
+      case PARTITION:
+        partitionPos=pos;
+        VolumePartitionDescriptor_ volume;
+        break;
+      case TERMINATOR:
+        TerminatorPos=pos;
+        TerminatorDescriptor_ terminator;
+        break;
+      default:
+        Printf( "Ignoring Unknown Descriptor Type %d at %s\n", head.VolDescType, ToColonHexString(pos));
+        break;
+    }
+}
+
+if (pos == DEFAULT_BLOCK_SIZE * 16) {
+    Printf("ERROR: File can't be an ISO9660 image, because no valid descriptors found!\n");
+    Exit(1);
+}
+
+if (invalidDescriptorPos!=0) {
+    
+    StrcatfColonHex(str, " -> %s", pos,"");
+
+    Printf("Quit Descriptor scanning loop because of an invalid entry at %s\n",ToColonHexString(badHeaderPos));
+}
+
+if (supplementaryPos) {
+    Printf( "Using Supplementary\n");
+    FSeek(supplementaryPos);
+    SupplementaryVolumeDescriptor_ root <hidden=true>;
+    navigateRoot(root.VolumeRoot,supplementaryPos);
+} else if (primaryPos) {
+    Printf( "Using Primary\n");
+    FSeek(primaryPos);
+    PrimaryVolumeDescriptor_ root <hidden=true>;
+    navigateRoot(root.VolumeRoot, primaryPos);
+} else {
+    Printf("Don't know what to do if no Primary or Secondary, maybe only has Boot or Partition descriptors!");
+}
+
+void navigateRoot(VolumeRoot_ &x, uint64 rootPos) {
+    Printf("\nListing:\n");
+    logBlockSize = x.LogicalBlockSize.value;
+    if (PreferDirectory) {
+        navigateDirectory("", 0, rootPos+156, x.Directory, "");
+	} else {
+        navigatePathTable(x.LocOfPathTable,x.PathTableSize);
+    }
+}
+
+void navigateDirectories(char parentPath[], uint64 parentPos, uint64 startPos, uint32 size) {
+    local uint64 pos =  startPos;
+    local uint64 endPos = pos+size;
+    local uint32 dirSize;
+    local wstring fileId;
+    while (pos < endPos) {
+        FSeek(pos);
+        //
+        // A hack to skip past an even number block of zeros, I didn't expect to see.
+        dirSize = ReadUByte();
+        if (dirSize==0) {
+            pos += 2;
+            // To ensure while exit at pos == endPos, and FSeek skip past odd byte.
+            continue;
+        }
+        //
+        FSeek(pos);
+        DirectoryRecord_ test <hidden=true>;
+        //
+        fileId = ReadFileId(test.FileId);
+        // Hide "." or ".." hard-links
+        if (WStrcmp(fileId,".")!=0 && WStrcmp(fileId,"..")!=0) {
+            FSeek(pos);
+            DirectoryRecord_ dir;
+            navigateDirectory(parentPath,parentPos, pos,dir,fileId);
+        }
+        //
+        pos += dirSize;
+    }
+}
+
+void navigateDirectory(char parentPath[], uint64 parentPos, uint64 pos, DirectoryRecord_ &dir, wstring fileId) {
+    local uint64 childPos = BlockPos(dir.LocationOfExtent.value);
+    if (parentPos == 0) {
+        navigateDirectories("/", pos, childPos, dir.DataLength.value);
+        return;
+    }
+
+    local uint64 refPos = BlockPos(dir.LocationOfExtent.value);
+    local uint32 refLen = dir.DataLength.value;
+    local uint64 refEnd = refPos + refLen - 1;
+    local char path[sizeof(parentPath)+sizeof(fileId)+2];
+    SPrintf(path, "%s%s", parentPath, fileId);
+    local char str[sizeof(path)+64];
+    StrcatfBytesZonedDateTime(str, "% -23s | ",dir.RecTime,"");
+
+    if (dir.Directory) {
+        // A true directory
+        Strcat(path, "/");
+        //
+        StrcatfColonHexNum(str, "% 10s",refPos,"");
+        StrcatfColonHexNum(str, "..% 10s",refEnd,"");
+        StrcatfCommaNum(str, "[%14s] | ",refLen,"");
+        Strcat(str, path);
+        Printf("%s\n", str);
+        //
+        local uint32 childLen = dir.DataLength.value;
+        if (dir.Directory) {
+            navigateDirectories(path, pos, childPos, childLen);
+        }
+    } else {
+        // A file or other
+        StrcatfColonHexNum(str, "% 10s",refPos,"");
+        StrcatfColonHexNum(str, "..% 10s",refEnd,"");
+        StrcatfCommaNum(str, "[%14s] | ",refLen,"");
+        Strcat(str, path);
+        Printf("%s\n", str);
+    }
+}
+
+void navigatePathTable(uint32 blockNumber, uint32 size) {
+    Printf("PathTables @ %d [%d]\n",blockNumber, size);
+    local uint64 pos = BlockPos(blockNumber);
+    local uint64 endpos = pos+size;
+    while (pos < endpos) {
+        FSeek(pos);
+	    PathTable pathTable;
+        FSeek(BlockPos(pathTable.LocationOfExtent));
+        DirectoryRecord_ dotDir;
+        // Sorry, I won't expand this, because it seems inferior to the heirachical root Directory.
+        pos = pos + sizeof(pathTable);
+    }
+}

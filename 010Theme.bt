@@ -1,0 +1,78 @@
+//------------------------------------------------
+//--- 010 Editor v8.0.1 Binary Template
+//
+//      File: 010Theme.bt
+//   Authors: Michael Appel
+//   Version: 0.0.1
+//   Purpose: Template for 010 Editor color/theme export files.
+//  Category: Software
+// File Mask: *.1tm
+//  ID Bytes: 25 54 48 4D
+//   History: 
+//   0.0.1 2018-01-26 Michael Appel: First public realease
+//
+//  This is a first attempt at understanding the exported theme format for the 010 Editor.
+//  
+//  Overall, the file format begins with a header, is followed by customized user settings,
+//  stored by numeric id, and then settings stored with string names instead of numbers.
+//  The string settings appear to all be from the Syntax Style section of colors.
+//  
+//  TODO: Enumerate all numeric settings to map ID numbers to strings.
+//
+//  No Copyright claim. No warranty is implied or expressed, use at your own risk.
+//------------------------------------------------
+
+
+struct RGBValue {
+    uchar red;
+    uchar green;
+    uchar blue;
+    uchar pad;
+};
+
+struct WideString {
+    uint len;
+    wchar_t name[len];
+};
+
+struct SyntaxStyle {
+    WideString name;
+    RGBValue rgbFore;
+    RGBValue rgbBack;
+    uint isModified;
+    uint isCustom;
+};
+
+struct CustomColor {
+    uint idNum;
+    RGBValue rgb;
+};
+
+
+char header[4];
+uint version;
+if( version != 2 )
+{
+    Warning( "Could not read version %d file", version );
+    return;
+}
+
+uint num_custom_colors;
+CustomColor custom_color[num_custom_colors] <optimize=false>;
+
+enum NATIVE_SETTINGS { NONE=0x20,
+                       MENUBAR=0x21,
+                       TOOLBARS=0x22,
+                       DOCKHEADERS=0x24,
+                       DOCKWINDOWTABS=0x28,
+                       FILETABS=0x30 } nativeSettings;
+
+uint reserved;
+
+WideString theme_name;
+
+uint num_syntax_styles;
+SyntaxStyle syntax_style[num_syntax_styles] <optimize=false>;
+
+char footer[4];
+uint footer_number;

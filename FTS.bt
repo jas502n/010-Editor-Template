@@ -1,0 +1,507 @@
+//------------------------------------------------
+//--- 010 Editor v7.0 Binary Template
+//
+//      File: FTS.bt
+//   Authors: Dmitry Trefilov
+//   Version: 1.0
+//   Purpose: Microsoft Exchange FTS (Fast Transfer Stream) format template.
+//  Category: Misc
+//   History: 
+//   1.0   2016-11-20 DT: Initial release.
+//------------------------------------------------
+
+// unknown constantly defined header, we don't care about it much
+typedef struct {
+    uint dwVersion;
+    uint unknown1[14];
+    ushort unknown2;
+} FTS_HEADER;
+
+LittleEndian();
+SetBackColor( cLtGray );
+
+FTS_HEADER header;
+
+local int expectedPageBreakPosition = FTell();
+
+void ProcessPageBreakMarker() {
+    local int backColor = GetBackColor();
+    SetBackColor( cYellow );
+    uint PageMarker<hidden=true>;
+    Assert(PageMarker == 2, "Expected a page break marker");
+    uint PageLength<hidden=true>;
+    SetBackColor( backColor );
+    // Update position for the next page break
+    expectedPageBreakPosition = FTell() + PageLength;
+}
+
+typedef enum {
+    StartTopFld = 0x40090003,
+    StartSubFld = 0x400B0003,
+    EndFolder = 0x400B0003,
+    StartMessage = 0x400C0003,
+    StartFAIMsg = 0x40100003,
+    EndMessage = 0x400D0003,
+    StartEmbed = 0x40010003,
+    EndEmbed = 0x40020003,
+    NewAttach = 0x40000003,
+    EndAttach = 0x400E0003,
+    StartRecip = 0x40030003,
+    EndToRecip = 0x40040003,
+    IncrSyncChg = 0x40120003,
+    IncrSyncChgPartial = 0x407D0003,
+    IncrSyncDel = 0x40130003,
+    IncrSyncEnd = 0x40140003,
+    IncrSyncRead = 0x402F0003,
+    IncrSyncStateBegin = 0x403A0003,
+    IncrSyncStateEnd = 0x403B0003,
+    IncrSyncProgressMode = 0x4074000B,
+    IncrSyncProgressPerMsg = 0x4075000B,
+    IncrSyncMessage = 0x40150003,
+    IncrSyncGroupInfo = 0x407B0102,
+    FXErrorInfo = 0x40180003
+} Markers;
+
+typedef enum {
+    MetaTagFXDelProp = 0x40160003,
+    MetaTagEcWarning = 0x400F0003,
+    MetaTagNewFXFolder = 0x40110102,
+    MetaTagIncrSyncGroupId = 0x407C0003,
+    MetaTagIncrementalSyncMessagePartial = 0x407A0003,
+    MetaTagDnPrefix = 0x400884E4
+} MetaProperties;
+
+typedef enum {
+    Unspecified = 0x0000,
+    Null = 0x0001,
+    Integer16 = 0x0002,
+    Integer32 = 0x0003,
+    Floating32 = 0x0004,
+    Floating64 = 0x0005,
+    Currency = 0x0006,
+    FloatingTime = 0x0007,
+    ErrorCode = 0x000A,
+    Boolean = 0x000B,
+    Object = 0x000D,
+    Integer64 = 0x0014,
+    String8 = 0x001E,
+    String = 0x001F,
+    Time = 0x0040,
+    ServerId = 0x00FB,
+    Restriction = 0x00FD,
+    RuleAction = 0x00FE,
+    Binary = 0x0102,
+    Guid = 0x0048,
+} PropertyType;
+
+// Enumeration contains only the most common properties
+typedef enum {
+    PidTagEmpty = 0x00000000,
+    PidTagReceivedByEntryId = 0x003F0102,
+    PidTagReceivedRepresentingEntryId = 0x00430102,
+    PidTagReadReceiptEntryId = 0x00460102,
+    PidTagSenderEntryId = 0x0C190102,
+    PidTagSenderName = 0x0C1A001F,
+    PidTagSenderSearchKey = 0x0C1D0102,
+    PidTagSenderAddressType = 0x0C1E001F,
+    PidTagSenderEmailAddress = 0x0C1F001F,
+    PidTagSentRepresentingEntryId = 0x00410102,
+    PidTagSentRepresentingName = 0x0042001F,
+    PidTagSentRepresentingSearchKey = 0x003B0102,
+    PidTagSentRepresentingAddressType = 0x0064001F,
+    PidTagSentRepresentingEmailAddress = 0x0065001F,
+    PidTagMessageDeliveryTime = 0x0E060040,
+    PidTagMessageSize = 0x0E080003,
+    PidTagMessageSizeExtended = 0x0E080014,
+    PidTagParentEntryId = 0x0E090102,
+    PidTagAttachSize = 0x0e200003,
+    PidTagAttachNumber = 0x0E210003,
+    PidTagAccessLevel = 0x0ff70003,
+    PidTagMappingSignature = 0x0FF80102,
+    PidTagRecordKey = 0x0FF90102,
+    PidTagStoreRecordKey = 0x0FFA0102,
+    PidTagStoreEntryId = 0x0FFB0102,
+    PidTagEntryId = 0x0FFF0102,
+    PidTagRowid = 0x30000003,
+    PidTagDisplayName = 0x3001001F,
+    PidTagIpmSubtreeEntryId = 0x35E00102,
+    PidTagIpmOutboxEntryId = 0x35E20102,
+    PidTagIpmWastebasketEntryId = 0x35E30102,
+    PidTagIpmSentMailEntryId = 0x35E40102,
+    PidTagContentCount = 0x36020003,
+    PidTagAssocContentCount = 0x36170003,
+    PidTagContainerClass = 0x3613001E,
+    PidTagIpmAppointmentEntryId = 0x36D00102,
+    PidTagIpmContactEntryId = 0x36D10102,
+    PidTagIpmJournalEntryId = 0x36D20102,
+    PidTagIpmNoteEntryId = 0x36D30102,
+    PidTagIpmTaskEntryId = 0x36D40102,
+    PidTagIpmDraftsEntryId = 0x36D70102,
+    PidTagAdditionalRenEntryIds = 0x36D81102,
+    PidTagAdditionalRenEntryIdsEx = 0x36D90102,
+    PidTagAttachDataObj = 0x3701000D,
+    PidTagLastModifierEntryId = 0x3FFB0102,
+    PidTagSourceKey = 0x65E00102,
+    PidTagChangeKey = 0x65E20102,
+    PidTagPredecessorChangeList = 0x65E30102,
+    PidTagMessageClass = 0x001A001F,
+    PidTagMessageId = 0x674A0014,
+    PidTagFolderId = 0x67480014,
+    PidTagSmtpAddress = 0x39FE001F,
+    PidTagCommonViewsEntryId = 0x35E60102,
+    PidTagSenderEmalAddress = 0x0C1F001F,
+    PidTagSenderAddrType = 0x0C1E001E,
+    PidTagSubject = 0x0037001F,
+    PidTagPreview = 0x3FD9001F,
+    PidTagConversationIndexTracking = 0x3016000B,
+    PidTagCreationTime = 0x30070040,
+    PidTagClientSubmitTime = 0x00390040,
+    PidTagLastModificationTime = 0x30080040,
+    PidTagDisplayTo = 0x0E04001F,
+    PidTagDisplayCc = 0x0E03001F,
+    PidTagDisplayBcc = 0x0E02001F,
+    PidTagHiddenForm = 0x3307000B,
+    PidTagImportance = 0x00170003,
+    PidTagSensitivity = 0x00360003,
+    PidTagMessageFlags = 0x0E070003,
+    PidTagMessageCodePage = 0x3FFD0003,
+    PidTagMessageStatus = 0x0E170003,
+    PidTagRtfInSync = 0x0E1F000B,
+    PidTagSearchKey = 0x300B0102,
+    PidTagRuleMessageName = 0x65EC001F,
+    PidTagRuleMessageProvider = 0x65EB001F,
+    PidTagRuleMessageProviderData = 0x65EE0102,
+    PidTagExtendedRuleMessageActions = 0x0E990102,
+    PidTagExtendedRuleMessageCondition = 0x0E9A0102,
+    PidTagRuleMessageSequence = 0x65F30003,
+    PidTagRuleMessageState = 0x65E90003,
+    PidTagRuleName = 0x6682001F,
+    PidTagRuleProvider = 0x6681001F,
+    PidTagAddressBookDisplayNamePrintable = 0x39FF001F,
+    PidTagSendRichInfo = 0x3A40000B,
+    PidTagResponsibility = 0x0E0F000B,
+    PidTagAddressType = 0x3002001F,
+    PidTagEmailAddress = 0x3003001F,
+    PidTagInstanceKey = 0x0FF60102,
+    PidTagRecipientType = 0x0C150003,
+    PidTagMessageRecipients = 0x0E12000D,
+    PidTagMessageAttachments = 0x0E13000D,
+    PidTagContentUnreadCount = 0x36030003,
+    PidTagComment = 0x3004001F,
+    PidTagSentMailSvrEID = 0x674000FB,
+    PidTagExtendedFolderFlags = 0x36DA0102,
+    PidTagFolderWebViewInfo = 0x36DF0102,
+    PidTagOriginatorDeliveryReportRequested = 0x0023000B,
+    PidTagPriority = 0x00260003,
+    PidTagReadReceiptRequested = 0x0029000B,
+    PidTagRecipientReassignmentProhibited = 0x002B000B,
+    PidTagOriginalSensitivity = 0x002E0003,
+    PidTagConversationTopic = 0x0070001F,
+    PidTagConversationIndex = 0x00710102,
+    PidTagNonReceiptNotificationRequested = 0x0C06000B,
+    PidTagDeleteAfterSubmit = 0x0E01000B,
+    PidTagHasAttachments = 0x0E1B000B,
+    PidTagNormalizedSubject = 0x0E1D001F,
+    PidTagTrustSender = 0x0E790003,
+    PidTagAccess = 0x0FF40003,
+    PidTagObjectType = 0xFFE0003,
+    PidTagRtfCompressed = 0x10090102,
+    PidTagInternetMessageId = 0x01035001F,
+    PidTagInternetReferences = 0x1039001F,
+    PidTagAlternateRecipientAllowed = 0x0002000B,
+    PidTagIconIndex = 0x10800003,
+    PidTagInternetCodepage = 0x3FDE0003,
+    PidTagMessageLocaleId = 0x3FF10003,
+    PidTagCreatorName = 0x3FF8001F,
+    PidTagCreatorEntryId = 0x3FF90102,
+    PidTagLastModifierName = 0x3FFA001F,
+    PidTagReceivedByName = 0x0040001F,
+    PidTagReceivedRepresentingName = 0x0044001F,
+    PidTagMessageSubmissionId = 0x00470102,
+    PidTagReceivedBySearchKey = 0x00510102,
+    PidTagReceivedRepresentingSearchKey = 0x00520102,
+    PidTagReceivedByAddressType = 0x0075001F,
+    PidTagReceivedByEmailAddress = 0x0076001F,
+    PidTagReceivedRepresentingAddressType = 0x0077001F,
+    PidTagReceivedRepresentingEmailAddress = 0x0078001F,
+    PidTagAttributeHidden = 0x10F4000B,
+    PidTagAttributeSystem = 0x10F5000B,
+    PidTagAttributeReadOnly = 0x10F6000B,
+    PidTagMoveToStoreEntryId = 0x3FF30102,
+    PidTagMoveToFolderEntryId = 0x3FF40102,
+    PidTagSenderFlags = 0x40190003,
+    PidTagSentRepresentingFlags = 0x401A0003,
+    PidTagReceivedByFlags = 0x401B0003,
+    PidTagReceivedRepresentingFlags = 0x401C0003,
+    PidTagMessageEditorFormat = 0x59090003,
+    PidTagTransmittableDisplayName = 0x3A20001F,
+    PidTagRecipientEntryId = 0x5FF70102,
+    PidTagDisplayType = 0x39000003,
+    PidTagSendInternetEncoding = 0x3A710003,
+    PidTagRecipientDisplayName = 0x5FF6001F,
+    PidTagRecipientFlags = 0x5FFD0003,
+    PidTagRecipientTrackStatus = 0x5FFF0003,
+    PidTagNickName = 0x6001001F,
+    PidTagLtpRowId = 0x67f20003,
+    PidTagLtpRowVer = 0x67f30003,
+    PidTagRenderingPosition = 0x370B0003,
+    PidTagAttachMethod = 0x37050003,
+    PidTagNtSecurityDescriptor = 0x0E270102,
+    PidTagAttachDataObject = 0x37010102,
+    PidTagAttachEncoding = 0x37020102,
+    PidTagAttachExtension = 0x3703001F,
+    PidTagAttachFilename = 0x3704001F,
+    PidTagAttachLongFilename = 0x3707001F,
+    PidTagAttachRendering = 0x37090102,
+    PidTagAttachFlags = 0x37140003,
+    PidTagAttachmentLinkId = 0x7FFA0003,
+    PidTagExceptionStartTime = 0x7FFB0040,
+    PidTagExceptionEndTime = 0x7FFC0040,
+    PidTagAttachmentFlags = 0x7FFD0003,
+    PidTagAttachmentHidden = 0x7FFE000B,
+    PidTagAttachmentContactPhoto = 0x7FFF000B
+} PropertyTags;
+
+typedef struct {
+    uchar PropertySetGuid[16];
+    uchar PropertyKind;
+    if (PropertyKind == 0) {
+        uint Value;
+    } else if (PropertyKind == 1) {
+        wstring Value;
+    }
+} NAMED_PROPERTY_INFO;
+
+void BinaryChunk(ulong size) {
+    typedef struct {
+        uchar Data[size];
+    } BINARY_CHUNK;
+    BINARY_CHUNK Value;
+}
+
+void PropertyValue(ushort scalarType) {
+    // Special handling for RopFastTransferSourceCopyTo request
+    if ((scalarType & 0xF000) == 0x8000) {
+        local ushort codePage = scalarType & 0x0FFF;
+        uint ValueLength<hidden=true>;
+        // UTF-16LE and UTF16-BE code pages
+        if (codePage == 0x4B0 || codePage == 0x4B1) {
+            wchar_t Value[ValueLength / 2]<name="String">;
+        } else {
+            char Value[ValueLength]<name="String8">;
+        }
+        return;
+    }
+    switch (scalarType) {
+        case Integer16:
+            ushort Value<name="Integer16">;
+            break;
+        case Integer32:
+            uint Value<name="Integer32">;
+            break;
+        case Floating32:
+            float Value<name="Floating32">;
+            break;
+        case Floating64:
+            double Value<name="Floating64">;
+            break;
+        case FloatingTime:
+            double Value<name="FloatingTime">;
+            break;
+        case Integer64:
+            uint64 Value<name="Integer64">;
+            break;
+        case Boolean:
+            ushort Value<name="Boolean">;
+            break;
+        case String8:
+            uint ValueLength<hidden=true>;
+            char Value[ValueLength]<name="String8">;
+            break;
+        case String:
+            uint ValueLength<hidden=true>;
+            wchar_t Value[ValueLength / sizeof(wchar_t)]<name="String">;
+            break;
+        case Binary:
+        case ServerId:
+        case Object:
+            ulong ValueLength<format=hex>;
+            local ulong length = ValueLength;
+            local ulong maxLength;
+            while (length > 0) {
+                maxLength = expectedPageBreakPosition - FTell();
+                //Printf("Binary chunk %08X at %X\n", maxLength, FTell());
+                if (length <= maxLength) {
+                    FSkip(length);
+                    break;
+                }
+                FSkip(maxLength);
+                length -= maxLength;
+                ProcessPageBreakMarker();
+            }
+            break;
+        case Time:
+            FILETIME Value<name="Time">;
+            break;
+        default:
+            Printf("Unknown property type %X\n", scalarType);
+            Exit(1);
+    }
+};
+
+typedef struct {
+    uint PropertyTag<format=hex>;
+    local uint propertyId = PropertyTag >> 16;
+    local uint propertyType = PropertyTag & 0xFFFF;
+    if (propertyId & 0x8000) {
+        NAMED_PROPERTY_INFO NamedPropertyInfo;
+    }
+    if (propertyType & 0x8000) {
+        local ushort codePage = propertyType & 0x6FFF;
+        // UTF-16LE and UTF16-BE code pages
+        if (codePage == 0x4B0 || codePage == 0x4B1) {
+            propertyType = String | (PropertyTag & 0x1000);
+        } else {
+            propertyType = String8 | (PropertyTag & 0x1000);
+        }
+    }
+    // Array flag
+    if (propertyType & 0x1000) {
+        uint ArrayLength;
+        local uint i;
+        for ( i = 0; i < ArrayLength; i++) {
+            PropertyValue(propertyType & 0xEFFF);
+        }
+    } else { 
+        PropertyValue(propertyType);
+    }
+    local PropertyTags FinalTag = propertyType | (propertyId << 16);
+} PROPERTY;
+
+typedef struct {
+    MetaProperties PropertyTag<format=hex>;
+    PropertyValue(PropertyTag & 0xFFFF);
+} META_PROPERTY;
+
+void FoldedStructure(Markers endMarker) {
+    Markers StartMarker<hidden=true>;
+    ParseUpto(endMarker);
+    Markers EndMarker<hidden=true>;
+    Assert(EndMarker == endMarker);
+}
+
+typedef struct {
+    FoldedStructure( EndEmbed );
+} EMBEDDING;
+
+typedef struct {
+    FoldedStructure( EndAttach );
+} ATTACHMENT;
+
+typedef struct {
+    FoldedStructure( EndToRecip );
+} RECIPIENT;
+
+typedef struct {
+    FoldedStructure( EndMessage );
+} MESSAGE;
+
+typedef struct {
+    FoldedStructure( EndFolder );
+} FOLDER;
+
+string PropertyPreview(struct PROPERTY& prop) {
+    local char buf[512];
+    local string s = EnumToString(prop.FinalTag);
+    if (Strlen(s)) {
+        SPrintf(buf, "%s (%08X)", s, prop.FinalTag);
+    } else {
+        SPrintf(buf, "%08X", prop.FinalTag);
+    }
+    return buf;
+}
+
+string PropertyComment(struct PROPERTY& prop) {
+    local char buf[512];
+    switch (prop.propertyType) {
+        case Integer16:
+        case Integer32:
+            SPrintf(buf, "%d", prop.Value);
+            break;
+        case Floating32:
+        case Floating64:
+        case FloatingTime:
+            SPrintf(buf, "%g", prop.Value);
+            break;
+        case Integer64:
+            SPrintf(buf, "%Ld", prop.Value);
+            break;
+        case Boolean:
+            SPrintf(buf, "%s", prop.Value ? "True" : "False");
+            break;
+        case String8:
+        case String:
+            SPrintf(buf, "%s", prop.Value);
+            break;
+        case Time:
+            SPrintf(buf, "%s", FileTimeToString(prop.Value));
+            break;
+    }
+    return buf;
+}
+
+void ParseUpto(uint terminationTag) {
+    local uint tag;
+    while ( !FEof() ) {
+        if (FTell() == expectedPageBreakPosition ) {
+            ProcessPageBreakMarker();
+        }
+        Assert(FTell() < expectedPageBreakPosition, "Ran out of page");
+
+        tag = ReadUInt();
+
+        switch (tag) {
+            case EndFolder:
+            case EndMessage:
+            case EndEmbed:
+            case EndAttach:
+            case EndToRecip:
+                Assert(terminationTag == tag, "Unbalanced or corrupt stream");
+                return;
+            case StartTopFld:
+            case StartSubFld:
+                FOLDER folder<bgcolor=cLtAqua>;
+                break;
+            case StartMessage:
+            case StartFAIMsg:
+                MESSAGE message<bgcolor=cSilver>;
+                break;
+            case NewAttach:
+                ATTACHMENT attachment<bgcolor=cLtPurple>;
+                break;
+            case StartEmbed:
+                EMBEDDING embedding<bgcolor=cLtRed>;
+                break;
+            case StartRecip:
+                RECIPIENT recipient<bgcolor=cLtGreen>;
+                break;
+            case MetaTagFXDelProp:
+            case MetaTagEcWarning:
+            case MetaTagNewFXFolder:
+            case MetaTagIncrSyncGroupId:
+            case MetaTagIncrementalSyncMessagePartial:
+            case MetaTagDnPrefix:
+                META_PROPERTY prop<bgcolor=cLtBlue>;
+                break;
+            default:
+                PROPERTY prop<read=PropertyPreview, comment=PropertyComment>;
+                break;
+        }
+    }
+    Assert(terminationTag == 0, "Unexpected end of file");
+}
+
+SetBackColor( cSilver );
+ParseUpto( 0 );
+
+Assert(expectedPageBreakPosition == FTell());

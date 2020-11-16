@@ -1,0 +1,61 @@
+//------------------------------------------------
+//--- 010 Editor v11.0 Binary Template
+//
+//      File: AR.bt
+//   Authors: SweetScape Software
+//   Version: 1.0
+//   Purpose: Parse ar archives used for .a, .lib, 
+//            .ar and .deb files.
+//  Category: Archive
+// File Mask: *.a,*.lib,*.ar,*.deb
+//  ID Bytes: 21 3C 61 72 63 68 3E 0A //!<arch>\n
+//   History: 
+//   1.0   2020-10-23 SweetScape Software: Initial version.
+//------------------------------------------------
+
+// File record
+typedef struct {
+    // Define header
+    SetBackColor( cLtYellow );
+    char    fileName[16];
+    char    modification_timestamp[12];
+    char    ownerID[6];
+    char    groupID[6];
+    char    fileMode[8];
+    char    fileSize[10];
+    char    endMarker[2];
+    SetBackColor( cNone );
+
+    // Define file data
+    if( endMarker == "\x60\x0a" )
+    {
+        local int64 size;
+        SScanf( fileSize, "%Ld", size );
+        if( size > 0 )
+            uchar data[size];
+
+        // Add padding byte
+        if( size & 1 )
+            uchar padding <bgcolor=cLtGray>;
+    }
+} ar_file <read=ReadArFile>;
+
+// Display filename beside ar_file struct
+string ReadArFile( struct ar_file &f )
+{
+    return f.fileName + " size=" + f.fileSize;
+}
+
+// Read the file signature
+char signature[8] <bgcolor=cLtPurple>;
+if( signature != "!<arch>\n" )
+{
+    Warning( "File is not a valid archive. Template stopped." );
+    return -1;
+}
+
+// Read file records
+while( !FEof() )
+{
+    ar_file file;
+}

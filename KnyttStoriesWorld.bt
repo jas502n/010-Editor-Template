@@ -1,0 +1,113 @@
+//------------------------------------------------
+//--- 010 Editor v9.0.2 Binary Template
+//
+//      File: KnyttStoriesWorld.bt
+//   Authors: fe3dback@yandex.ru
+//   Version: 1.0
+//   Purpose: Parse knytt stories world file (should by extracted from *.bin)
+//  Category: Game
+// File Mask: Map
+//  ID Bytes: 78
+//   History: 
+//   1.0    2019-09-22 fe3dback@yandex.ru: Initial release
+//------------------------------------------------
+
+typedef struct {
+    ubyte tile[250];
+} LAYER_SPRITE <bgcolor=cLtGreen>;
+
+typedef struct {
+    ubyte object[250];
+    ubyte bank[250];
+} LAYER_BANK <bgcolor=cLtRed>;
+
+typedef struct {
+    char label;
+    local byte digitsCount = 1;
+    local byte next;
+
+    // x1000y1000<NULL>
+    // ^
+
+    while (true)
+    {
+        next = ReadByte( FTell() + digitsCount );
+        
+        // y || <NULL>
+        if (digitsCount >= 4 || (next == 121 || next == 0)) {
+            break;
+        }
+
+        digitsCount++;
+        
+    }
+
+    byte size[digitsCount];
+
+} POS <optimize=false, bgcolor=cLtPurple>;
+
+typedef struct {
+    ubyte tileSetAId;
+    ubyte tileSetBId;
+    ubyte atmosAId;
+    ubyte atmosBId;
+    ubyte musicId;
+    ubyte gradientId;
+} OPTIONS <optimize=false, bgcolor=cLtBlue>;
+
+typedef struct {
+    ubyte sysPosEnd;
+    ubyte dummy[4];
+} DUMMY <optimize=false, bgcolor=cLtYellow>;
+
+typedef struct {
+    LAYER_SPRITE bg0 <comment="layer 0 tilemap">;
+    LAYER_SPRITE bg1 <comment="layer 1 tilemap">;
+    LAYER_SPRITE bg2 <comment="layer 2 tilemap">;
+    LAYER_SPRITE solid3 <comment="layer 3 tilemap">;
+    LAYER_BANK bank4 <comment="bank 4 objects">;
+    LAYER_BANK bank5 <comment="bank 5 objects">;
+    LAYER_BANK bank6 <comment="bank 6 objects">;
+    LAYER_BANK bank7 <comment="bank 7 objects">;
+} LAYERS;
+
+typedef struct {
+    POS posX <comment="Map Position X">;
+    POS posY <comment="Map Position Y">;
+    DUMMY dummy;
+    LAYERS layers;
+    OPTIONS options;
+} LEVEL <read=ReadLEVEL, optimize=false>;
+
+typedef struct {
+    while( !FEof() )
+    {
+        LEVEL level;
+    }
+} WORLD <optimize=false>;
+
+// -------------------------------------
+
+string ReadLEVEL( LEVEL &level )
+{
+    local string x;
+    local string y;
+    local uint i;
+
+    for (i=0;i<sizeof(level.posX.size);i++)
+    {
+        x += level.posX.size[i];
+    }
+
+    for (i=0;i<sizeof(level.posY.size);i++)
+    {
+        y += level.posY.size[i];
+    }
+
+    return x + ", " + y;
+}
+
+// -------------------------------------
+
+LittleEndian();
+WORLD world;

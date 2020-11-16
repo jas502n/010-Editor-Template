@@ -1,0 +1,2099 @@
+//------------------------------------------------
+//--- 010 Editor v8.0.1 Binary Template
+//
+//      File: APFS.bt
+//   Authors: Yogesh Khatri
+//    E-mail: yogesh@swiftforensics.com
+//   Version: 1.10
+//   Purpose: Read APFS (Apple File System) structures
+//  Category: Drives
+// File Mask: 
+//  ID Bytes: 
+//   History:
+//   1.10  2020-09-16 Yogesh Khatri: Change pad2 to uncompressed_size in inode struct, (used by macOS 10.15+), add inode flags
+//   1.9   2020-09-15 Yogesh Khatri: Add hash types, snap_meta_ext & integrity_meta structures 
+//   1.8   2020-09-09 Yogesh Khatri: Add new items as per Apple spec 2020-06-22, support for sealed volumes
+//   1.7   2020-08-30 Yogesh Khatri: Add correct padding to keybag_entry structure
+//   1.6   2020-05-12 Yogesh Khatri: Fix minor bugs parsing XF, flags. Added container flags
+//   1.5   2020-05-02 Yogesh Khatri: Changed blocksize to uint64, fixes incorrect omap address calculation
+//   1.4   2020-02-21 Yogesh Khatri: Add to 010 repo
+//   1.4   2020-01-27 Yogesh Khatri: Read GPT partition, so no need to specify APFS start offset!
+//   1.3   2020-01-17 Yogesh Khatri: EFI structures and Encryption structures added
+//   1.2   2019-01-09 Yogesh Khatri: started modification to APFS official spec
+//    Notes : The latest version of this template can be obtained here:
+//             https://github.com/ydkhatri/MacForensics/APFS/apfs.010.bt
+//    Usage : Load an APFS disk or container image and run template.
+//  License : MIT
+//------------------------------------------------
+
+
+typedef struct {
+  uint Data1 <format=hex>;
+  ushort  Data2 <format=hex>;
+  ushort  Data3 <format=hex>;
+  BigEndian();
+  ushort  Data4 <format=hex>;
+  ubyte  Data5[6] <format=hex>;
+  LittleEndian();
+} GUID  <read=GuidRead>;
+
+string GuidRead( GUID &g ) {
+  local string ret;
+  SPrintf(ret, "{%08x-%04x-%04x-%04x-%02x%02x%02x%02x%02x%02x}", g.Data1, g.Data2, g.Data3, g.Data4, g.Data5[0], g.Data5[1], g.Data5[2], g.Data5[3], g.Data5[4], g.Data5[5]);
+  return ret;
+}
+
+// GPT
+typedef struct {
+  char SIGNATURE[8];
+  DWORD  Revision;
+  DWORD  Headersize;
+  DWORD  CRC32OfHeader;
+  DWORD  Reserved;
+  uint64 CurrentLBA;
+  uint64 BackupLBA;
+  uint64 FirstUsableLBA;
+  uint64 LastUsableLBA;
+  GUID   DiskGUID;
+  uint64 PartitionEntriesLBA;
+  DWORD  NumOfPartitionEntries;
+  DWORD  SizeOfPartitionEntry;
+  DWORD  CRC32ofPartitionArray;
+  FSkip(420);
+} GPT;
+
+typedef struct {
+  GUID PartitionTypeGUID;
+  GUID PartitionGUID;
+  uint64 PartitionStartLBA;
+  uint64 PartitionEndLBA;
+  uint64 PartitionProperty;
+  wchar_t PartitionName[36]; //Unicode
+} GPTPAPTITIONTABLE <size=128>;
+
+//globals
+local uint64 DiskBlock_Size = 512; //default, we set this to actual later
+local uint64 Apfs_Offset = 0; // default, we set this to actual later
+local uint64 Block_Size = 4096; // default, we set this to actual later
+local uint Follow_Pointer = true;
+local uint64 Current_Block_Offset = 0;
+
+//forward declarations
+struct obj;
+struct obj_header;
+struct node;
+int SeekBlock(uint64 block_id);
+
+uint64 fletcher64(uint64 addr, uint64 len)
+{
+	local uint64 lo32 = 0;
+	local uint64 hi32 = 0;
+ 
+  local uint64 pos = addr;
+  local uint64 addr_end = addr + len;
+  
+  pos += 8; // skip 2 dwords (checksum).
+	while (pos < addr_end) {
+		lo32 = lo32 + ReadUInt(pos);
+		hi32 = hi32 + lo32;
+		pos += 4;
+	}
+  lo32 = lo32 % (uint64)0xFFFFFFFF;
+  hi32 = hi32 % (uint64)0xFFFFFFFF;
+
+  //get first 2 dwords now
+  pos = addr;
+  lo32 = (lo32 + ReadUInt(pos));
+	hi32 = (hi32 + lo32);
+  pos += 4;
+  lo32 = (lo32 + ReadUInt(pos));
+	hi32 = (hi32 + lo32);
+
+  lo32 = lo32 % (uint64)0xFFFFFFFF;
+  hi32 = hi32 % (uint64)0xFFFFFFFF;
+
+  local uint64 ret = hi32;
+  ret = ( ret << 32 ) | lo32;
+	return ret;
+}
+
+// enums
+typedef enum <ushort> {
+    obj_type_container_superblock = 1, // OBJECT_TYPE_NX_SUPERBLOCK
+    obj_type_btree = 2,                // OBJECT_TYPE_BTREE
+    obj_type_btree_node = 3,           // OBJECT_TYPE_BTREE_NODE
+    obj_type_spaceman = 5,             // OBJECT_TYPE_SPACEMAN
+    obj_type_spaceman_cab = 6,         // OBJECT_TYPE_SPACEMAN_CAB
+    obj_type_spaceman_cib= 7,          // OBJECT_TYPE_SPACEMAN_CIB
+    obj_type_spaceman_bitmap = 8,      // OBJECT_TYPE_SPACEMAN_BITMAP
+    obj_type_spaceman_free_queue = 9,  // OBJECT_TYPE_SPACEMAN_FREE_QUEUE
+    obj_type_extent_list_tree = 10,    // OBJECT_TYPE_EXTENT_LIST_TREE
+    obj_type_omap = 11,                // OBJECT_TYPE_OMAP
+    obj_type_checkpoint_map = 12,      // OBJECT_TYPE_CHECKPOINT_MAP
+    obj_type_fs = 13,                  // OBJECT_TYPE_FS
+    obj_type_fstree = 14,              // OBJECT_TYPE_FSTREE
+    obj_type_blockreftree = 15,        // OBJECT_TYPE_BLOCKREFTREE
+    obj_type_snapmetatree = 16,        // OBJECT_TYPE_SNAPMETATREE
+    obj_type_reaper = 0x11,            // OBJECT_TYPE_NX_REAPER
+    obj_type_reap_list = 0x12,         // OBJECT_TYPE_NX_REAP_LIST
+    obj_type_omap_snapshot = 0x13,     // OBJECT_TYPE_OMAP_SNAPSHOT
+    obj_type_efi_jumpstart = 0x14,
+    obj_type_fusion_middle_tree = 0x15,
+    obj_type_nx_fusion_wbc = 0x16,
+    obj_type_nx_fusion_wbc_list = 0x17,
+    obj_type_er_state = 0x18,
+    obj_type_gbitmap = 0x19,
+    obj_type_gbitmap_tree = 0x1a,
+    obj_type_gbitmap_block = 0x1b,
+    // new in 2020-06-22
+    obj_type_er_recovery_block = 0x1c,
+    obj_type_snap_meta_ext = 0x1d,
+    obj_type_integrity_meta = 0x1e,
+    obj_type_fext_tree = 0x1f,
+    obj_type_reserved = 0x20
+} obj_type;
+
+#define NX_RESERVED_1 1
+#define NX_RESERVED_2 2
+#define NX_CRYPTO_SW  4
+
+string ReadContainerFlags(uint64 & x) {
+  local string ret = "";
+  if      (x & NX_RESERVED_1) ret += "NX_RESERVED_1,";
+  else if (x & NX_RESERVED_2) ret += "NX_RESERVED_2,";
+  else if (x & NX_CRYPTO_SW)  ret += "NX_CRYPTO_SW";
+
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+    ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+
+#define OBJECT_TYPE_CONTAINER_KEYBAG 'keys'
+#define OBJECT_TYPE_VOLUME_KEYBAG 'recs'
+
+#define OBJ_VIRTUAL 0x00000000
+#define OBJ_EPHEMERAL 0x80000000
+#define OBJ_PHYSICAL 0x40000000
+#define OBJ_NOHEADER 0x20000000
+#define OBJ_ENCRYPTED 0x10000000
+#define OBJ_NONPERSISTENT 0x08000000
+
+string ReadObjTypeFlags(uint16 & f) {
+  local string ret = "";
+  local uint32 x = f;
+  x = x << 16;
+  if (x & OBJ_EPHEMERAL)    ret += "OBJ_EPHEMERAL,";
+  else if (x & OBJ_PHYSICAL)    ret += "OBJ_PHYSICAL,";
+  else ret += "OBJ_VIRTUAL,";
+  if (x & OBJ_NOHEADER) ret += "OBJ_NOHEADER,";
+  if (x & OBJ_ENCRYPTED)    ret += "OBJ_ENCRYPTED,";
+  if (x & OBJ_NONPERSISTENT)    ret += "OBJ_NONPERSISTENT,";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+      ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+
+string ReadTreeType(uint32 & f) {
+  local uint16 x = f >> 16;
+  local uint16 p = f;
+  local obj_type o = p;
+  local string ret = ReadObjTypeFlags(x) + " | " + EnumToString(o);
+  return ret;
+}
+
+//SPACEMAN FLAGS
+#define SM_FLAG_VERSIONED 0x00000001
+string ReadSpacemanFlags(uint32 & f) {
+  local string ret = "";
+  SPrintf(ret, "(%d) ", f);
+  if (f & SM_FLAG_VERSIONED) ret += "VERSIONED,";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+      ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+
+// BTREE FLAGS
+#define BTREE_UINT64_KEYS 0x00000001
+#define BTREE_SEQUENTIAL_INSERT 0x00000002
+#define BTREE_ALLOW_GHOSTS 0x00000004
+#define BTREE_EPHEMERAL 0x00000008
+#define BTREE_PHYSICAL 0x00000010
+#define BTREE_NONPERSISTENT 0x00000020
+#define BTREE_KV_NONALIGNED 0x00000040
+#define BTREE_HASHED 0x00000080
+#define BTREE_NOHEADER 0x00000100
+
+string ReadBtreeTypeFlags(uint32 & x) {
+  local string ret = "";
+  SPrintf(ret, "(%d) ", x);
+  if (x & BTREE_UINT64_KEYS)   ret += "UINT64_KEYS,";
+  if (x & BTREE_SEQUENTIAL_INSERT) ret += "SEQ_INSERT,";
+  if (x & BTREE_ALLOW_GHOSTS)  ret += "ALLOW_GHOSTS,";
+  if (x & BTREE_EPHEMERAL)     ret += "EPHEMERAL,";
+  if (x & BTREE_PHYSICAL)      ret += "PHYSICAL,";
+  if (x & BTREE_NONPERSISTENT) ret += "NONPERSISTENT,";
+  if (x & BTREE_KV_NONALIGNED) ret += "KV_NONALIGNED,";
+  if (x & BTREE_HASHED)        ret += "HASHED,";
+  if (x & BTREE_NOHEADER)      ret += "NOHEADER,";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+      ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+
+typedef enum <uint32> {
+  OMAP_MANUALLY_MANAGED = 0x00000001,
+  OMAP_ENCRYPTING = 0x00000002,
+  OMAP_DECRYPTING = 0x00000004,
+  OMAP_KEYROLLING = 0x00000008,
+  OMAP_CRYPTO_GENERATION = 0x00000010
+} omap_flag_type <read=ReadOmapFlags>;
+
+string ReadOmapFlags(omap_flag_type & f) {
+  local string ret = "";
+  SPrintf(ret, "(%d) ", f);
+  if (f & OMAP_MANUALLY_MANAGED)  ret += "MANUALLY_MANAGED,";
+  if (f & OMAP_ENCRYPTING)        ret += "ENCRYPTING,";
+  if (f & OMAP_DECRYPTING)        ret += "DECRYPTING,";
+  if (f & OMAP_KEYROLLING)        ret += "KEYROLLING,";
+  if (f & OMAP_CRYPTO_GENERATION) ret += "OMAP_CRYPTO_GENERATION,";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+      ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+//BTREE NODE FLAGS
+typedef enum <uint16> {
+    BTNODE_ROOT = 1, 
+    BTNODE_LEAF = 2,
+    BTNODE_FIXED_KV_SIZE = 4,
+    BTNODE_HASHED = 8,
+    BTNODE_NOHEADER = 0x10,
+    BTNODE_CHECK_KOFF_INVAL = 0x8000
+} btree_node_flags <read=ReadBtreeNodeFlags>;
+
+string ReadBtreeNodeFlags(btree_node_flags & f) {
+  local string ret = "";
+  SPrintf(ret, "(%d) ", f);
+  if (f & BTNODE_ROOT) ret += "BTNODE_ROOT,";
+  if (f & BTNODE_LEAF)    ret += "BTNODE_LEAF,";
+  if (f & BTNODE_FIXED_KV_SIZE)   ret += "BTNODE_FIXED_KV_SIZE,";
+  if (f & BTNODE_HASHED)   ret += "BTNODE_HASHED,";
+  if (f & BTNODE_NOHEADER)   ret += "BTNODE_NOHEADER,";
+  if (f & BTNODE_CHECK_KOFF_INVAL)   ret += "BTNODE_INVALID";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+      ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+
+//VOLUME ROLE FLAGS
+#define APFS_VOLUME_ENUM_SHIFT  6
+
+#define APFS_VOL_ROLE_NONE      0x0000
+#define APFS_VOL_ROLE_SYSTEM    0x0001
+#define APFS_VOL_ROLE_USER      0x0002
+#define APFS_VOL_ROLE_RECOVERY  0x0004
+#define APFS_VOL_ROLE_VM        0x0008
+#define APFS_VOL_ROLE_PREBOOT   0x0010
+#define APFS_VOL_ROLE_INSTALLER 0x0020
+#define APFS_VOL_ROLE_DATA       (1 << APFS_VOLUME_ENUM_SHIFT)
+#define APFS_VOL_ROLE_BASEBAND   (2 << APFS_VOLUME_ENUM_SHIFT)
+#define APFS_VOL_ROLE_UPDATE     (3 << APFS_VOLUME_ENUM_SHIFT)
+#define APFS_VOL_ROLE_XART       (4 << APFS_VOLUME_ENUM_SHIFT)
+#define APFS_VOL_ROLE_HARDWARE   (5 << APFS_VOLUME_ENUM_SHIFT)
+#define APFS_VOL_ROLE_BACKUP     (6 << APFS_VOLUME_ENUM_SHIFT)
+#define APFS_VOL_ROLE_RESERVED_7 (7 << APFS_VOLUME_ENUM_SHIFT)
+#define APFS_VOL_ROLE_RESERVED_8 (8 << APFS_VOLUME_ENUM_SHIFT)
+#define APFS_VOL_ROLE_ENTERPRISE (9 << APFS_VOLUME_ENUM_SHIFT)
+#define APFS_VOL_ROLE_RESERVED_10 (10 << APFS_VOLUME_ENUM_SHIFT)
+#define APFS_VOL_ROLE_PRELOGIN    (11 << APFS_VOLUME_ENUM_SHIFT)
+
+string ReadVolRoleFlags(uint16 & f) {
+  local string ret = "";
+  SPrintf(ret, "(%d) ", f);
+  if (f & APFS_VOL_ROLE_NONE) ret+= "NONE,";
+  if (f & APFS_VOL_ROLE_SYSTEM) ret+= "SYSTEM,";
+  if (f & APFS_VOL_ROLE_USER) ret+= "USER,";
+  if (f & APFS_VOL_ROLE_RECOVERY) ret+= "RECOVERY,";
+  if (f & APFS_VOL_ROLE_VM) ret+= "VM,";
+  if (f & APFS_VOL_ROLE_PREBOOT) ret+= "PREBOOT,";
+  if (f & APFS_VOL_ROLE_INSTALLER) ret+= "INSTALLER,";
+  if (f & APFS_VOL_ROLE_DATA) ret+= "DATA,";
+  if (f & APFS_VOL_ROLE_BASEBAND) ret+= "BASEBAND,";
+  if (f & APFS_VOL_ROLE_UPDATE) ret+= "UPDATE,";
+  if (f & APFS_VOL_ROLE_XART) ret+= "XART,";
+  if (f & APFS_VOL_ROLE_HARDWARE) ret+= "HARDWARE,";
+  if (f & APFS_VOL_ROLE_BACKUP) ret+= "BACKUP,";
+  if (f & APFS_VOL_ROLE_RESERVED_7) ret+= "RESERVED_7,";
+  if (f & APFS_VOL_ROLE_RESERVED_8) ret+= "RESERVED_8,";
+  if (f & APFS_VOL_ROLE_ENTERPRISE) ret+= "ENTERPRISE,";
+  if (f & APFS_VOL_ROLE_RESERVED_10) ret+= "RESERVED_10,";
+  if (f & APFS_VOL_ROLE_PRELOGIN) ret+= "PRELOGIN,";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+      ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+
+// Inode flags (j_inode_flags)
+typedef enum<uint64> {
+  INODE_IS_APFS_PRIVATE = 0x00000001,
+  INODE_MAINTAIN_DIR_STATS = 0x00000002,
+  INODE_DIR_STATS_ORIGIN = 0x00000004,
+  INODE_PROT_CLASS_EXPLICIT = 0x00000008,
+  INODE_WAS_CLONED = 0x00000010,
+  INODE_FLAG_UNUSED = 0x00000020,
+  INODE_HAS_SECURITY_EA = 0x00000040,
+  INODE_BEING_TRUNCATED = 0x00000080,
+  INODE_HAS_FINDER_INFO = 0x00000100,
+  INODE_IS_SPARSE = 0x00000200,
+  INODE_WAS_EVER_CLONED = 0x00000400,
+  INODE_ACTIVE_FILE_TRIMMED = 0x00000800,
+  INODE_PINNED_TO_MAIN = 0x00001000,
+  INODE_PINNED_TO_TIER2 = 0x00002000,
+  INODE_HAS_RSRC_FORK = 0x00004000,
+  INODE_NO_RSRC_FORK = 0x00008000,
+  INODE_ALLOCATION_SPILLEDOVER = 0x00010000,
+  INODE_FAST_PROMOTE = 0x00020000,
+  INODE_HAS_UNCOMPRESSED_SIZE = 0x00040000,
+  INODE_IS_PURGEABLE = 0x00080000,
+  INODE_WANTS_TO_BE_PURGEABLE = 0x00100000,
+  INODE_IS_SYNC_ROOT = 0x00200000,
+  INODE_SNAPSHOT_COW_EXEMPTION = 0x00400000,
+
+  INODE_INHERITED_INTERNAL_FLAGS = (INODE_MAINTAIN_DIR_STATS | INODE_SNAPSHOT_COW_EXEMPTION),
+  INODE_CLONED_INTERNAL_FLAGS = (INODE_HAS_RSRC_FORK | INODE_NO_RSRC_FORK | INODE_HAS_FINDER_INFO | INODE_SNAPSHOT_COW_EXEMPTION),
+} inode_flags;
+
+#define APFS_VALID_INTERNAL_INODE_FLAGS ( INODE_IS_APFS_PRIVATE \
+                                        | INODE_MAINTAIN_DIR_STATS \
+                                        | INODE_DIR_STATS_ORIGIN \
+                                        | INODE_PROT_CLASS_EXPLICIT \
+                                        | INODE_WAS_CLONED \
+                                        | INODE_HAS_SECURITY_EA \
+                                        | INODE_BEING_TRUNCATED \
+                                        | INODE_HAS_FINDER_INFO \
+                                        | INODE_IS_SPARSE \
+                                        | INODE_WAS_EVER_CLONED \
+                                        | INODE_ACTIVE_FILE_TRIMMED \
+                                        | INODE_PINNED_TO_MAIN \
+                                        | INODE_PINNED_TO_TIER2 \
+                                        | INODE_HAS_RSRC_FORK \
+                                        | INODE_NO_RSRC_FORK \
+                                        | INODE_ALLOCATION_SPILLEDOVER \
+                                        | INODE_FAST_PROMOTE \
+                                        | INODE_HAS_UNCOMPRESSED_SIZE \
+                                        | INODE_IS_PURGEABLE \
+                                        | INODE_WANTS_TO_BE_PURGEABLE \
+                                        | INODE_IS_SYNC_ROOT \
+                                        | INODE_SNAPSHOT_COW_EXEMPTION)
+#define APFS_INODE_PINNED_MASK (INODE_PINNED_TO_MAIN | INODE_PINNED_TO_TIER2)
+
+string ReadInodeFlags(uint64 & f) {
+  local string ret = "";
+  SPrintf(ret, "(0x%LX) ", f);
+  if (f & INODE_IS_APFS_PRIVATE) ret += "IS_APFS_PRIVATE,";
+  if (f & INODE_MAINTAIN_DIR_STATS) ret += "MAINTAIN_DIR_STATS,";
+  if (f & INODE_DIR_STATS_ORIGIN) ret += "DIR_STATS_ORIGIN,";
+  if (f & INODE_PROT_CLASS_EXPLICIT) ret += "PROT_CLASS_EXPLICIT,";
+  if (f & INODE_WAS_CLONED) ret += "WAS_CLONE,";
+  if (f & INODE_FLAG_UNUSED) ret += "FLAG_UNUSED,";
+  if (f & INODE_HAS_SECURITY_EA) ret += "HAS_SECURITY_EA,";
+  if (f & INODE_BEING_TRUNCATED) ret += "BEING_TRUNCATE,";
+  if (f & INODE_HAS_FINDER_INFO) ret += "HAS_FINDER_INFO,";
+  if (f & INODE_IS_SPARSE) ret += "IS_SPARSE,";
+  if (f & INODE_WAS_EVER_CLONED) ret += "WAS_EVER_CLONED,";
+  if (f & INODE_ACTIVE_FILE_TRIMMED) ret += "ACTIVE_FILE_TRIMMED,";
+  if (f & INODE_PINNED_TO_MAIN) ret += "PINNED_TO_MAIN,";
+  if (f & INODE_PINNED_TO_TIER2) ret += "PINNED_TO_TIER2,";
+  if (f & INODE_HAS_RSRC_FORK) ret += "HAS_RSRC_FORK,";
+  if (f & INODE_NO_RSRC_FORK) ret += "NO_RSRC_FORK,";
+  if (f & INODE_ALLOCATION_SPILLEDOVER) ret += "ALLOCATION_SPILLEDOVER,";
+  if (f & INODE_FAST_PROMOTE) ret += "FAST_PROMOTE,";
+  if (f & INODE_HAS_UNCOMPRESSED_SIZE) ret += "HAS_UNCOMPRESSED_SIZE,";
+  if (f & INODE_IS_PURGEABLE) ret += "IS_PURGEABLE,";
+  if (f & INODE_WANTS_TO_BE_PURGEABLE) ret += "WANTS_TO_BE_PURGEABLE,";
+  if (f & INODE_IS_SYNC_ROOT) ret += "IS_SYNC_ROOT,";
+  if (f & INODE_SNAPSHOT_COW_EXEMPTION) ret += "SNAPSHOT_COW_EXEMPTION,";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+    ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+
+// Snapshot flags
+#define OMAP_SNAPSHOT_DELETED 0x00000001
+#define OMAP_SNAPSHOT_REVERTED 0x00000002
+
+string ReadSnapshotFlags(uint32 & f) {
+  local string ret = "";
+  SPrintf(ret, "(%d) ", f);
+  if (f & OMAP_SNAPSHOT_DELETED) ret += "DELETED,";
+  if (f & OMAP_SNAPSHOT_REVERTED)    ret += "REVERTED,";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+      ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+
+//OMAP VALUE FLAGS
+#define OMAP_VAL_DELETED 0x00000001
+#define OMAP_VAL_SAVED 0x00000002
+#define OMAP_VAL_ENCRYPTED 0x00000004
+#define OMAP_VAL_NOHEADER 0x00000008
+#define OMAP_VAL_CRYPTO_GENERATION 0x00000010
+
+string ReadOmapValFlags(uint32 & f) {
+  local string ret = "";
+  SPrintf(ret, "(%d) ", f);
+  if (f & OMAP_VAL_DELETED) ret += "DELETED,";
+  if (f & OMAP_VAL_SAVED)    ret += "SAVED,";
+  if (f & OMAP_VAL_ENCRYPTED)   ret += "ENCRYPTED,";
+  if (f & OMAP_VAL_NOHEADER)   ret += "NOHEADER";
+  if (f & OMAP_VAL_CRYPTO_GENERATION)   ret += "CRYPTO_GENERATION";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+      ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+// Checkpoint Flags
+#define CHECKPOINT_MAP_LAST 0x00000001
+
+string ReadCheckpointFlags(uint32 & f) {
+  local string ret = "";
+  SPrintf(ret, "(%d) ", f);
+  if (f & CHECKPOINT_MAP_LAST) ret += "LAST,";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+      ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+
+// Extended field flags
+#define XF_DATA_DEPENDENT 0x0001
+#define XF_DO_NOT_COPY 0x0002
+#define XF_RESERVED_4 0x0004
+#define XF_CHILDREN_INHERIT 0x0008
+#define XF_USER_FIELD 0x0010
+#define XF_SYSTEM_FIELD 0x0020
+#define XF_RESERVED_40 0x0040
+#define XF_RESERVED_80 0x0080
+
+string ReadXFlags(ubyte & f) {
+  local string ret = "";
+  SPrintf(ret, "(%d) ", f);
+  if (f & XF_DATA_DEPENDENT) ret += "DATA_DEPENDENT,";
+  if (f & XF_DO_NOT_COPY)    ret += "DO_NOT_COPY,";
+  if (f & XF_RESERVED_4)   ret += "RESERVED_4,";
+  if (f & XF_CHILDREN_INHERIT)   ret += "CHILDREN_INHERIT";
+  if (f & XF_USER_FIELD)   ret += "USER_FIELD";
+  if (f & XF_SYSTEM_FIELD)   ret += "SYSTEM_FIELD";
+  if (f & XF_RESERVED_40)   ret += "RESERVED_40";
+  if (f & XF_RESERVED_80)   ret += "RESERVED_80";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+      ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+
+//snapshot meta flags
+#define SNAP_META_PENDING_DATALESS 0x00000001
+
+string ReadSnapMetaFlags(uint32 & f) {
+  local string ret = "";
+  SPrintf(ret, "(%d) ", f);
+  if (f & SNAP_META_PENDING_DATALESS) ret += "PENDING_DATALESS,";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+      ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+
+typedef enum <uint64> { 
+  // There are currently none defined in the spec.
+} readonly_compatibility_features;
+
+typedef enum <uint64> {
+  feature_defrag_prerelease = 1, // ignored 10.13.6 +
+  feature_hardlink_map_records = 2,
+  feature_defrag = 4
+} vol_features <read=ReadFeatures>;
+
+string ReadFeatures(vol_features & f) {
+  local string ret = "";
+  SPrintf(ret, "(%d) ", f);
+  if (f & feature_defrag_prerelease) ret += "defrag_prerelease,";
+  if (f & feature_hardlink_map_records)    ret += "hardlink_map_records,";
+  if (f & feature_defrag)   ret += "defrag,";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+      ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+
+//hash related
+typedef enum <uint32> {
+  APFS_HASH_INVALID                = 0,
+  APFS_HASH_SHA256                 = 0x1,
+  APFS_HASH_SHA512_256             = 0x2,
+  APFS_HASH_SHA384                 = 0x3,
+  APFS_HASH_SHA512                 = 0x4,
+  APFS_HASH_MIN                    = APFS_HASH_SHA256,
+  APFS_HASH_MAX                    = APFS_HASH_SHA512,
+  APFS_HASH_DEFAULT                = APFS_HASH_SHA256,
+} apfs_hash_type;
+
+#define APFS_HASH_CCSHA256_SIZE 32
+#define APFS_HASH_CCSHA512_256_SIZE 32
+#define APFS_HASH_CCSHA384_SIZE 48
+#define APFS_HASH_CCSHA512_SIZE 64
+#define APFS_HASH_MAX_SIZE 64
+
+typedef enum <uint64> {
+    incompat_case_insensitive = 1,
+    incompat_dataless_snaps = 2,
+    incompat_enc_rolled = 4,
+    incompat_normalization_insensitive = 8,
+    incompat_incomplete_restore = 0x10,
+    incompat_sealed_volume = 0x20
+} vol_incompatible_features <read=ReadIncompatFeatures>;
+
+string ReadIncompatFeatures(vol_incompatible_features & f) {
+  local string ret = "";
+  SPrintf(ret, "(%d) ", f);
+  if (f & incompat_case_insensitive) ret += "case_insensitive,";
+  if (f & incompat_dataless_snaps)   ret += "dataless_snaps,";
+  if (f & incompat_enc_rolled)       ret += "enc_rolled,";
+  if (f & incompat_normalization_insensitive)   ret += "normalization_insensitive,";
+  if (f & incompat_incomplete_restore)   ret += "incomplete_restore,";
+  if (f & incompat_sealed_volume)   ret += "sealed_volume,";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+      ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+
+typedef enum <uint64> {
+  fs_unencrypted = 1,
+  fs_effaceable = 2,
+  fs_reserved_4 = 4,
+  fs_onekey = 8,
+  fs_spilledover = 0x10,
+  fs_run_spillover_cleaner = 0x20,
+  fs_always_check_extentref = 0x40
+} volume_flags <read=ReadVolFlags>;
+
+string ReadVolFlags(volume_flags & e) {
+  local string ret = "";
+  SPrintf(ret, "(%d) ", e);
+  if (e & fs_unencrypted) ret += "NotEncrypted,";
+  if (e & fs_effaceable)  ret += "effaceable,";
+  if (e & fs_reserved_4)  ret += "reserved_4,";
+  if (e & fs_onekey)      ret += "onekey,";
+  if (e & fs_spilledover) ret += "spilledover,";
+  if (e & fs_run_spillover_cleaner) ret += "run_spillover_cleaner,";
+  if (e & fs_always_check_extentref) ret += "always_check_extentref,";
+  if (ret != "" && Strcmp(ret[Strlen(ret)-1], ",") == 0)
+      ret = StrDel(ret, Strlen(ret)-1, 1);
+  return ret;
+}
+
+/*typedef enum {
+    APFS_TYPE_ANY = 0,
+    APFS_TYPE_SNAP_METADATA = 1,
+    APFS_TYPE_EXTENT = 2,
+    APFS_TYPE_INODE = 3,
+    APFS_TYPE_XATTR = 4,
+    APFS_TYPE_SIBLING_LINK = 5,
+    APFS_TYPE_DSTREAM_ID = 6,
+    APFS_TYPE_CRYPTO_STATE = 7,
+    APFS_TYPE_FILE_EXTENT = 8,
+    APFS_TYPE_DIR_REC = 9,
+    APFS_TYPE_DIR_STATS = 10,
+    APFS_TYPE_SNAP_NAME = 11,
+    APFS_TYPE_SIBLING_MAP = 12,
+    APFS_TYPE_MAX_VALID = 12,
+    APFS_TYPE_MAX = 15,
+    APFS_TYPE_INVALID = 15,
+} j_obj_types;*/
+
+typedef enum <uint> {
+    kind_any = 0x0,
+    kind_snap_metadata = 1,
+    kind_extent = 0x2, 
+    kind_inode = 0x3, 
+    kind_xattr = 0x4, 
+    kind_sibling_link = 0x5, 
+    kind_dstream_id = 0x6, 
+    kind_crypto_state = 0x7,
+    kind_file_extent = 0x8, 
+    kind_drec = 0x9,
+    kind_dir_stats = 0xa,
+    kind_snap_name = 0xb,
+    kind_sibling_map = 0xc,
+    kind_file_info = 0xd // new 2020-06-22, for storing file hash 
+} kind; // j_obj_types
+
+
+string ReadKind(uint k) {
+  local string ret = "";
+  switch (k) {
+    case kind_any: return "kind_any (0)"; break;
+    case kind_snap_metadata: return "kind_snap_metadata (1)"; break; 
+    case kind_extent: return "kind_extent (2)"; break; 
+    case kind_inode: return "kind_inode (3)"; break; 
+    case kind_xattr: return "kind_xattr (4)"; break;
+    case kind_sibling_link: return "kind_sibling_link (5)"; break;
+    case kind_dstream_id: return "kind_dstream_id (6)"; break;
+    case kind_crypto_state: return "kind_crypto_state (7)"; break;
+    case kind_file_extent:  return "kind_file_extent (8)"; break;
+    case kind_drec: return "kind_drec (9)"; break;
+    case kind_dir_stats: return "kind_dir_stats (10)"; break;
+    case kind_snap_name: return "kind_snap_name (11)"; break;
+    case kind_sibling_map: return "kind_sibling_map (12)"; break;
+    case kind_file_info: return "kind_file_info (13)"; break;
+    default: { 
+      Sprintf(ret, "%s (%d)",  "Unknown", k);
+      return ret;
+    }
+  }
+  return ret;
+}
+
+string ApfsTimeRead( int64 & t )
+{   
+    // Convert to FILETIME
+    if (t == 0) return "";
+    return FileTimeToString( t/100L + 116444736000000000L );
+}
+
+typedef struct {
+  uint64 start_paddr;
+  uint64 block_count;
+} prange;
+
+typedef struct {
+    BigEndian();
+    uint   Data1 <format=hex>;
+    ushort Data2 <format=hex>;
+    ushort Data3 <format=hex>;
+    ushort Data4 <format=hex>;
+    ubyte  Data5[6] <format=hex>;
+    LittleEndian();
+} Uuid <read=ReadUUID>;
+
+string ReadUUID (Uuid  & g){
+    local string ret;
+    SPrintf(ret, "%08x-%04x-%04x-%04x-%02x%02x%02x%02x%02x%02x", g.Data1, g.Data2, g.Data3, g.Data4, g.Data5[0], g.Data5[1], g.Data5[2], g.Data5[3], g.Data5[4], g.Data5[5]);
+    return ret;
+}
+// Encryption Structures
+
+typedef uint32 cp_key_class_t;
+typedef uint32 cp_key_os_version_t;
+typedef uint16 cp_key_revision_t;
+typedef uint32 crypto_flags_t;
+
+string ReadOsBuild(uint32 & u) {
+  local string ret;
+  SPrintf(ret, "Build: %d%c%d", u >> 24, (u & 0x00FF0000)>>16, u & 0x0000FFFF);
+  return ret;
+}
+
+typedef struct {
+  uint16 major_version;
+  uint16 minor_version;
+  crypto_flags_t cpflags;
+  cp_key_class_t persistent_class;
+  cp_key_os_version_t key_os_version <read=ReadOsBuild>;
+  cp_key_revision_t key_revision;
+  uint16 key_len;
+  ubyte  persistent_key[0];
+} wrapped_crypto_state;
+
+typedef struct {
+  uint16 major_version;
+  uint16 minor_version;
+  crypto_flags_t cpflags;
+  cp_key_class_t persistent_class;
+  cp_key_os_version_t key_os_version <read=ReadOsBuild>;
+  cp_key_revision_t key_revision;
+  uint16 unused;
+} wrapped_meta_crypto_state;
+
+typedef struct {
+  uint32 refcnt;
+  wrapped_crypto_state state;
+} crypto_val; 
+
+#define PROTECTION_CLASS_DIR_NONE 0
+#define PROTECTION_CLASS_A 1
+#define PROTECTION_CLASS_B 2
+#define PROTECTION_CLASS_C 3
+#define PROTECTION_CLASS_D 4
+#define PROTECTION_CLASS_F 6
+#define CP_EFFECTIVE_CLASSMASK 0x0000001f
+
+#define CRYPTO_SW_ID 4
+#define CRYPTO_RESERVED_5 5
+//#define APFS_KEYBAG_VERSION 2
+
+typedef struct {
+  Uuid   ke_uuid;
+  uint16 ke_tag;
+  uint16 ke_keylen;
+  byte   padding[4];
+  byte   ke_keydata[ke_keylen];
+  if ((ke_keylen + 8) % 16)
+    byte   padding2[16 - ((ke_keylen + 8) % 16) ]; // align to 16 byte boundary
+} keybag_entry;
+
+typedef struct {
+  uint16 kl_version; // 2
+  uint16 kl_nkeys;
+  uint32 kl_nbytes;
+  byte   padding[8];
+  keybag_entry kl_entries[kl_nkeys] <optimize=false>;
+} kb_locker;
+
+typedef struct media_keybag {
+  //obj_phys_t mk_obj; # TODO, find obj type
+  kb_locker mk_locker;
+} media_keybag;
+
+typedef enum {
+  KB_TAG_UNKNOWN = 0,
+  KB_TAG_RESERVED_1 = 1,
+  KB_TAG_VOLUME_KEY = 2,
+  KB_TAG_VOLUME_UNLOCK_RECORDS = 3,
+  KB_TAG_VOLUME_PASSPHRASE_HINT = 4,
+  KB_TAG_RESERVED_F8 = 0xF8
+} KB_TAG;
+
+// Enc rolling
+
+typedef struct {
+  //obj_phys_t ersb_o;
+  uint32 ersb_magic;
+  uint32 ersb_version;
+} er_state_phys_header;
+
+typedef struct {
+  er_state_phys_header ersb_header;
+  uint64 ersb_flags;
+  uint64 ersb_snap_xid;
+  uint64 ersb_current_fext_obj_id;
+  uint64 ersb_file_offset;
+  uint64 ersb_progress;
+  uint64 ersb_total_blk_to_encrypt;
+  uint64/*oid_t*/ ersb_blockmap_oid;
+  uint64 ersb_tidemark_obj_id;
+  uint64 ersb_recovery_extents_count;
+  uint64/*oid_t*/ ersb_recovery_list_oid;
+  uint64 ersb_recovery_length;
+} er_state_phys;
+typedef struct er_state_phys er_state_phys_t;
+typedef struct {
+  er_state_phys_header ersb_header;
+  uint64 ersb_flags;
+  uint64 ersb_snap_xid;
+  uint64 ersb_current_fext_obj_id;
+  uint64 ersb_file_offset;
+  uint64 ersb_fext_pbn;
+  uint64 ersb_paddr;
+  uint64 ersb_progress;
+  uint64 ersb_total_blk_to_encrypt;
+  uint64 ersb_blockmap_oid;
+  uint32 ersb_checksum_count;
+  uint32 ersb_reserved;
+  uint64 ersb_fext_cid;
+  ubyte  ersb_checksum;
+} er_state_phys_v1;
+typedef struct er_state_phys er_state_phys_v1_t;
+
+typedef enum  {
+  ER_PHASE_OMAP_ROLL = 1,
+  ER_PHASE_DATA_ROLL = 2,
+  ER_PHASE_SNAP_ROLL = 3
+} er_phase_enum;
+
+typedef struct {
+  //obj_phys_t erb_o;
+  uint64 erb_offset;
+  uint64/*oid_t*/ erb_next_oid;
+  ubyte erb_data;
+} er_recovery_block_phys;
+
+typedef struct {
+  //obj_phys_t bm_o;
+  uint64/*oid_t*/ bm_tree_oid;
+  uint64 bm_bit_count;
+  uint64 bm_flags;
+} gbitmap_phys;
+
+typedef enum {
+  ER_512B_BLOCKSIZE = 0,
+  ER_2KiB_BLOCKSIZE = 1,
+  ER_4KiB_BLOCKSIZE = 2,
+  ER_8KiB_BLOCKSIZE = 3,
+  ER_16KiB_BLOCKSIZE = 4,
+  ER_32KiB_BLOCKSIZE = 5,
+  ER_64KiB_BLOCKSIZE = 6
+} ER_BLOCKSIZE;
+
+#define ERSB_FLAG_ENCRYPTING 0x00000001
+#define ERSB_FLAG_DECRYPTING 0x00000002
+#define ERSB_FLAG_KEYROLLING 0x00000004
+#define ERSB_FLAG_PAUSED 0x00000008
+#define ERSB_FLAG_FAILED 0x00000010
+#define ERSB_FLAG_CID_IS_TWEAK 0x00000020
+#define ERSB_FLAG_FREE_1 0x00000040
+#define ERSB_FLAG_FREE_2 0x00000080
+#define ERSB_FLAG_CM_BLOCK_SIZE_MASK 0x00000F00
+#define ERSB_FLAG_CM_BLOCK_SIZE_SHIFT 8
+#define ERSB_FLAG_ER_PHASE_MASK 0x00003000
+#define ERSB_FLAG_ER_PHASE_SHIFT 12
+#define ERSB_FLAG_FROM_ONEKEY 0x00004000
+//Encryption-Rolling Constants
+#define ER_CHECKSUM_LENGTH 8
+#define ER_MAGIC 'FLAB'
+#define ER_VERSION 1
+#define ER_MAX_CHECKSUM_COUNT_SHIFT 16
+#define ER_CUR_CHECKSUM_COUNT_MASK 0x0000FFFF
+// End Encryption Structures
+
+typedef enum  <ubyte> {
+    xfield_type_name = 4, //0x0204, // 516,  INO_EXT_TYPE_NAME
+    xfield_type_dstream = 8, //0x2008, // 8200, INO_EXT_TYPE_DSTREAM
+    xfield_type_document_id = 3, //0x2203, // 8707, INO_EXT_TYPE_DOCUMENT_ID
+    xfield_type_device_node = 14,//0x220E, // 8718, INO_EXT_TYPE_RDEV
+    xfield_type_sparse_bytes = 13,//0x280D  // 10253 INO_EXT_TYPE_SPARSE_BYTES
+    // added from apfs spec
+    xfield_type_snap_xid_or_sibling_id = 1,
+    xfield_type_delta_tree_oid= 2,
+    xfield_type_prev_fsize    = 5,
+    xfield_type_reserved_6    = 6,
+    xfield_type_finder_info   = 7,
+    xfield_type_reserved_9    = 9,
+    xfield_type_dir_stats_key = 10,
+    xfield_type_fs_uuid       = 11,
+    xfield_type_reserved_12   = 12
+} xfield_type;
+
+typedef enum <ushort> {
+    item_type_named_pipe = 1, 
+    item_type_character_special = 2, 
+    item_type_directory = 4, 
+    item_type_block_special = 6, 
+    item_type_regular = 8, 
+    item_type_symbolic_link = 10, 
+    item_type_socket = 12, 
+    item_type_whiteout = 14
+} item_type;
+
+typedef enum <ushort> {
+    ea_type_data_stream = 1,
+    ea_type_data_embedded = 2, //old ea_type_generic
+    ea_type_file_system_owned = 4,
+    //ea_type_symlink = 6
+    ea_type_reserved_8 = 8
+} ea_type ; //XATTR
+
+typedef struct  {
+  //btree_info_fixed_t bt_fixed; //inlined
+  uint32 bt_flags <read=ReadBtreeTypeFlags>;
+  uint32 bt_node_size;
+  uint32 bt_key_size;
+  uint32 bt_val_size;
+
+  uint32 bt_longest_key;
+  uint32 bt_longest_val;
+  uint64 bt_key_count;
+  uint64 bt_node_count;
+} btree_info <bgcolor=cRed>;
+
+// reference obj
+// This structure is unused now as it has been inlined everywhere due to 
+// limitation on the number of nested structures you can view in 010 gui.
+typedef struct {
+    local uint64 pos = FTell();
+    uint64 val;
+    if (val == 0)
+        Printf("\n%s\n", "val was 0 in obj_ref!! Not defining obj!!");
+    else if (SeekBlock(val) != 0)
+        Printf("\n%s\n", "val was invalid in obj_ref!! Not defining obj!!");
+    else
+        obj object;
+
+    FSeek(pos + 8);
+} ref_obj;
+
+// container_superblock (type: 0x01)
+typedef struct {
+    local uint64 pos = FTell();
+    char   magic[4]; // NXSB
+    uint   block_size;
+    uint64 block_count;
+    uint64 features_0;
+    uint64 read_only_compatible_features;
+    uint64 incompatible_features;
+    Uuid   uuid;
+    uint64 next_oid;
+    uint64 next_xid;
+    uint   xp_desc_blocks;
+    uint   xp_data_blocks;
+    uint64 xp_desc_base;
+    uint64 xp_data_base;
+    uint   xp_desc_next;
+    uint   xp_data_next;
+    uint   xp_desc_index;
+    uint   xp_desc_len;
+    uint   xp_data_index;
+    uint   xp_data_len;
+    uint64 spaceman_oid;
+    //ref_obj omap_oid; //inlined
+    //// BEGIN ref_obj
+    local uint64 rpos = FTell();
+    uint64 omap_oid;
+    if (omap_oid == 0)
+        Printf("\n%s\n", "omap_oid was 0 in obj_ref!! Not defining omap!!");
+    else if (SeekBlock(omap_oid) != 0)
+        Printf("\n%s\n", "omap_oid was invalid in obj_ref!! Not defining omap!!");
+    else
+        obj omap;
+    FSeek(rpos + 8);
+    //// END ref_obj
+    uint64 reaper_oid;
+    uint   test_type;
+    uint   max_file_systems;
+    uint64 fs_oids[100]; //NX_MAX_FILE_SYSTEMS=100
+    uint64 counters[32];
+    uint64 blocked_out_start_paddr;
+    int64  blocked_out_block_count;
+    uint64 evict_mapping_tree_oid;
+    uint64 flags <read=ReadContainerFlags>;
+    uint64 efi_jumpstart <format=hex>;
+    Uuid   fusion_uuid;
+    uint64 keylocker_paddr;
+    int64  keylocker_block_count;
+    uint64 ephemeral_info[4];
+    uint64 test_oid;
+    uint64 fusion_mt_oid;
+    uint64 fusion_wbc_oid;
+    uint64 fusion_wbc_paddr;
+    int64  fusion_wbc_count;
+
+    local uint64 pos_end = FTell();
+    // checkpoint
+    if (xp_desc_blocks & 0x80000000) // highest bit set in xp_desc_blocks
+      Printf("\nNot impl yet!\n");
+    else { // this is address of first bloc
+      SeekBlock(xp_desc_base + xp_desc_index);
+      obj checkpoint_map;
+    }
+    // spaceman
+    if (xp_desc_blocks & 0x80000000) // highest bit set in xp_data_base
+      Printf("\nNot impl yet!\n");
+    else { // this is address of first bloc
+      SeekBlock(xp_data_base + xp_data_index);
+      obj spaceman;
+    }
+    FSeek(pos_end);
+} container_superblock;
+
+typedef struct {
+  //uint64 extentref_tree_oid; // inlined
+  //// BEGIN ref_obj
+  local uint64 rpos = FTell();
+  uint64 extentref_tree_oid;
+  if (extentref_tree_oid == 0)
+      Printf("\n%s\n", "extentref_tree_oid was 0 in obj_ref!! Not defining extentref_tree!!");
+  else if (SeekBlock(extentref_tree_oid) != 0)
+      Printf("\n%s\n", "extentref_tree_oid was invalid in obj_ref!! Not defining extentref_tree!!");
+  else
+      obj extentref_tree;
+  FSeek(rpos + 8);
+  //// END ref_obj
+  //uint64 sblock_oid; inlined
+  //// BEGIN ref_obj
+  rpos = FTell();
+  uint64 sblock_oid;
+  if (sblock_oid == 0)
+      Printf("\n%s\n", "sblock_oid was 0 in obj_ref!! Not defining sblock!!");
+  else if (SeekBlock(sblock_oid) != 0)
+      Printf("\n%s\n", "sblock_oid was invalid in obj_ref!! Not defining sblock!!");
+  else
+      obj sblock; //superblock
+  FSeek(rpos + 8);
+  //// END ref_obj
+  int64 create_time <read=ApfsTimeRead>;
+  int64 change_time <read=ApfsTimeRead>;
+  uint64 inum;
+  uint32 extentref_tree_type  <read=ReadTreeType>;
+  uint32 flags <read=ReadSnapMetaFlags>; 
+  uint16 name_len;
+  char name[name_len];
+} snap_metadata_val;
+
+typedef struct  {
+  uint16 name_len;
+  char name[name_len];
+} snap_name_key;
+
+typedef struct {
+  uint64 snap_xid;
+} snap_name_val;
+
+//// node entry keys
+typedef struct {
+    uint64 obj_id : 60;
+    uint64 kind_0 : 04 <read=ReadKind>;
+} key_hdr <read=ReadKeyHead>;
+
+string ReadKeyHead(key_hdr & h) {
+  local string ret ="";
+  SPrintf(ret, "%Lu", h.obj_id);
+  return ret;
+}
+
+typedef struct {
+}  empty_key;
+
+typedef struct { 
+    uint64 oid;
+    uint64 xid;
+} omap_key;
+
+typedef struct {
+    uint64  xid;
+    //ref_obj obj_id; //inlined
+    //// BEGIN ref_obj
+    local uint64 rpos = FTell();
+    uint64 oid;
+    if (oid == 0)
+        Printf("\n%s\n", "oid was 0 in obj_ref!! Not defining history_object!!");
+    else if (SeekBlock(oid) != 0)
+        Printf("\n%s\n", "oid was invalid in obj_ref!! Not defining history_object!!");
+    else
+        obj history_object;
+    FSeek(rpos + 8);
+    //// END ref_obj
+} history_key;
+
+typedef struct {
+    uint32 name_length:10;
+    uint32 hash       :22  <format=hex>;
+    char  name[ name_length ];
+} drec_key <read=ReadDrec_Key>;
+
+string ReadDrec_Key(drec_key & d) {
+  return d.name;
+}
+
+typedef struct {
+    ushort  name_length;
+    char    name[ name_length ];
+} xattr_key <read=ReadXattr_Key>;
+
+string ReadXattr_Key(xattr_key & d) {
+  return d.name;
+}
+
+typedef struct { 
+    uint64 sibling_id;
+} sibling_key;
+
+typedef struct {  
+    uint64 offset; // seek pos in file
+} file_extent_key;
+
+typedef struct {
+  uint64 num_children;
+  uint64 total_size;
+  uint64 chained_key;
+  uint64 gen_count;
+} dir_stats_val;
+
+//// node entry vals
+
+typedef struct { // for any index nodes
+    if (Follow_Pointer) {
+        //ref_obj val; //inlined
+        //// BEGIN ref_obj
+        local uint64 rpos = FTell();
+        uint64 val;
+        if (val == 0)
+            Printf("\n%s\n", "val was 0 in obj_ref!! Not defining obj!!");
+        else if (SeekBlock(val) != 0)
+            Printf("\n%s\n", "val was invalid in obj_ref!! Not defining obj!!");
+        else
+            obj object;
+        FSeek(rpos + 8);
+        //// END ref_obj
+    }
+    else
+        uint64 pointer;
+} pointer_val;
+
+typedef struct { // ???
+    uint  unknown_0;
+    uint  unknown_4;
+} history_val;
+
+typedef struct {  // 0x00
+  uint flags <read=ReadOmapValFlags>;
+  uint size;
+  //ref_obj paddr; //inlined
+  //// BEGIN ref_obj
+  local uint64 rpos = FTell();
+  uint64 paddr;
+  if (paddr == 0)
+    Printf("\n%s\n", "paddr was 0 in obj_ref!! Not defining omap!!");
+  else if (SeekBlock(paddr) != 0) // outside disk image!
+    Printf("\n%s\n", "paddr invalid in obj_ref!! Not defining omap!!"); 
+  else {
+    if ((flags & OMAP_VAL_NOHEADER) == OMAP_VAL_NOHEADER) {
+      local uint64 obj_start_off = FTell();
+      obj_header hdr; // will be zeroed out!
+      node body;
+    }
+    else
+      obj omap;
+  }
+  FSeek(rpos + 8);
+  //// END ref_obj
+} omap_val;
+
+typedef struct {  
+    xfield_type x_type;
+    ubyte       x_flags <read=ReadXFlags>;
+    ushort      length;
+} xf_header;
+
+typedef struct {
+    char name[];
+} xf_name <read=ReadXFName>;
+
+string ReadXFName(xf_name & x) {
+  return x.name;
+}
+
+typedef struct {
+    uint64 size;
+    uint64 alloced_size;
+    uint64 default_crypto_id;
+    uint64 total_bytes_written;
+    uint64 total_bytes_read;
+} dstream;  // j_dstream_t
+
+typedef struct {  
+    uint32 dev_id;
+} xf_device_node;
+
+typedef struct { 
+    uint64 size;
+} xf_sparse_bytes;
+
+typedef struct { 
+    uint id;
+} xf_document_id;
+
+typedef struct {  // 0x30
+  uint64 parent_id;
+  uint64 extents_id;
+  int64  creation_timestamp <read=ApfsTimeRead>;
+  int64  modified_timestamp <read=ApfsTimeRead>;
+  int64  changed_timestamp <read=ApfsTimeRead>;
+  int64  accessed_timestamp <read=ApfsTimeRead>;
+  uint64 internal_flags <read=ReadInodeFlags>;
+  uint   nchildren_or_nlink;
+  uint   default_protection_class; // cp_key_class_t
+  uint   write_generation_counter; // incremented each time this inode or its data is modified
+  uint   bsdflags;
+  uint   owner_id;
+  uint   group_id;
+  ushort mode <format=octal>;
+  ushort pad1;
+  uint64 uncompressed_size; // 10.15+, only populated if flags has INODE_HAS_UNCOMPRESSED_SIZE bit set
+  if (parentof(this).data_length != 92) { // then extended fields exist!
+    ushort xf_num_exts; // File 0x02 or Folder 0x01 cmp. TN1150
+    ushort xf_used_data;
+    xf_header xf_hdr[xf_num_exts];
+    local uint _index = 0;
+	  for (_index =0; _index < xf_num_exts; _index++) {
+      switch (xf_hdr[_index].x_type) {
+        case xfield_type_name: xf_name x_name; break;
+        case xfield_type_dstream: dstream x_dstream; break;
+        case xfield_type_device_node: xf_device_node x_dev_node; break;
+        case xfield_type_sparse_bytes: xf_sparse_bytes x_sp_size; break;
+        case xfield_type_document_id: xf_document_id x_doc_id; break;
+        case xfield_type_snap_xid_or_sibling_id: uint64 x_id; break;
+        case xfield_type_delta_tree_oid: uint64 x_oid; break;
+        case xfield_type_prev_fsize: uint64 x_prev_size; break;
+        case xfield_type_finder_info: uint32 x_finderdata; break;
+        case xfield_type_dir_stats_key: uint64 x_dir_stats_key; break;
+        case xfield_type_fs_uuid: Uuid x_uuid; break;
+			  default: {
+          byte xf_data[xf_hdr[_index].length];
+          //Printf("\nUnknown x_type 0x%X, x_flags= 0x%X", xf_hdr[_index].x_type, xf_hdr[_index].x_flags);
+        }
+		  }
+      if 	(((8 - xf_hdr[_index].length) % 8) > 0)
+        FSkip( (8 - xf_hdr[_index].length) % 8 );//byte padding[((8 - xf_hdr[_index].length) % 8)];
+    }
+  }
+} inode_val;
+
+typedef struct {   // 0x50
+    uint64 node_id;
+    ushort length;
+    char name[length];
+} sibling_val;
+
+typedef struct { // 0x60
+    uint refcnt;
+} dstream_id_val;
+
+typedef struct { // 0x20
+  uint64 length:60;
+  uint64 kind_1:04;
+  uint64 owning_obj_id;
+  int32  refcnt;
+} extent_val;
+
+typedef struct { // 0x80
+  uint64  len:56;
+  uint64  flags:8; // currently no flags defined
+  uint64  phys_block_num;
+  uint64  crypto_id;
+} file_extent_val;
+
+typedef struct { // 0x90
+  uint64 node_id;
+  int64  date_added <read=ApfsTimeRead>;
+  item_type type_item;
+  if (parentof(this).data_length != 18) { // then extended fields exist!
+    ushort xf_num_exts; // File 0x02 or Folder 0x01 cmp. TN1150
+    ushort xf_used_data;
+    xf_header xf_hdr[xf_num_exts];
+    local uint _index = 0;
+	  for (_index =0; _index < xf_num_exts; _index++) {
+      switch (xf_hdr[_index].x_type) {
+        case xfield_type_name: xf_name x_name; break;
+        case xfield_type_dstream: dstream x_dstream; break;
+        case xfield_type_device_node: xf_device_node x_dev_node; break;
+        case xfield_type_sparse_bytes: xf_sparse_bytes x_sp_size; break;
+        case xfield_type_document_id: xf_document_id x_doc_id; break;
+        case xfield_type_snap_xid_or_sibling_id: uint64 x_id; break;
+        case xfield_type_delta_tree_oid: uint64 x_oid; break;
+        case xfield_type_prev_fsize: uint64 x_prev_size; break;
+        case xfield_type_finder_info: uint32 x_finderdata; break;
+        case xfield_type_dir_stats_key: uint64 x_dir_stats_key; break;
+        case xfield_type_fs_uuid: Uuid x_uuid; break;
+			  default: {
+          byte xf_data[xf_hdr[_index].length];
+          //Printf("\nUnknown x_type 0x%X, x_flags= 0x%X", xf_hdr[_index].x_type, xf_hdr[_index].x_flags);
+        }
+		  }
+      if 	(((8 - xf_hdr[_index].length) % 8) > 0)
+        FSkip( (8 - xf_hdr[_index].length) % 8 );
+    }
+  }
+} drec_val;
+
+typedef struct {  // 0xc0
+    uint64 file_id;
+} sibling_map_val;
+
+typedef struct {
+  uint64  obj_id;
+  dstream x_dstream;
+} xattr_dstream;
+
+typedef struct {   // 0x40 xattr_val
+  ea_type flags;
+  ushort  xdata_len;
+	if (flags & ea_type_data_embedded) {
+    if (xdata_len)
+      byte xdata[xdata_len];
+  }
+  else  {
+    xattr_dstream x_dstream;
+  }
+  if (flags & 0xFF0 == 0x10)
+    Printf("\nxattr.type = 0x%X", flags);
+} xattr_val; // j_xattr_val_t
+
+typedef struct {
+  uint64 xid;
+  uint64 paddr;
+} spaceman_free_queue_key;
+
+typedef struct { 
+  //j_key_t     hdr;
+  uint64 lba: 56;
+  uint64 info: 8; //APFS_FILE_INFO_DATA_HASH = 1
+} file_info_key;
+
+typedef struct {
+  uint16    hashed_len; 
+  ubyte     hash_size;
+  ubyte     hash[hash_size];
+} file_data_hash_val;
+
+typedef struct {
+  //union {
+    file_data_hash_val  dhash;
+  //};
+} file_info_val;
+
+typedef struct {
+  uint64 private_id;
+  uint64 logical_addr;
+} fext_tree_key;
+
+typedef struct { 
+  uint64 len:56;
+  uint64 flags:8; // currently no flags defined
+  uint64 phys_block_num;
+} fext_tree_val;
+
+//// node entries
+typedef struct {
+  local uint64 pos = FTell();
+  ushort  key_offset;
+	if ((parentof(this).node_type & 4) == 0) // if not fixed size
+    ushort key_length;
+  ushort  data_offset;
+	if ((parentof(this).node_type & 4) == 0)
+    ushort data_length;
+  local uint64 pos2 = FTell();
+
+  FSeek(parentof(parentof(this)).obj_start_off + key_offset + parentof(this).table_space_len + 56); //key_hdr
+  key_hdr key_header <bgcolor=cRed>;
+  
+  switch(key_header.kind_0) {
+    case kind_extent: /*empty_key key;*/ break;
+    case kind_inode: /*empty_key key;*/ break;
+    case kind_xattr: xattr_key key; break;
+    case kind_sibling_link: sibling_key key; break;
+    case kind_dstream_id: /*empty_key key; */break;
+    case kind_crypto_state: /*empty_key key; */break;
+    case kind_file_extent: file_extent_key key; break;
+    case kind_drec: drec_key key; break;
+    case kind_dir_stats: /*empty_key key;*/ break;
+    case kind_sibling_map: /*empty_key key;*/ break;
+    case kind_snap_name: snap_name_key key; break;
+    case kind_dir_stats: break;
+    case kind_file_info: file_info_key key; break;
+    case kind_snap_metadata:  break;
+    default: Printf("\nKey type not seen 0x%X", key_header.kind_0); break;
+  }
+  
+  FSeek(parentof(parentof(this)).obj_start_off + Block_Size - data_offset - 40 * (parentof(this).node_type & 1)); // val
+  local uint test = (parentof(this).level > 0) ? 256 : key_header.kind_0;
+  switch(test) {
+    case 256: { // non-leaf nodes
+      if (key_header.kind_0 == kind_dstream_id || 
+          key_header.kind_0 == kind_file_extent || 
+          key_header.kind_0 == kind_drec || 
+          key_header.kind_0 == kind_crypto_state || 
+          key_header.kind_0 == kind_dir_stats || 
+          key_header.kind_0 == kind_xattr || 
+          key_header.kind_0 == kind_inode ||
+          key_header.kind_0 == kind_sibling_link ||
+          key_header.kind_0 == kind_sibling_map ||
+          key_header.kind_0 == kind_file_info) {
+          Printf("\nIn non-leaf node, got kind 0x%X %s, treetype=%s", key_header.kind_0, ReadKind(key_header.kind_0), EnumToString(parentof(parentof(this)).hdr.subtype)); // for debug
+          uint64 val <bgcolor=cLtGreen>;
+      }
+      else if (key_header.kind_0 == kind_extent) {
+        if (Follow_Pointer) {
+          //ref_obj val; //inlined
+          //// BEGIN ref_obj
+          local uint64 rpos = FTell();
+          uint64 paddr;
+          if (paddr == 0)
+              Printf("\n%s\n", "paddr was 0 in obj_ref!! Not defining val!!");
+          else if (SeekBlock(paddr) != 0) // outside disk image!
+              Printf("\n%s\n", "paddr invalid in obj_ref!! Not defining val!!"); 
+          else
+              obj val;
+          FSeek(rpos + 8);
+          //// END ref_obj
+        }
+        else
+          uint64 paddr;
+      }
+      else
+          Printf("\nShould not go here Kind = %d!", key_header.kind_0);
+      break;// applies to all pointer vals, i.e. any entry val in index nodes
+    }
+    //leaf nodes
+    case kind_any: omap_val val ; Printf("\nShould not go here KIND OMAP!"); break;
+    case kind_extent: extent_val val; break;
+    case kind_inode: inode_val val; break;
+    case kind_xattr: xattr_val val; break;
+    case kind_sibling_link: sibling_val val; break;
+    case kind_dstream_id: dstream_id_val val; break;
+    case kind_crypto_state: crypto_val val; break;
+    case kind_file_extent: file_extent_val val <bgcolor=0x52D456>; break;
+    case kind_drec: drec_val val <bgcolor=0xc2f416>; break;
+    case kind_dir_stats: dir_stats_val val; break;
+    case kind_sibling_map: sibling_map_val val; break;
+    case kind_snap_name: snap_name_val val; break;
+    case kind_snap_metadata: snap_metadata_val val; break;
+    case kind_file_info: file_info_val val; break;
+  }
+  FSeek(pos2);
+} node_entry;
+
+typedef struct {
+  //local uint64 pos = FTell();
+  short key_offset;
+	if ((parentof(this).node_type & 4) == 0) // if not fixed size
+    ushort key_length;
+  short  data_offset;
+	if ((parentof(this).node_type & 4) == 0)
+    ushort data_length;
+  local uint64 pos2 = FTell();
+
+  FSeek(parentof(parentof(this)).obj_start_off + key_offset + parentof(this).table_space_len + 56); //key_hdr
+  spaceman_free_queue_key key_header <bgcolor=cRed>;
+  
+  if (data_offset != 0xFFFF) {
+    FSeek(parentof(parentof(this)).obj_start_off + Block_Size - data_offset - 40 * (parentof(this).node_type & 1)); // val
+    uint64 val;
+  }  
+  FSeek(pos2);
+} spaceman_free_queue_node_entry;
+
+typedef struct {
+  short  key_offset;
+	if ((parentof(this).node_type & 4) == 0) // if not fixed size
+    ushort key_length;
+  short  data_offset;
+	if ((parentof(this).node_type & 4) == 0)
+    ushort data_length;
+    local uint64 pos2 = FTell();
+
+    FSeek(parentof(parentof(this)).obj_start_off + key_offset + parentof(this).table_space_len + 56); //key_hdr
+    omap_key key_header <bgcolor=cRed>;
+
+    FSeek(parentof(parentof(this)).obj_start_off + Block_Size - data_offset - 40 * (parentof(this).node_type & 1)); // val
+    if (parentof(this).level > 0) {
+      if (Follow_Pointer) {
+        //ref_obj val; //inlined
+        //// BEGIN ref_obj
+        local uint64 rpos = FTell();
+        uint64 paddr;
+        if (paddr == 0)
+            Printf("\n%s\n", "paddr was 0 in obj_ref!! Not defining val!!");
+        else if (SeekBlock(paddr) != 0) // outside disk image!
+            Printf("\n%s\n", "paddr invalid in obj_ref!! Not defining val!!"); 
+        else
+            obj val;
+        FSeek(rpos + 8);
+        //// END ref_obj
+      }
+      else
+        uint64 paddr;
+    }
+    else
+      omap_val val;
+    
+    FSeek(pos2);
+    
+} omap_node_entry;
+
+typedef struct {
+  //local uint64 pos = FTell();
+  short key_offset;
+	if ((parentof(this).node_type & 4) == 0) // if not fixed size
+    ushort key_length;
+  short  data_offset;
+	if ((parentof(this).node_type & 4) == 0)
+    ushort data_length;
+  local uint64 pos2 = FTell();
+
+  FSeek(parentof(parentof(this)).obj_start_off + key_offset + parentof(this).table_space_len + 56); //key_hdr
+  fext_tree_key key_header <bgcolor=cRed>;
+  
+  if (data_offset != 0xFFFF) {
+    FSeek(parentof(parentof(this)).obj_start_off + Block_Size - data_offset - 40 * (parentof(this).node_type & 1)); // val
+    fext_tree_val val;
+  }  
+  FSeek(pos2);
+} fext_node_entry;
+
+// node (type: 0x02)
+typedef struct {
+    local uint64 pos = FTell();
+    btree_node_flags node_type;
+    ushort level; // Zero for leaf nodes, > 0 for index nodes
+    uint   entry_count;
+    uint16 table_space_off;
+    uint16 table_space_len;
+    uint16 free_space_off;
+    uint16 free_space_len;
+    uint16 key_free_list_off;
+    uint16 key_free_list_len;
+    uint16 val_free_list_off;
+    uint16 val_free_list_len;
+
+    if (entry_count) {
+      switch (parentof(this).hdr.subtype) {
+        case obj_type_omap:
+          omap_node_entry entries[entry_count] <optimize=false>;
+          break;
+        case obj_type_spaceman_free_queue:
+          spaceman_free_queue_node_entry entries[entry_count] <optimize=false>;
+          break;
+        case obj_type_fext_tree:
+          if (level > 0)
+            omap_node_entry entries[entry_count] <optimize=false>;
+          else
+            fext_node_entry entries[entry_count] <optimize=false>;
+          break;
+        case 0: // in case of NOHEADER flag, value will be 0
+          node_entry entries[entry_count] <optimize=false>;
+          break;
+        default:
+          Printf("\nNode subtype=%s, in btree ", EnumToString(parentof(this).hdr.subtype));
+          node_entry entries[entry_count] <optimize=false>;
+      }
+    }
+    if (node_type & 1) { //if BTNODE_ROOT
+      FSeek(pos - 32 + Block_Size - 40);
+      btree_info btree_information;
+    }
+} node;
+
+typedef struct  {
+  uint64 xid;
+  uint64 addr;
+  uint32 block_count;
+  uint32 free_count;
+  uint64 bitmap_addr;
+} chunk_info;
+
+// cib (type: 0x07)
+typedef struct {
+  //obj_phys_t cib_o;
+  uint32 index;
+  uint32 chunk_info_count; // CI_COUNT_MASK 0x000fffff
+  chunk_info ci_chunk_info[chunk_info_count] <optimize=false>;
+} chunk_info_block;
+
+typedef struct {
+  //obj_phys_t cab_o;
+  uint32 index;
+  uint32 cib_count;
+  uint64 cib_addr[cib_count] <optimize=false>;
+} cib_addr_block;
+
+typedef struct {
+  uint64 count;
+  uint64 tree_oid;
+  uint64 oldest_xid;
+  uint16 tree_node_limit;
+  uint16 pad16;
+  uint32 pad32;
+  uint64 reserved;
+} spaceman_free_queue;
+
+typedef struct {
+  uint64 block_count;
+  uint64 chunk_count;
+  uint32 cib_count;
+  uint32 cab_count;
+  uint64 free_count;
+  uint32 addr_offset;
+  uint32 reserved;
+  uint64 reserved2;
+} spaceman_device;
+
+typedef struct {
+  uint64 zone_start;
+  uint64 zone_end;
+} spaceman_allocation_zone_boundaries;
+
+typedef struct {
+  spaceman_allocation_zone_boundaries current_boundaries;
+  spaceman_allocation_zone_boundaries previous_boundaries[7] <optimize=false>;
+  uint16 zone_id;
+  uint16 previous_boundary_index;
+  uint32 reserved;
+} spaceman_allocation_zone_info_phys;
+
+typedef struct {
+  spaceman_allocation_zone_info_phys zones[2] <optimize=false>;
+} spaceman_allocation_zones; // this is created only to compensate for 010 shortcomings
+
+typedef struct {
+  //spaceman_allocation_zone_info_phys allocation_zones[2][8]; // 010 does not allow multi-dimensional array
+  spaceman_allocation_zones allocation_zones[8] <optimize=false>;
+} spaceman_datazone_info_phys;
+
+// spaceman (type: 0x05)
+typedef struct {
+    local uint64 pos = FTell();
+    uint   block_size;
+    uint   blocks_per_chunk;
+    uint   chunks_per_cib;
+    uint   cibs_per_cab;
+    spaceman_device sm_dev[2] <optimize=false>;
+    uint32 flags  <read=ReadSpacemanFlags>;
+    uint32 ip_bm_tx_multiplier;
+    uint64 ip_block_count;
+    uint32 ip_bm_size_in_blocks;
+    uint32 ip_bm_block_count;
+    uint64 ip_bm_base; // type paddr
+    uint64 ip_base;    // type paddr
+    uint64 fs_reserve_block_count;
+    uint64 fs_reserve_alloc_count;
+    spaceman_free_queue fq[3] <optimize=false>;
+    uint16 ip_bm_free_head;
+    uint16 ip_bm_free_tail;
+    uint32 ip_bm_xid_offset;
+    uint32 ip_bitmap_offset;
+    uint32 ip_bm_free_next_offset;
+    uint32 version;
+    uint32 struct_size;
+    spaceman_datazone_info_phys datazone;
+
+    /*    uint   block_size;
+    uint   blocks_per_chunk;
+    uint   chunks_per_cib;
+    uint   cibs_per_cab;
+    uint   block_count;
+    uint   chunk_count;
+    uint   cib_count;
+    uint   cab_count;
+    uint   entry_count;
+    uint   unknown_68;
+    uint64 free_block_count;
+    uint   entries_offset;
+    byte   unknown_84[92];
+    uint64 prev_spaceman_cib_block;
+    SeekBlock(prev_spaceman_cib_block);
+    obj    prev_spaceman;
+    if (entry_count) {
+        FSeek(pos - 0x20 + entries_offset);
+        local uint i;
+        local uint64 pos2 = FTell();
+        for (i=0; i < entry_count; i++) {
+            uint64 spaceman_cib_block;
+            SeekBlock(spaceman_cib_block);
+            obj spaceman_cib;            
+            FSeek(pos2 + 8*(i+1));
+        }
+    }
+    else
+        FSeek(pos + 152); //prevent error about struct end offset < start
+    */
+} spaceman;
+
+/*typedef struct {
+    uint64 xid;
+    uint64 num_preceeding_blocks; // number of blocks before this one
+    uint   block_count;
+    uint   free_block_count;
+    uint64 bitmap_block;
+} spaceman_cib_entry;
+
+// spaceman internal pool (type: 0x07)
+typedef struct {
+    uint unknown_32;
+    uint entry_count;
+    if (entry_count)
+        spaceman_cib_entry entries[entry_count] <optimize=false>;
+} spaceman_cib;*/
+
+// omap (type: 0x0b)
+typedef struct { 
+    omap_flag_type flags;
+    uint32 snap_count;
+    obj_type tree_Type; 
+    ushort tree_Type_flags <read=ReadObjTypeFlags>;
+    obj_type snapshot_tree_Type; 
+    ushort snapshot_tree_Type_flags <read=ReadObjTypeFlags>;
+    //ref_obj   tree_oid; //inlined
+    //// BEGIN ref_obj
+    local uint64 rpos = FTell();
+    uint64 tree_oid;
+    if (tree_oid == 0)
+        Printf("\n%s\n", "tree_oid was 0 in obj_ref!! Not defining root!!");
+    else if (SeekBlock(tree_oid) != 0) // outside disk image!
+        Printf("\n%s\n", "tree_oid invalid in obj_ref!! Not defining root!!"); 
+    else
+        obj tree;
+    FSeek(rpos + 8);
+    //// END ref_obj
+    uint64 snapshot_tree_oid;
+    uint64 most_recent_snap;
+    uint64 pending_revert_min;
+    uint64 pending_revert_max;
+} b_omap;
+
+typedef struct {
+  uint32 flags <read=ReadSnapshotFlags>;
+  uint32 pad;
+  uint64 oid;
+} omap_snapshot;
+
+typedef struct {
+    obj_type type;
+    ushort flags <read=ReadObjTypeFlags>;
+    obj_type subtype;
+    ushort   subtype_pad; // subtype is actually 32 bits here!
+    uint     size;
+    uint     pad;
+    uint64   fs_oid; // virtual object identifier
+    uint64   oid;    // ephemeral object identifier
+    uint64 paddr_in_cp_data_area; //address in the checkpoint data area where the object is stored.
+    /*
+    //ref_obj  object; //inlined
+    //// BEGIN ref_obj
+    local uint64 rpos = FTell();
+    uint64 checkpoint_oid;
+    if (checkpoint_oid == 0)
+        Printf("\n%s\n", "checkpoint_oid was 0 in obj_ref!! Not defining checkpoint!!");
+    else if (SeekBlock(checkpoint_oid) != 0) // outside disk image!
+        Printf("\n%s\n", "checkpoint_oid invalid in obj_ref!! Not defining checkpoint!!"); 
+    else
+        obj checkpoint;
+    FSeek(rpos + 8);
+    //// END ref_obj
+    */
+} checkpoint_map_entry;
+
+// checkpoint_map (type: 0x0c)
+typedef struct {
+    uint   flags  <read=ReadCheckpointFlags>;
+    uint   entry_count;
+    if (entry_count)
+        checkpoint_map_entry entries[entry_count] <optimize=false>;
+} checkpoint_map;
+
+typedef struct {
+    char   id[32];
+    int64  timestamp <read=ApfsTimeRead>;
+    uint64 last_xid;
+} apfs_modified_by;
+
+// apfs_superblock (type: 0x0d)
+typedef struct {
+  char   magic[4]; // APSB
+  uint   fs_index;
+  vol_features features;
+  uint64 readonly_compatible_features; // none defined currently
+  vol_incompatible_features incompatible_features;
+  int64  unmount_time <read=ApfsTimeRead>;
+  uint64 fs_reserve_block_count;
+  uint64 fs_quota_block_count;
+  uint64 fs_alloc_count;
+  wrapped_meta_crypto_state apfs_meta_crypto; //byte   apfs_meta_crypto[20]; // 
+  uint   root_tree_type <read=ReadTreeType>;
+  uint   extentref_tree_type <read=ReadTreeType>;
+  uint   snap_meta_tree_type <read=ReadTreeType>;
+  //ref_obj omap_oid; // 'Maps node IDs to the inode Btree nodes'  //inlined
+  //// BEGIN ref_obj
+  local uint64 rpos = FTell();
+  uint64 omap_oid;
+  if (omap_oid == 0)
+    Printf("\n%s\n", "omap_oid was 0 in obj_ref!! Not defining omap!!");
+  else if (SeekBlock(omap_oid) != 0) // outside disk image!
+    Printf("\n%s\n", "omap_oid invalid in obj_ref!! Not defining omap!!"); 
+  else
+    obj omap;
+  FSeek(rpos + 8);
+  //// END ref_obj
+  uint64 root_tree_oid;
+  //ref_obj extentref_tree_oid; /// 'Maps file extents to inodes' //inlined
+  //// BEGIN ref_obj
+  rpos = FTell();
+  uint64 extentref_tree_oid;
+  if (extentref_tree_oid == 0)
+    Printf("\n%s\n", "extentref_tree_oid was 0 in obj_ref!! Not defining extentref_tree!!");
+  else if (SeekBlock(extentref_tree_oid) != 0) // outside disk image!
+    Printf("\n%s\n", "extentref_tree_oid invalid in obj_ref!! Not defining extentref_tree!!"); 
+  else
+    obj extentref_tree;
+  FSeek(rpos + 8);
+  //// END ref_obj
+  //ref_obj snap_meta_tree_oid; //inlined
+  //// BEGIN ref_obj
+  rpos = FTell();
+  uint64 snap_meta_tree_oid;
+  if (snap_meta_tree_oid == 0)
+    Printf("\n%s\n", "snap_meta_tree_oid was 0 in obj_ref!! Not defining snap_meta_tree!!");
+  else if (SeekBlock(snap_meta_tree_oid) != 0) // outside disk image!
+    Printf("\n%s\n", "snap_meta_tree_oid invalid in obj_ref!! Not defining snap_meta_tree!!"); 
+  else
+    obj snap_meta_tree;
+  FSeek(rpos + 8);
+  //// END ref_obj
+  uint64 revert_to_xid;
+  uint64 revert_to_sblock_oid;
+  uint64 next_obj_id;
+  uint64 num_files;
+  uint64 num_directories;
+  uint64 num_symlinks;
+  uint64 num_other_fsobjects;
+  uint64 num_snapshots;
+  uint64 apfs_total_blocks_alloced;
+  uint64 apfs_total_blocks_freed;
+  Uuid   vol_uuid;
+  int64  last_mod_time <read=ApfsTimeRead>;
+  volume_flags vol_flags <read=ReadVolFlags>;
+  apfs_modified_by formatted_by;
+  apfs_modified_by modified_by[8];
+  char   volname[256];
+  uint32 next_doc_id;
+  uint16 apfs_role <read=ReadVolRoleFlags>;
+  uint16 reserved;
+  uint64 apfs_root_to_xid; // for later
+  uint64 apfs_er_state_oid; // for later
+  //new from 2020-06-22 spec 
+  uint64 cloneinfo_id_epoch;
+  uint64 cloneinfo_xid;   
+  uint64 snap_meta_ext_oid;
+  Uuid   volume_group_id;
+  uint64 integrity_meta_oid;
+  uint64 fext_tree_oid; // only valid for Sealed volumes
+  if ((incompatible_features & incompat_sealed_volume) == incompat_sealed_volume) {
+    //// BEGIN ref_obj
+    rpos = FTell() - 8;
+    if (fext_tree_oid == 0)
+      Printf("\n%s\n", "fext_tree_oid was 0 in obj_ref!! Not defining fext_tree!!");
+    else if (SeekBlock(fext_tree_oid) != 0) // outside disk image!
+      Printf("\n%s\n", "fext_tree_oid invalid in obj_ref!! Not defining fext_tree!!"); 
+    else
+      obj fext_tree;
+    FSeek(rpos + 8);
+    //// END ref_obj
+  }
+  uint32 fext_tree_type <read=ReadTreeType>;
+  uint32 reserved_type <read=ReadTreeType>;
+  uint64 reserved_oid;
+} apfs_superblock;
+
+typedef struct {
+  char   nej_magic[4]; // JDSR
+  uint32 nej_version;  // 1
+  uint32 nej_efi_file_len;
+  uint32 nej_num_extents;
+  uint64 nej_reserved[16];
+  prange nej_rec_extents[nej_num_extents];
+} efi_jumpstart_t; // Had to use _t due to 010 bug (name clash issue!)
+
+typedef struct {
+    uint64 unknown0;
+    uint64 unknown8;
+    uint64 unknowns[10];
+} reaper;
+
+typedef struct {
+  uint32      sme_version;
+  uint32      sme_flags;
+  uint64      sme_snap_xid;
+  Uuid        sme_uuid;
+  uint64      sme_token;
+} snap_meta_ext;
+
+typedef struct {
+  uint32             im_version;
+  uint32             im_flags;
+  apfs_hash_type     im_hash_type;
+  uint32             im_root_hash_offset;
+  uint64             im_broken_xid;
+  uint64             im_reserved[9];
+} integrity_meta_phys;
+
+
+typedef struct {
+    uint64 cksum; // Flechters checksum, according to the docs.
+    uint64 oid;   // ID of the obj itself. Either the position of the obj or an incrementing number starting at 1024.
+    uint64 xid;   // Incrementing version number of the xid of the obj (highest == latest)
+    obj_type type; 
+    ushort flags <read=ReadObjTypeFlags>;
+    obj_type subtype;
+    ushort pad <hidden=true>;
+} obj_header <size=32>;
+
+typedef struct {
+  local uint64 obj_start_off = FTell();
+  //Printf("\n Obj @ %LX", obj_start_off);
+  obj_header hdr;
+  switch ( hdr.type )
+	{
+    case obj_type_container_superblock: container_superblock body; break;
+    case obj_type_btree: node body; break;
+    case obj_type_btree_node: node body; break;
+    case obj_type_spaceman: spaceman body; break;
+    case obj_type_spaceman_cib: chunk_info_block body; break;
+    case obj_type_omap: b_omap body; break;
+    case obj_type_checkpoint_map: checkpoint_map body; break;
+    case obj_type_fs: apfs_superblock body; break;
+    case obj_type_reaper: reaper rp_body; break;
+    case obj_type_omap_snapshot: omap_snapshot body; break;
+    case obj_type_efi_jumpstart: efi_jumpstart_t body; break;
+    case obj_type_er_state: er_state_phys body; break;
+    case obj_type_snap_meta_ext: snap_meta_ext body; break;
+    case obj_type_integrity_meta: integrity_meta_phys body; break;
+    //case obj_type_checkpoint_map: Printf("\ncheckpoint_map type 0x%X @ 0x%LX", hdr.type, obj_start_off); break;
+    case obj_type_reserved: Printf("\nType 32 obj header type 0x%X @ 0x%LX", hdr.type, obj_start_off); break;
+		default: Printf("\nUnknown obj header type 0x%X @ 0x%LX", hdr.type, obj_start_off); /*Exit(3);*/ break; 
+  }
+  FSeek(obj_start_off + Block_Size);
+} obj <size=GetObjSize, comment=GetObjComment>;
+
+int GetObjSize(obj & o) {
+    return Block_Size;
+}
+
+string GetObjComment(obj & ob) {
+  local string ret = "";
+  if (ob.hdr.type == obj_type_container_superblock){
+    SPrintf(ret, "NX xid=%Lu", ob.hdr.xid);
+  }
+  return ret;
+}
+
+int SeekBlock(uint64 block_id) {
+  Current_Block_Offset = Apfs_Offset + (block_id * Block_Size);
+  return FSeek(Current_Block_Offset);
+}
+
+uint CheckApfsAndSetBlockSize() {
+  local uint64 pos = FTell();
+  FSkip(32);
+  if (ReadUInt() == 0x4253584E) { // NXSB
+    FSkip(4);
+    Block_Size = ReadUInt();
+    FSeek(pos);
+    return true;
+  }
+  FSeek(pos);
+  return false;
+}
+
+void BookmarkVolumes(obj & csb) {
+  local uint i;
+  local string vol_name = "";
+  for (i=0; i < csb.body.omap.body.tree.body.entry_count; ++i) {
+    vol_name = csb.body.omap.body.tree.body.entries[i].val.omap.body.volname;
+    Printf("\nVol name = %s", vol_name);
+    SeekBlock(csb.body.omap.body.tree.body.entries[i].val.paddr);
+    //Printf(", Paddr(block num) = 0x%LX, pos = 0x%LX", csb.body.omap.body.tree.body.entries[i].val.paddr, FTell());
+    obj vol <comment=GetVolName>;
+  }
+}
+
+string GetVolName(obj & vsb) {
+  local string ret = vsb.body.volname;
+  if ((vsb.body.vol_flags & 1) != 1)
+    ret += " <ENCRYPTED volume>";
+  return ret;
+}
+
+typedef struct CheckpointDesc(uint num) {
+  obj checkpoint_desc_nx[num] <optimize=false>;
+} ;
+
+typedef struct APFS(uint64 apfs_offset) {
+  DefineApfsContainer(apfs_offset);  
+} ;
+
+void DefineApfsContainer(uint64 apfs_offset) {
+  Apfs_Offset = apfs_offset;
+  FSeek(Apfs_Offset);
+  if (!CheckApfsAndSetBlockSize()) {
+    Printf("\nError, starting point not an APFS container superblock. Set the 'Apfs_Offset' variable to correct value!");
+    Exit(1);
+  }
+  
+  obj csb;//container super block in block zero
+  
+  
+  SeekBlock(csb.body.xp_desc_base);
+  CheckpointDesc cp(csb.body.xp_desc_blocks);
+  
+  //SeekBlock(csb.body.xp_data_base);
+  //obj checkpoint_data_nx[csb.body.xp_data_blocks] <optimize=false>;
+  
+  // Checkpoint processing
+  local uint i = 0;
+  local uint64 max_xid = 0;
+  local uint64 max_xid_block_pos = 0;
+  SeekBlock(csb.body.xp_desc_base);
+  local uint64 base_pos = FTell();
+  local uint64 pos = 0;
+  
+  for (i=0; i< csb.body.xp_desc_blocks; ++i) { // assuming cont. blocks
+    if (cp.checkpoint_desc_nx[i].hdr.type == obj_type_container_superblock) {
+      if (cp.checkpoint_desc_nx[i].hdr.xid >= max_xid) {
+        // validate it 
+        pos = base_pos + (i * Block_Size);
+        if (fletcher64(pos, Block_Size) == 0) {
+          max_xid = cp.checkpoint_desc_nx[i].hdr.xid;
+          max_xid_block_pos = pos;
+        }
+      }
+    }
+  }
+  if (max_xid > csb.hdr.xid)
+    Printf("\nFound newer xid=%Lu @ offset 0x%Lu. Using this Container superblock.", max_xid, pos);
+  
+  FSeek(pos);
+  obj valid_csb;
+  BookmarkVolumes(valid_csb);
+  if (valid_csb.body.efi_jumpstart) {
+    SeekBlock(valid_csb.body.efi_jumpstart);
+    obj efi_info;
+  }
+  /*if (valid_csb.body.keylocker_block_count) {
+    SeekBlock(valid_csb.body.keylocker_paddr);
+    obj keybag; // This is encrypted!
+  }*/
+}
+
+int IsApfsGuid(GUID & g) {
+  return (g.Data1 == 0x7C3457EF) && (g.Data2 == 0) && (g.Data3 == 0x11AA) &&
+         (g.Data4 == 0xAA11) && (g.Data5[0] == 0) && 
+         (g.Data5[1] == 0x30) && (g.Data5[2] == 0x65) && (g.Data5[3] == 0x43) && 
+         (g.Data5[4] == 0xEC) && (g.Data5[5] == 0xAC);
+}
+
+//MAIN
+LittleEndian();
+FSeek(0x20);
+if (ReadUInt() == 0x4253584E) { // No partitions, just a container at offset 0
+  FSeek(0);
+  APFS apfs(0);
+}
+else {
+  FSeek(512);
+  if (ReadUInt64() == 0x5452415020494645) { // Found EFI PART @ 512
+    DiskBlock_Size = 512;
+    GPT gpt_header;
+    GPTPAPTITIONTABLE table[128];
+    local uint gpt_index;
+    for (gpt_index=0; gpt_index < 128; gpt_index++) {
+      if (IsApfsGuid(table[gpt_index].PartitionTypeGUID) != 0) {
+        FSeek(table[gpt_index].PartitionStartLBA * DiskBlock_Size);
+        APFS apfs(table[gpt_index].PartitionStartLBA * DiskBlock_Size);
+      }
+    }
+  }
+  else {
+    FSeek(4096);
+    if (ReadUInt64() == 0x5452415020494645) { // Found EFI PART @ 4096
+      DiskBlock_Size = 4096;
+      GPT gpt_header;
+      FSkip(4096-512);
+      GPTPAPTITIONTABLE table[128];
+      local uint gpt_index;
+      for (gpt_index=0; gpt_index < 128; gpt_index++) {
+        if (IsApfsGuid(table[gpt_index].PartitionTypeGUID) != 0) {
+          FSeek(table[gpt_index].PartitionStartLBA * DiskBlock_Size);
+          APFS apfs(table[gpt_index].PartitionStartLBA * DiskBlock_Size);
+        }
+      }
+    }
+    else {
+      Printf("\nError, could not find an APFS container superblock or an EFI Partition table!");
+      Exit(1);
+    }
+  }
+}

@@ -1,0 +1,78 @@
+//------------------------------------------------
+//--- 010 Editor v8.0.1 Binary Template
+//
+//      File: GGPK.bt
+//   Authors: Maximilian Munchow
+//   Version: 1.0
+//   Purpose: A template for the content.ggpk used in Path of Exile.
+//  Category: Game
+// File Mask: *.ggpk
+//  ID Bytes: [+4] 47 47 50 4B
+//   History:
+//   1.0   2018-03-24 Maximilian Munchow: Created Template
+//------------------------------------------------
+
+enum <uint32> Tag
+{
+    TAG_GGPK = 0x4B504747,
+    TAG_FREE = 0x45455246,
+    TAG_FILE = 0x454C4946,
+    TAG_PDIR = 0x52494450,
+};
+
+struct GGPK(uint32 total_length) {
+    uint32 global_pointers_count;
+    uint64 global_pointers[global_pointers_count];
+};
+
+struct File(uint32 total_length) {
+    local uint64 position = FTell();
+    uint32 name_size;
+    byte hash[32]; // sha256
+    wchar_t name[name_size];
+    byte bytes[position + total_length - FTell()];
+};
+
+struct Directory(uint32 total_length)
+{
+    uint32 name_size;
+    uint32 entry_count;
+    byte hash[32]; // sha256
+    wchar_t name[name_size];
+    struct Entry
+    {
+        uint32 index; // murmur2 hash of the lowercase file name
+        uint64 offset;
+    } entries[entry_count];
+};
+
+struct Record {
+    local uint64 position = FTell();
+    uint32 length;
+    Tag tag;
+    switch (tag) {
+        case TAG_GGPK: GGPK content(length - 8); break;
+        case TAG_FREE: byte content[length - 8]; break;
+        case TAG_FILE: File content(length - 8); break;
+        case TAG_PDIR: Directory content(length - 8); break;
+        default: Assert(false);
+    };
+    Assert(position + length == FTell()); // ensure that the whole record has been consumed.
+};
+
+string RecordRead(Record& r)
+{
+    string result;
+    switch (r.tag) {
+        case TAG_GGPK: result = "GGPK-Header"; break;
+        case TAG_FREE: SPrintf(result, "Free: %u bytes", sizeof(r.content)); break;
+        case TAG_FILE: SPrintf(result, "File %s: %u bytes", r.content.name, sizeof(r.content.bytes)); break;
+        case TAG_PDIR: SPrintf(result, "Directory %s: %u entries", r.content.name, r.content.entry_count); break;
+        default: Assert(false);
+    };
+    return result;
+}
+
+while (FTell() < FileSize()) {
+    Record record <read = RecordRead>;
+}

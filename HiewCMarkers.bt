@@ -1,0 +1,579 @@
+//------------------------------------------------
+//    010 Editor v7.0 Binary Template
+//
+//      File: HiewCMarkers.bt
+//   Authors: Jupiter
+//   Version: 1.0
+//   Purpose: Hiew Colour Markers highlighting.
+//  Category: Software
+// File Mask: *.cmarkers
+//  ID Bytes: 48 69 65 77 43 4D 61 72 6B 65 72 73 //HiewCMarkers
+//  Features: Colorize Len field with marker block corresponding colours
+//            Import field comments from corresponding .namet (text names) file
+//            Show detailed report including Name fields from .namet file
+//            Many #defines to control template output
+//   History:
+//        1.0 2016-05-01 Jupiter: Initial release to support HiewCMarkers format introduced in Hiew 8.32 
+//  Contacts: jupiter.rnd at gmail.com        
+//------------------------------------------------
+
+RequiresVersion(6); 
+
+#define HDR_SIZE         16
+#define COLOUR_BLOCK_SIZE   12
+
+#define REPORT_ON   1
+#ifdef REPORT_ON
+    //#define REPORT_DBG  1
+    //#define REPORT_EACH_CLR 1
+    #define REPORT_DETAILED   1
+    #ifdef REPORT_DETAILED
+        #define REPORT_EXT_COLOUR_HDR   1  // Extended colour table header
+    #endif
+#endif
+
+#define READ_NAMES   1  // Read names from corresponding .namet file
+#ifdef READ_NAMES
+    //#define REPORT_NAMES_FILE_CONTENT_RAW   1
+    //#define REPORT_NAMES_FILE_CONTENT_CLEAN   1
+    //#define REPORT_NAMES_DETAILED   1
+    //#define REPORT_NAMES_DBG_DETAILED   1
+#endif
+
+// Main header
+typedef struct {
+	// MARKERS_HEADER
+    // Header size: 16 bytes (aligned)
+	char	Sign[13] <name="Signature", comment="HiewCMarkers", open=suppress>; // +0 "HiewCMarkers",0
+	BYTE    Align <name="Alignment", fgcolor=cGray>; // +13
+    // Hiew version (hardcoded): 8.32
+	BYTE    versionMajor <name="Hiew version major", format=hex, fgcolor=cDkGray>; // +14 Hiew version major (hex): 08
+	BYTE    versionMinor <name="Hiew version minor", format=hex, fgcolor=cSilver>; // +15 Hiew version minor (hex): 32
+} MARKERS_HEADER <name="Header", comment="Hiew Colour Markers">;
+
+// Get number of COLOUR records in cmarkers file
+int GetClrBlockCnt()
+{
+    return (FileSize() - HDR_SIZE)/COLOUR_BLOCK_SIZE;
+}
+
+// Get RGB colour values from respective console colour ID
+int GetColour (int ConsoleColour)
+{
+    local int IntColour;
+    // Switch using predefined 010 Editor constants in 0xBBGGRR format
+    switch  ( ConsoleColour )
+    {
+        case    0:
+            IntColour = cBlack;
+            break;
+        case    8:
+            IntColour = cGray;
+            break;
+        case    1:
+            IntColour = cDkBlue;
+            break;
+        case    9:
+            IntColour = cBlue;
+            break;
+        case    2:
+            IntColour = cDkGreen;
+            break;
+        case    10:
+            IntColour = cGreen;
+            break;
+        case    3:
+            IntColour = cDkAqua;
+            break;
+        case    11:
+            IntColour = cAqua;
+            break;
+        case    4:
+            IntColour = cDkRed;
+            break;
+        case    12:
+            IntColour = cRed;
+            break;
+        case    5:
+            IntColour = cDkPurple;
+            break;
+        case    13:
+            IntColour = cPurple;
+            break;
+        case    6:
+            IntColour = cDkYellow;
+            break;
+        case    14:
+            IntColour = cYellow;
+            break;
+        case    7:
+            IntColour = cSilver;
+            break;
+        case    15:
+            IntColour = cWhite;
+            break;
+        default:
+            IntColour = cNone;
+            break;
+    }
+    // Report source and converted values: 0A | 10 : 00FF00
+    #ifdef REPORT_EACH_CLR
+        Printf( "%02X | %02i : %06X\n", ConsoleColour, ConsoleColour, IntColour );
+    #endif
+    return  IntColour;
+}
+
+// Convert 3 UBYTES of Len field to UINT
+int GetAreaLen (UBYTE Len1,UBYTE Len2,UBYTE Len3)
+{
+    local UINT iLen,iLen1,iLen2,iLen3;
+    iLen3 = Len3; iLen3 = iLen3 << 16;
+    iLen2 = Len2; iLen2 = iLen2 << 8;
+    iLen1 = Len1;
+    iLen = iLen1 + iLen2 + iLen3;
+    Assert (iLen > 0, "Incorrect colour block length");
+    return iLen;
+}
+
+
+// Colour record (repetive)
+typedef struct {
+    // COLOUR RECORD
+    // Record size: 12 bytes (aligned)
+    local UINT ColourBlockLen;
+
+    // All fileds are displayed as hex
+    DisplayFormatHex();
+
+    QWORD   Offset <format=hex, name=GetNameByAddress, comment=GetCommentByAddress>;    // Offset of highlighted area
+
+    //SetBackColor(cNone);
+    SetColor (cWhite,cBlack);   // Highlight Colour value (White on Black)
+    UBYTE   FrColour : 4 <name="Foreground">; // , format=hex, comment="Foreground Colour">; // Extract 4 bit Foreground Colour from Color byte
+    UBYTE   BgColour : 4 <name="Background">; // , format=hex, comment="Background Colour">; // Extract 4 bit Background Colour from Color byte
+
+    // Highlight following Len field with corresponding background and foreground colours
+    SetBackColor ( GetColour (BgColour) );
+    SetForeColor ( GetColour (FrColour) );
+    UBYTE   Len[3] <name="Len", format=hex, open=suppress>;     // Len of highlighted area
+    ColourBlockLen = GetAreaLen (Len[0],Len[1],Len[2]);
+
+    // Report
+    #ifdef REPORT_ON
+        #ifdef REPORT_DETAILED
+            Printf( "%08X: %02X | %02i | %06X, %02X | %02i | %06X, %X", Offset, FrColour, FrColour, GetForeColor(), BgColour, BgColour, GetBackColor(), GetAreaLen (Len[0],Len[1],Len[2]) );
+    
+            #ifdef  READ_NAMES
+            local   string sComment;
+            sComment = GetCommentByAddress (Offset);
+            if (sComment != "")
+                Printf( ", %s", sComment );
+            #endif
+            Printf( "\n");
+        #else
+            Printf( "%08X: %02X | %06X, %02X | %06X, %i\n", Offset, FrColour, GetForeColor(), BgColour, GetBackColor(), GetAreaLen (Len[0],Len[1],Len[2]) );
+        #endif
+    #endif
+} COLOUR <name=GetBlockNameByAddress, optimize=false, open=true>;  // Do not optimize to get correct highlighting results
+
+
+// Open files with names
+// Filename: .namet
+#ifdef  READ_NAMES
+
+local int iNamesCnt; // Number of Names found in .namet file
+local string sNamesClean; // Names file content cache (full)
+
+
+// Get 'names' filename (with .namet extension)
+string GetNamesFileName()
+{
+    local string NamesFile;
+
+    // Create .namet filename
+    NamesFile = FileNameSetExtension ( GetFileName(), "namet" );
+
+    #ifdef REPORT_DBG
+    // Report short filenames
+    Printf ( "\n");
+    Printf ( "Markers file: %s\n", FileNameGetBase ( GetFileName() ) );
+    Printf ( "Names text file: %s\n\n", FileNameGetBase ( NamesFile ) );
+    #endif
+
+    if ( FileExists ( NamesFile) )
+    {   
+        #ifdef REPORT_DETAILED
+        // Report short filename if found
+        Printf ( "Corresponding text file with Names found: %s\n", FileNameGetBase(NamesFile) );
+        #endif
+        // Returns full path to .namet filename
+        return NamesFile;
+    }
+    else
+    {
+        // No file found
+        return "";
+    }
+    
+}
+
+// Parse line and extract address and comment
+// Return: Number of parsed bytes including linefeeds
+int GetFieldDataFromLine ( string Content, int iLinePos, QWORD &Addr, string &Comment )
+{
+    local string sFieldData;
+    local string Sep = "  ";
+    local int iLineDataStart, iCurLinePos, iNextLinePos, iBytesParsed;
+
+    iCurLinePos = iLinePos;
+
+    // Check if line is not empty
+    iBytesParsed = TextGetLineSize ( TextAddressToLine (iCurLinePos),true );
+    if ( iBytesParsed < 8 )
+    {
+        #ifdef REPORT_DBG
+        Printf ( "Empty line, skipping\n" );
+        #endif
+        return iBytesParsed;
+    }
+
+    // Prepare string
+    sFieldData = ReadLine ( iCurLinePos, -1, false );
+    //Printf ( "Line: [%s]\n", sFieldData );
+
+    // Find first space (each .namet line starts from space)
+    iLineDataStart = Strstr ( sFieldData, " " );
+
+    if (iLineDataStart > 0 && iLineDataStart < 2 )
+    {
+        iCurLinePos = iCurLinePos + iLineDataStart;
+        // Get line with new start position
+        sFieldData = ReadLine ( iCurLinePos, -1, false );
+    }
+
+    // Next line
+    iBytesParsed = TextGetLineSize ( TextAddressToLine ( iCurLinePos ),true );
+    iNextLinePos = iCurLinePos + iBytesParsed;
+
+    // Extract address
+    // 000001F5  Comment
+    // 12345678..Comment
+    SScanf ( sFieldData, " %X  ", Addr );
+
+    // Read whole comment
+    // Find double space separator
+    Comment = StrDel ( sFieldData, 0, Strstr (sFieldData,Sep) + ( sizeof (Sep)-1) );
+
+    // Store extracted string to internal flat string array
+    SPrintf ( sNamesClean, "%s%08X : %s\r\n", sNamesClean, Addr, Comment );
+
+    // Report
+    #ifdef REPORT_DBG
+    Printf ( "%08X : %s\n", Addr, Comment );
+    Printf ( "[%s]\n", sFieldData);
+
+    #ifdef REPORT_NAMES_DETAILED
+    Printf ( "\n");
+    Printf ( "Addr: %08X | %X\n", Addr, Addr );
+    Printf ( "Comment: '%s'\n", Comment );
+    Printf ( "\n");
+    Printf ( "Line position: %i\n", iLinePos );
+    Printf ( "Space position: %i\n", iLineDataStart );
+    Printf ( "Line size: %i\n", TextGetLineSize ( TextAddressToLine (iCurLinePos),false ) );
+    Printf ( "Line size with linefeeds: %i\n", iBytesParsed );
+    Printf ( "Next Line position: %i\n\n", iNextLinePos );
+    #endif
+    #endif
+
+    return (iBytesParsed); // Number of parsed bytes including linefeeds
+}
+
+// Get fields from names files
+int GetNames (int Addr)
+{
+    local string NamesFile;
+    
+    local int bNamesAlreadyOpen;
+    local int f1,fNames,fNamesSize,fNamesLines;
+    local QWORD addr1;
+    local string sComment;
+    local int iPos, iParsed;
+
+    // Get text names filename
+    NamesFile = GetNamesFileName();
+
+    if (NamesFile == "")
+        return false;
+
+    // Store current file number to restore it later
+    f1 = GetFileNum();
+
+    // Process names file
+
+    // Trying to find file in opened files
+    bNamesAlreadyOpen = false;
+
+    fNames = FindOpenFile (NamesFile);
+    if (fNames > 0)
+    {
+        bNamesAlreadyOpen = true;
+        #ifdef REPORT_DBG
+        Printf ( "Names file was already opened\n");
+        #endif
+    }
+    else
+    {   
+        FileOpen ( NamesFile );
+        fNames = FindOpenFile (NamesFile);
+    }
+
+    #ifdef REPORT_DBG
+    Printf ( "File Num: %i\n", fNames );
+    #endif
+
+    // Now working witn .namet file
+    FileSelect ( fNames );
+
+    // Check file size
+    fNamesSize = FileSize();
+    if (fNamesSize < 12)
+    {
+        #ifdef REPORT_ON
+        Printf ( "Error: File size should be at least 12 bytes");
+        #endif
+
+        if (!bNamesAlreadyOpen)
+        {
+            // Close file if it wasn't previously open by user
+            FileClose();
+        }
+        FileSelect(f1);
+        return false;
+    }
+
+    // Number of lines = named fields (file has no header)
+    fNamesLines = TextGetNumLines();
+    iNamesCnt = fNamesLines;
+
+    #ifdef REPORT_DBG
+    Printf ( "File Size: %i\n", fNamesSize);
+    Printf ( "Number of lines: %i\n", fNamesLines);
+
+    #ifdef REPORT_NAMES_FILE_CONTENT_RAW
+    Printf ( "\n");
+    Printf ( "Names file content (raw):\n");
+    Printf ( ReadString(0) );   // Read the whole file content
+    Printf ( "[EOF]\n");
+    #endif
+    #endif
+
+    // Line by line
+    iPos = 0;
+    iParsed = 0;
+    iNamesCnt = 0;
+
+    local int iCnt;
+
+    for (iCnt = 0; iCnt < fNamesLines; ++iCnt)
+    {
+        #ifdef REPORT_DBG
+        Printf ( "\nRun #%i\n", iCnt + 1 );
+        #endif
+        iParsed =  GetFieldDataFromLine ( ReadString(0), iPos, addr1, sComment );
+
+        if ( iParsed > 8 )
+        {
+            ++iNamesCnt; // Count only lines with names
+        }
+
+        iPos = iPos + iParsed;
+        
+    }
+    #ifdef REPORT_ON
+    
+    #ifdef REPORT_DBG
+    Printf ( "\n" );
+    Printf ( "Lines in file: %i\n", fNamesLines );
+    #endif
+    
+    #ifdef REPORT_DETAILED
+    Printf ( "Number of comments imported: %i\n", iNamesCnt);
+    #endif
+
+    #ifdef REPORT_NAMES_FILE_CONTENT_CLEAN
+    Printf ( "\n");
+    Printf ( "Names file content (clean):\n" );
+    Printf ( sNamesClean );
+    Printf ( "\n");
+    #endif
+    #endif
+
+    if (!bNamesAlreadyOpen)
+        // Close file if it wasn't previously open by user
+        FileClose();
+
+    // Return to main file
+    FileSelect(f1);
+
+    return  true;
+}
+#endif
+
+string GetBlockNameByAddress (COLOUR &ColourBlock)
+{
+    #ifdef  READ_NAMES
+
+    local string sComment, OffsetComment;
+
+    sComment = GetCommentByAddress ( ColourBlock.Offset );
+
+    if (sComment == "")
+        OffsetComment = "Colour Marker";
+    else
+        SPrintf ( OffsetComment, "Colour Marker [%s] ", sComment );
+
+    return OffsetComment;
+
+    #else
+    return "";
+    #endif
+}
+
+// Get 'Offset' field name
+string GetNameByAddress (QWORD Addr)
+{
+    #ifdef  READ_NAMES
+    local string sComment, OffsetComment;
+
+    sComment = GetCommentByAddress ( Addr );
+
+    if (sComment == "")
+        OffsetComment = "Offset";
+    else
+        SPrintf ( OffsetComment, "Offset [%s]", sComment );
+
+    return OffsetComment;
+
+    #else
+    return "";
+    #endif
+}
+
+
+// Return: comment if found for corresponding address
+string GetCommentByAddress (QWORD Addr)
+{
+    #ifdef  READ_NAMES
+    local   string sComment,sAddr, sFieldData;
+    // local string sFieldData;
+    local string Sep = " : ";
+    local int iFound;
+    local int iPos, iEndPos, iParsed;
+    local QWORD addr1;
+
+    addr1 = Addr;
+
+    SPrintf ( sAddr, "%08X", Addr);
+    
+    iPos = Strstr ( sNamesClean, sAddr);
+    iFound = iPos;
+    sFieldData = SubStr ( sNamesClean, iPos );
+
+    // Hiew uses default Windows CRLF
+    iEndPos = Strstr ( sFieldData, "\r\n");
+    // if ( !iEndPos )
+    //     iEndPos = Strstr ( sFieldData, "\0");
+
+    // sFieldData = SubStr ( sNamesClean, iPos, iPos + iEndPos );
+    sFieldData = SubStr ( sFieldData, 0, iEndPos );
+
+    #ifdef REPORT_NAMES_DBG_DETAILED
+    Printf ( "\n\n" ); 
+    Printf ( "[%s]", sFieldData );
+    Printf ( ", Start: %i, End: %i", iPos, iEndPos );
+    #endif
+
+    if ( iFound != -1 )
+    {
+        // Extract address
+        // 000001F5  Comment
+        // 12345678..Comment
+        // Find double space separator
+        sComment = StrDel ( sFieldData, 0, Strstr (sFieldData,Sep) + ( sizeof (Sep)-1) );
+        // iPos = Strstr (sFieldData,Sep);
+
+        // sComment = SubStr ( sFieldData, iPos, Strstr (sFieldData,Sep) + ( sizeof (Sep)-1) );
+        return sComment;
+    }
+    else
+        return "";
+    #else
+        return "";
+    #endif
+}
+
+
+// ______________________
+//  Begin
+// ______________________
+
+LittleEndian();
+
+OutputPaneClear();
+
+#ifdef REPORT_DBG
+if  (GetNumArgs() > 0)
+    Printf("Arg: %s\n", GetArg(0));
+#endif
+
+#ifdef REPORT_ON
+Printf ( "Parsing Hiew Colour Markers file: %s\n", FileNameGetBase ( GetFileName() ) );
+#endif
+
+// Header
+SetColor (cWhite,cDkAqua);
+MARKERS_HEADER  HiewCMarkers;
+Assert (sizeof (MARKERS_HEADER) == HDR_SIZE, "Incorrect header");
+
+
+#ifdef  READ_NAMES
+
+// Load names from corresponding .namet file
+GetNames(false);
+
+#endif
+
+// ______________________
+//  Report
+// ______________________
+
+// Detailed:
+//  Offset |    Foreground   |    Background   | Len
+//         | hex  dec  BBGGRR| hex  dec  BBGGRR| hex
+// 000001F5: 0C | 12 | 0000FF, 0A | 10 | 00FF00, 003
+
+// Short:
+//  Offset | Foreground | Background | Len
+// 000001F5: 0C | 0000FF, 0A | 00FF00, 003
+
+#ifdef REPORT_ON
+    #ifdef REPORT_DBG
+    Printf ( "\n");
+    #endif
+
+    #ifdef REPORT_DETAILED
+        Printf("Number of colour blocks found: %i\n\n", GetClrBlockCnt() );
+
+        Printf(" Offset |    Foreground   |    Background   | Len\n");
+    #else
+        Printf(" Offset | Foreground | Background | Len\n");
+    #endif
+    #ifdef REPORT_EXT_COLOUR_HDR
+        Printf("        | hex  dec  BBGGRR| hex  dec  BBGGRR| hex\n\n");
+    #endif
+#endif
+
+SetColor(cNone,cNone); // Restore default colours
+COLOUR    Color[GetClrBlockCnt()];
+Assert ( sizeof (Color) == COLOUR_BLOCK_SIZE, "Incorrect colour block");
+

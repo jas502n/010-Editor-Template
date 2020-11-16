@@ -1,0 +1,105 @@
+//------------------------------------------------
+//--- 010 Editor v9.0.1 Binary Template
+//
+//   File:      IGI2_RES.bt
+//   Authors:   Rotari Artiom
+//    E-mail:   ordersone@gmail.com
+//   Version:   1.0
+//   Purpose:   'IGI 2: Covert Strike' Resource pack format
+//   Category:  Game
+//   File Mask: *.res
+//   ID Bytes:  49 4C 46 46  // ILFF
+//   History: 
+//   1.0   2019-03-04 Rotari Artiom: Initial release
+//------------------------------------------------
+
+typedef string STRING;
+
+// This format look like RIFF but have diferent header fields.
+// This format is used to pack arbitrary number of files in one file.
+// Also is used to store text data (for language pack)
+// ILFF block is container for a number of InnerLoop formats (IRES is one of those)
+// IRES block (struct with signature IRES) contain a pare number of blocks.
+// IRES sub-blocks can have 4 types - NAME, BODY, CSTR, PATH
+// Example:
+//   IRES
+//     BLOCK NAME
+//     BLOCK BODY
+//     BLOCK NAME
+//     BLOCK BODY
+//     BLOCK NAME
+//     BLOCK CSTR
+//     ...
+//     BLOCK NAME
+//     BLOCK PATH
+
+// Block NAME is used to store name for data in next block.
+//   Example value: "LOCAL:models/454_44_9.mef"
+
+// Block BODY is used to store raw bytes
+
+// Block CSTR is used to store strings (but encoding can variate)
+
+// Block PATH is used to store sring that contains all NAMEs (semicolon-separated).
+//   Example value: "LOCAL:models/454_44_9.mef;"LOCAL:models/454_55_0.mef;sounds/333_33_1.wav;""
+
+struct
+{
+    LittleEndian();
+
+    CHAR  Signature[4];  // ILFF (InnerLoop File Format)
+    DWORD Length;        // Data length
+    DWORD Align;         // (allways 4)
+    DWORD NextOffset;    // Offset to next block from startof this block (if there are no blocks below - 0)
+
+    struct
+    {
+        CHAR Signature[4]; // IRES
+
+        struct
+        {
+            while(FTell() < FileSize())
+            {
+                // Aligning
+                while(FTell() % 4 != 0) BYTE Pad <hidden=true>;
+
+                struct
+                {
+                    CHAR   Signature[4];  // NAME
+                    DWORD  Length;
+                    DWORD  Align;
+                    DWORD  NextOffset;
+
+                    STRING DataName;
+                } NAME;
+
+                // Aligning
+                while(FTell() % 4 != 0) BYTE Pad <hidden=true>;
+
+                struct
+                {
+                    CHAR  Signature[4];
+                    DWORD Length;
+                    DWORD Align;
+                    DWORD NextOffset;
+
+                    switch(Signature)
+                    {
+                        // rawdata of file
+                        case "BODY":
+                            BYTE Data[Length]; break;
+
+                        // string data used for languages
+                        case "CSTR":
+                            BYTE Data[Length]; break;
+
+                        // semicolon separated block names
+                        // allways last data block (if exist)
+                        case "PATH":
+                            STRING Data[Length]; break;
+                    }
+                } DATA;
+            }
+        } BLOCKS;
+    } IRES;
+} IGI2_RES;

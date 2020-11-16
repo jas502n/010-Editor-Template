@@ -1,0 +1,582 @@
+//------------------------------------------------
+//--- 010 Editor v7.0 Binary Template
+//
+//      File: BPlist.bt
+//   Authors: Alexey Lyashko
+//   Version: 1.0.1
+//   Purpose: Template for parsing Apple Binary Property List format.
+//  Category: Operating System
+// File Mask: *.plist
+//  ID Bytes: 62 70 6c 69 73 74 30 30  //bplist00
+//   History: 
+//   1.0.1   2017-01-23  A. Lyashko:  Fixed bug with sign extension in read_offset function.
+//   1.0     2017-01-18  A. Lyashko:  Initial release.
+//------------------------------------------------
+
+// plist00 format is big endian...
+BigEndian();
+
+// Entry types allowed for bplist00 format
+enum <unsigned char> EntryType{
+    ETNull = 0,
+    ETFalse = 0x08,
+    ETTrue = 0x09,
+    ETFill = 0x0f,
+    ETInt = 0x10,
+    ETReal = 0x20,
+    ETDate = 0x30,
+    ETData = 0x40,
+    ETString = 0x50,
+    ETUnicode = 0x60,
+    ETUnused = 0x70,
+    ETUid = 0x80,
+    ETArray = 0xa0,
+    ETSet = 0xc0,
+    ETDictionary = 0xd0,
+    ETMask = 0xf0
+};
+
+/* For some reason, Apple guys decided to put the information, that may
+ * usually be found in headers, at the end of file.
+ */
+typedef struct
+{
+    unsigned char   padding[6];
+    unsigned char   sizeOfInteger;
+    unsigned char   sizeOfObjectRef;
+    unsigned int64   numObjects;
+    unsigned int64   firstObjectIndex;
+    unsigned int64   offsetTableOffset;
+}Trailer;
+
+/* Variable size integer */
+typedef struct
+{
+    unsigned char   id:4;
+    unsigned char   numBytes:4;
+    if((int)Pow((double)2, (double)numBytes) == 1)
+        unsigned char       val;
+    else if((int)Pow((double)2, (double)numBytes) == 2)
+        unsigned short      val;
+    else if((int)Pow((double)2, (double)numBytes) == 4)
+        unsigned int        val;
+    else if((int)Pow((double)2, (double)numBytes) == 8)
+        unsigned int64      val;
+}Int <fgcolor=0x339900>;
+
+
+/* Variable size real number */
+typedef struct
+{
+    unsigned char   id:4;
+    unsigned char   numBytes:4;
+    if((int)Pow((double)2, (double)numBytes) == 1)
+        unsigned char       val;
+    else if((int)Pow((double)2, (double)numBytes) == 2)
+        unsigned short      val;
+    else if((int)Pow((double)2, (double)numBytes) == 4)
+        unsigned int        val;
+    else if((int)Pow((double)2, (double)numBytes) == 8)
+        unsigned int64      val;
+}Real <fgcolor=0x339900>;
+
+/* Dictionary */
+typedef struct
+{
+    unsigned char   type:4;
+    unsigned char   numEntries:4;
+    if(0x0f == numEntries)
+    {    
+        Int        numNodes;
+        if(numNodes.val != 0)
+        {
+            if(parentof(parentof(this)).sizeOfObjectRef == 1)
+            {
+                local int z;
+                for(z=0; z < numNodes.val; z++)
+                    unsigned char   keyIdx <comment=read_offset>;
+                for(z=0;z < numNodes.val; z++)
+                    unsigned char   valueIdx <comment=read_offset>;
+            }
+            else
+            {
+                local int z;
+                for(z=0; z < numNodes.val; z++)
+                    unsigned short   keyIdx <comment=read_offset>;
+                for(z=0;z < numNodes.val; z++) 
+                    unsigned short   valueIdx <comment=read_offset>;
+            }
+        }
+    }
+    else
+    {
+        if(numEntries != 0)
+        {
+            if(parentof(parentof(this)).sizeOfObjectRef == 1)
+            {
+                //unsigned char   keyIdx[numEntries];
+                //unsigned char   valueIdx[numEntries];
+                local int z;
+                for(z=0; z < numEntries; z++)
+                    unsigned char   keyIdx <comment=read_offset>;
+                for(z=0;z < numEntries; z++)
+                    unsigned char   valueIdx <comment=read_offset>;
+            }
+            else
+            {
+                //unsigned short  keyIdx[numEntries];
+                //unsigned short  valueIdx[numEntries];
+                local int z;
+                for(z=0; z < numEntries; z++)
+                    unsigned short   keyIdx <comment=read_offset>;
+                for(z=0;z < numEntries; z++) 
+                    unsigned short   valueIdx <comment=read_offset>;
+            }
+        }
+    }
+}Dictionary <fgcolor=0x6600cc>;
+
+/* Array */
+typedef struct
+{
+    unsigned char   type:4;
+    unsigned char   numEntries:4;
+    if(0x0f == numEntries)
+    {    
+        Int        numNodes;
+        if(numNodes.val > 0)
+        {
+            if(parentof(parentof(this)).sizeOfObjectRef == 1)
+            {
+                //unsigned char   objIdx[numNodes.val];
+                local int z;
+                for(z = 0; z < numNodes.val; z++)
+                    unsigned char   objIdx <comment=read_offset>;
+            }
+            else
+            {
+                //unsigned short  objIdx[numNodes.val];
+                local int z;
+                for(z = 0; z < numNodes.val; z++)
+                    unsigned short   objIdx <comment=read_offset>;
+            }
+        }
+    }
+    else
+    {
+        if(numEntries > 0)
+        {
+            if(parentof(parentof(this)).sizeOfObjectRef == 1)
+            {
+                //unsigned char   objIdx[numEntries];
+                local int z;
+                for(z = 0; z < numEntries; z++)
+                    unsigned char   objIdx <comment=read_offset>;
+            }
+            else
+            {
+                //unsigned short  objIdx[numEntries];
+                local int z;
+                for(z = 0; z < numEntries; z++)
+                    unsigned short   objIdx <comment=read_offset>;
+            }
+        }
+    }
+}Array <fgcolor=0x6630ff>;
+
+/* Set */
+typedef struct
+{
+    unsigned char   type:4;
+    unsigned char   numEntries:4;
+    if(0x0f == numEntries)
+    {    
+        Int        numNodes;
+        if(numNodes.val > 0)
+        {
+            if(parentof(parentof(this)).sizeOfObjectRef == 1)
+            {
+                //unsigned char   objIdx[numNodes.val];
+                local int z;
+                for(z = 0; z < numNodes.val; z++)
+                    unsigned char   objIdx <comment=read_offset>;
+            }
+            else
+            {
+                //unsigned short  objIdx[numNodes.val];
+                local int z;
+                for(z = 0; z < numNodes.val; z++)
+                    unsigned short   objIdx <comment=read_offset>;
+            }
+        }
+    }
+    else
+    {
+        if(numEntries > 0)
+        {
+            if(parentof(parentof(this)).sizeOfObjectRef == 1)
+            {
+                //unsigned char   objIdx[numEntries];
+                local int z;
+                for(z = 0; z < numEntries; z++)
+                    unsigned char   objIdx <comment=read_offset>;
+            }
+            else
+            {
+                //unsigned short  objIdx[numEntries];
+                local int z;
+                for(z = 0; z < numEntries; z++)
+                    unsigned short   objIdx <comment=read_offset>;
+            }
+        }
+    }
+}Set <fgcolor=0x6630ff>;
+
+/* ASCII string */
+typedef struct
+{
+    unsigned char   id:4<fgcolor=0x0c62b8>;
+    unsigned char   numBytes:4;
+    if(0x0f == numBytes)
+    {
+        Int                numBytesEx;
+        unsigned char       bytes[numBytesEx.val]<fgcolor=0x0099ff>;
+    }
+    else
+    {
+        unsigned char       bytes[numBytes]<fgcolor=0x0099ff>;
+    }
+}ASCIIString;
+
+/* Unicode string */
+typedef struct
+{
+    unsigned char   id:4<fgcolor=0x0c62b8>;
+    unsigned char   numBytes:4;
+    if(0x0f == numBytes)
+    {
+        Int                numBytesEx;
+        unsigned short      bytes[numBytesEx.val]<fgcolor=0x0099ff>;
+    }
+    else
+    {
+        unsigned short      bytes[numBytes]<fgcolor=0x0099ff>;
+    }
+}UNICODEString;
+
+/* Binary data */
+typedef struct
+{
+    unsigned char   id:4;
+    unsigned char   numBytes:4;
+    if(0x0f == numBytes)
+    {
+        Int                numBytesEx;
+        unsigned char       bytes[numBytesEx.val];
+    }
+    else
+    {
+        unsigned char       bytes[numBytes];
+    }
+}Data <fgcolor=0xe630ff>;
+
+/* UID */
+typedef struct
+{
+    unsigned char   id:4;
+    unsigned char   numBytes:4;
+    if(numBytes + 1 != 0)
+    {
+        unsigned char uidByte[numBytes + 1]<fgcolor=0xb51c17>;
+    }
+}Uid;
+
+/* 8 bytes float date */
+typedef struct
+{
+    unsigned char           id;
+    double                  date;
+}Date;
+
+/* This structure encapsulates the content of a binary property list */
+typedef struct 
+{
+    local unsigned char  idByte;
+    unsigned char   signature[8];
+    while(FTell() != parentof(this).offsetTableOffset)
+    {
+        idByte = ReadByte();
+        switch(idByte & ETMask)
+        {
+            case 0:
+                if(idByte == ETNull)    unsigned char _null<bgcolor=0x747474, fgcolor=0xe1e1e1>;
+                else if(idByte == ETFalse) unsigned char    _false<bgcolor=0x747474, fgcolor=0x7a8afc>;
+                else if(idByte == ETTrue)   unsigned char   _true<bgcolor=0x747474, fgcolor=0x4afd31>;
+                else if(idByte == ETFill)   unsigned char   _fill<bgcolor=0x000000, fgcolor=0xffffff>;
+                break;
+
+            case ETInt:
+                Int        _int;
+                break;
+
+            case ETReal:
+                Real        _real;
+                break;
+
+            case ETDictionary:
+                Dictionary  dict;
+                break;
+
+            case ETString:
+                ASCIIString str <comment=create_string_comment>;
+                break;
+
+            case ETDate:
+                Date        date;
+                break;
+
+            case ETData:
+                Data        data;
+                break;
+
+            case ETArray:
+                Array       array;
+                break;
+
+            case ETUnicode:
+                UNICODEString ustr <comment=create_wstring_comment>;
+                break;
+
+            case ETSet:
+                Set         set;
+                break;
+
+            case ETUid:
+                Uid         uid;
+                break;
+
+            default:
+                unsigned char unknown;
+                break;
+        }
+    }
+}bplist;
+
+/* Finally, representation of the whole property list */
+typedef struct 
+{
+    local unsigned char     sizeOfInteger, sizeOfObjectRef;
+    local unsigned int64    offsetTableOffset, numberOfObjects;
+    
+    FSeek(FileSize() - 32 + 6);     // Trailer.sizeOfInteger 
+    sizeOfInteger = ReadByte();
+    
+    FSeek(FileSize() - 32 + 7);     // Trailer.sizeOfObjectRef
+    sizeOfObjectRef = ReadByte();
+    
+    FSeek(FileSize() - 32 + 8);     // Trailer.numObjects
+    numberOfObjects = ReadInt64();
+    
+    FSeek(FileSize() - 8);          // Trailer.offsetTableOffset
+    offsetTableOffset = ReadInt64();
+
+    FSeek(0);
+
+    /* List content */
+    bplist          list;
+
+    /* Offset table */
+    if(sizeOfInteger == 1)
+        unsigned char       offsetTable[numberOfObjects];
+    else if(sizeOfInteger == 2)
+        unsigned short      offsetTable[numberOfObjects];
+    else if(sizeOfInteger == 4)
+        unsigned int        offsetTable[numberOfObjects];
+    else    
+        unsigned char       shit <comment=sizeOfObjectRef>;
+
+    /* Trailer */
+    Trailer         trail;
+}bplist_file;
+
+/* Parse the file */
+bplist_file bpfile;
+
+
+/* Returns the value of an unsinged integer at offset 'idx' as int64 */
+int64     read_Int(int idx)
+{
+    unsigned char   id = ReadByte(idx);
+    int64           r = 0;
+    
+    switch((int)Pow((double)2, (double)(id & 0x0f)))
+    {
+        case 1:
+            r = (int64)ReadByte(idx + 1);
+            break;
+        case 2:
+            r = (int64)ReadShort(idx + 1);
+            break;
+        case 4:
+            r = (int64)ReadInt(idx + 1);
+            break;
+        case 8:
+            r = (int64)ReadInt64(idx + 1);
+            break;
+        default:
+            r = 0x50510537;
+            break;
+    }
+    return r;
+}
+
+/* Returns the size of an unsigned integer at offset 'idx' */
+int       read_Int_size(int idx)
+{
+    unsigned char   id = ReadByte(idx);
+    
+    return (int)Pow((double)2, (double)(id & 0x0f));
+}
+
+/* Reads ASCII string  at offset 'idx' */
+string    read_string(int idx)
+{
+    string  r = "";
+    int     i = 0, len;
+
+    unsigned char id = ReadByte(idx);
+
+    if((id & 0x0f) != 0x0f)
+    {
+        len = (int)(id & 0x0f);
+        while(i < len)
+        {
+            r += (char)ReadByte(idx + 1 + i);
+            i++;
+        }
+    }
+    else
+    {
+        int delta = read_Int_size(idx + 1) + 1;
+        len = read_Int(idx + 1);
+        while(i < len)
+        {
+            r += (char)ReadByte(idx + 1 + delta + i);
+            i++;
+        }
+    }
+    return r;
+}
+
+/* This function simply creates comment for an ASCIIString entry */
+string    create_string_comment(ASCIIString &s)
+{
+    string r = "";
+    int i;
+    for(i = 0; i < sizeof(s.bytes); i++)
+        r += (char)s.bytes[i];
+    return r;
+}
+
+
+/* This function simply creates comment for an ASCIIString entry */
+string    create_wstring_comment(UNICODEString &s)
+{
+    string r = "";
+    int i;
+    for(i = 0; i < sizeof(s.bytes) / 2; i++)
+        r += (char)s.bytes[i];
+    return r;
+}
+
+/* This function is primarily for building convenient comments. All it is
+ * able to do, is return textual representation of data stored at offset 'idx'
+ */
+string    read_data(int idx)
+{
+    string r;
+    unsigned char id = ReadByte(idx);
+    
+    switch(id)
+    {
+        case 0:
+            r = "null";
+            break;
+        case 0x08:
+            r = "false";
+            break;
+        case 0x09:
+            r = "true";
+            break;
+        case 0x0f:
+            r = "fill";
+            break;
+        default:
+            switch(id & ETMask)
+            {
+                case ETInt:
+                    r = "integer";
+                    SPrintf(r, "%s = %x", r, read_Int(idx));
+                    Printf("%s\n", r);
+                    break;
+                case ETReal:
+                    r = "real";
+                    break;
+                case ETDate:
+                    r = "date";
+                    break;
+                case ETData:
+                    r = "data";
+                    break;
+                case ETString:
+                    r = "string";
+                    SPrintf(r, "%s = %s", r, read_string(idx));
+                    break;
+                case ETUnicode:
+                    r = "unicode string";
+                    break;
+                case ETUid:
+                    r = "UID";
+                    break;
+                case ETArray:
+                    r = "array";
+                    break;
+                case ETSet:
+                    r = "set";
+                    break;
+                case ETDictionary:
+                    r = "dictionary";
+                    break;
+                default:
+                    r = "unknown type";
+                    break;
+            }
+            break;
+    }
+    return r;
+}
+
+/* Returns textual representation of an offset from offset table at index 'idx' */
+string    read_offset(int idx)
+{
+    string result;
+    int r;
+
+    switch(bpfile.sizeOfInteger)
+    {
+        case 1:
+            r = (int)ReadByte(bpfile.offsetTableOffset + idx) & 0x000000ff;
+            break;
+        case 2:
+            r = (int)ReadShort(bpfile.offsetTableOffset + idx * 2) & 0x0000ffff;
+            break;
+        case 4:
+            r = (int)ReadInt(bpfile.offsetTableOffset + idx * 4);
+            break;
+        default:
+            r = 0xdefec8ed;
+            break;
+    }
+    SPrintf(result, "offset: %x; %s", r, read_data(r));
+    return result;
+}

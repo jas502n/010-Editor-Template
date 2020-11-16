@@ -1,0 +1,120 @@
+//------------------------------------------------
+//--- 010 Editor v7.0.2 Binary Template
+//
+//      File: FNT.bt
+//   Authors: Anon
+//   Version: 0.1 
+//   Purpose: Parse windows .FNT font files 
+//      (which can be extracted from .FON files). 
+//      Specification is here: 
+//      https://support.microsoft.com/en-us/kb/65123
+//  Category: Font
+// File Mask: *.fnt
+//   History: 
+//   0.1   2016-10-10 Anon: Initial version.
+//------------------------------------------------
+
+struct FNT {
+    BigEndian();
+    ushort dfVersion;
+    LittleEndian();
+    uint dfSize;
+    char dfCopyright[60];
+    ushort dfType_isVector : 1;
+    ushort dfType_reserved : 1;
+    ushort dfType_fixedAddress : 1;
+    ushort dfType_reserved1 : 4;
+    ushort dfType_device : 1;
+    ushort dfType_deviceReserved : 8;
+    ushort dfPoints;
+    ushort dfVertRes;
+    ushort dfHorizRes;
+    ushort dfAscent;
+    ushort dfInternalLeading;
+    ushort dfExternalLeading;
+    ubyte dfItalic;
+    ubyte dfUnderline;
+    ubyte dfStrikeOut;
+    ushort dfWeight;
+    ubyte dfCharSet;
+    ushort dfPixWidth;
+    ushort dfPixHeight;
+    ubyte dfPitchAndFamily_variablePitch : 4;
+    enum <ubyte> FONTFAMILY { FF_DONTCARE = 0, FF_ROMAN = 1, FF_SWISS = 2, FF_MODERN = 3, FF_SCRIPT = 4, FF_DECORATIVE = 5} dfPitchAndFamily_fontFamily : 4;
+    ushort dfAvgWidth;
+    ushort dfMaxWidth;
+    ubyte dfFirstChar;
+    ubyte dfLastChar;
+    ubyte dfDefaultChar;
+    ubyte dfBreakChar;
+    ushort dfWidthBytes;
+    uint ptr_dfDevice;
+    uint ptr_dfFace;
+    uint dfBitsPointer;
+    uint ptr_dfBitsOffset;
+    if (dfVersion >= 2) {
+        ubyte dfReserved;
+    }
+    if (dfVersion >= 3) { // TODO
+        uint dfFlags;
+        uint dfAspace;
+        uint dfBspace;
+        uint dfCspace;
+        uint dfColorPointer;
+        ushort dfReserved1;
+    }
+    struct ENTRY {
+        if (!dfType_isVector) {
+            ushort characterWidth;
+            if (dfVersion < 3) {
+                ushort byteOffset;
+            } else {
+                uint byteOffset;
+            }
+        } else if (dfType_isVector && !dfPitchAndFamily_variablePitch) {
+            ushort strokesOffset;
+        } else {
+            ushort strokesOffset;
+            ushort pixelWidth;
+        }
+    } dfCharTable[dfLastChar - dfFirstChar + 2];
+    
+    local int64 pos;
+    
+    if(ptr_dfDevice != 0) {
+        pos = FTell();
+        FSeek(ptr_dfDevice);
+        string devicename;
+        FSeek(pos);
+    }
+    
+    if(ptr_dfFace != 0) {
+        pos = FTell();
+        FSeek(ptr_dfFace);
+        string facename;
+        FSeek(pos);
+    }
+    
+    if (ptr_dfBitsOffset != 0) {
+        pos = FTell();
+        FSeek(ptr_dfBitsOffset);
+        
+        local int i;
+        struct BITMAPS {
+            for (i = 0; i < dfLastChar - dfFirstChar + 2; i++) {
+                struct BITMAP {
+                    if (!dfType_isVector) {
+                        local int byteWidth = Ceil(dfCharTable[i].characterWidth / 8.0);
+                        struct COLUMN {
+                            byte data[dfPixHeight];
+                        } column[byteWidth];
+                    } else if (i != dfLastChar - dfFirstChar + 1) {
+                        byte data[dfCharTable[i + 1].strokesOffset - dfCharTable[i].strokesOffset];
+                    }
+                } bitmap;
+            }
+        } bitmaps;
+        
+        FSeek(pos);
+    }
+} fnt;

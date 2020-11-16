@@ -1,0 +1,89 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//   File: AndroidBoot.bt 
+//   Authors: Shaohua Xia, Bjoern Kerler
+//   Version: 3.0
+//   Purpose: Android boot image template
+//  Category: Operating System
+// File Mask: boot.img
+//  ID Bytes: 41 4E 44 52 4F 49 44 21
+//   History: 
+//   3.0   2020-11-05 Shaohua Xia: Modified for boot.img v3 begin from android 11
+//   2.0   2020-11-05 Shaohua Xia: Modified for boot.img v2 begin from android 10
+//   1.0   2019-05-09 Bjoern Kerler: Added QC_DTSize v1.1
+//------------------------------------------------
+
+#define BOOT_MAGIC "ANDROID!"
+#define BOOT_MAGIC_SIZE 8
+#define BOOT_NAME_SIZE 16
+#define BOOT_ARGS_SIZE 512
+#define BOOT_EXTRA_ARGS_SIZE 1024
+
+#define VENDOR_BOOT_MAGIC "VNDRBOOT"
+#define VENDOR_BOOT_MAGIC_SIZE 8
+#define VENDOR_BOOT_ARGS_SIZE 2048
+#define VENDOR_BOOT_NAME_SIZE 16
+#define VENDOR_BOOT_HEADER_SIZE 2112
+
+#define BOOT_PAGE_SIZE_V3 4096
+
+#define uint8_t unsigned char
+#define uint32_t unsigned int
+#define uint16_t unsigned short
+#define uint64_t unsigned int64
+
+struct boot_img_hdr_v3
+{
+    uint8_t magic[BOOT_MAGIC_SIZE]<bgcolor=cWhite>;
+    uint32_t kernel_size<format=hex,bgcolor=cRed>;  /* size in bytes */
+    uint32_t ramdisk_size<format=hex,bgcolor=cGreen>; /* size in bytes */
+    uint32_t os_version<bgcolor=cSilver>;
+    uint32_t header_size;
+    uint32_t reserved[4]<bgcolor=cDkPurple>;
+    // Version of the boot image header.
+    uint32_t header_version<bgcolor=cLtBlue>;
+    uint8_t cmdline[BOOT_ARGS_SIZE + BOOT_EXTRA_ARGS_SIZE]<bgcolor=cLtPurple>;	
+};
+
+struct vendor_boot_img_hdr_v3 {
+    // Must be VENDOR_BOOT_MAGIC.
+    uint8_t magic[VENDOR_BOOT_MAGIC_SIZE]<bgcolor=cWhite>;
+    // Version of the vendor boot image header.
+    uint32_t header_version<bgcolor=cRed>;
+    uint32_t page_size; /* flash page size we assume */
+    uint32_t kernel_addr<format=hex,bgcolor=cGreen>; /* physical load addr */
+    uint32_t ramdisk_addr<format=hex,bgcolor=cRed>; /* physical load addr */
+    uint32_t vendor_ramdisk_size; /* size in bytes */
+    uint8_t cmdline[VENDOR_BOOT_ARGS_SIZE]<bgcolor=cLtPurple>;
+    uint32_t tags_addr<format=hex,bgcolor=cRed>; /* physical addr for kernel tags (if required) */
+    uint8_t name[VENDOR_BOOT_NAME_SIZE]<bgcolor=cWhite>; /* asciiz product name */
+    uint32_t header_size;
+    uint32_t dtb_size; /* size in bytes for DTB image */
+    uint64_t dtb_addr<format=hex,bgcolor=cGreen>; /* physical load address for DTB image */
+};
+
+
+struct bootimg{
+    boot_img_hdr_v3 hdr<optimize=false,bgcolor=cGray>;
+    local unsigned int m = (Image.hdr.kernel_size + BOOT_PAGE_SIZE_V3 - 1) / BOOT_PAGE_SIZE_V3;
+    local unsigned int n = (Image.hdr.ramdisk_size + BOOT_PAGE_SIZE_V3 - 1) / BOOT_PAGE_SIZE_V3;
+    FSeek(0x1000);
+    uint8_t kernel[m*BOOT_PAGE_SIZE_V3]<optimize=false,bgcolor=cRed>;
+    uint8_t ramdisk[n*BOOT_PAGE_SIZE_V3]<optimize=false,bgcolor=cGreen>;
+	
+    vendor_boot_img_hdr_v3 hdr_vnd<optimize=false,bgcolor=cLtPurple>;
+    local unsigned int o = (VENDOR_BOOT_HEADER_SIZE + BOOT_PAGE_SIZE_V3 - 1) / BOOT_PAGE_SIZE_V3;
+    local unsigned int p = (Image.hdr_vnd.vendor_ramdisk_size + BOOT_PAGE_SIZE_V3 - 1) / BOOT_PAGE_SIZE_V3;
+    local unsigned int q = (Image.hdr_vnd.dtb_size + BOOT_PAGE_SIZE_V3 - 1) / BOOT_PAGE_SIZE_V3;
+
+    local unsigned int64 offset=0x1000+(m+n+o)*BOOT_PAGE_SIZE_V3;
+	Printf("Image vendor_ramdisk offset=0x%08X\n",offset);
+	FSeek(offset);
+    uint8_t vendor_ramdisk[p*BOOT_PAGE_SIZE_V3]<optimize=false,bgcolor=cRed>;
+    uint8_t dtb[q*BOOT_PAGE_SIZE_V3]<optimize=false,bgcolor=cGreen>;
+};
+
+FSeek(0);
+LittleEndian();
+bootimg Image;

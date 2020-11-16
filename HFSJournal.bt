@@ -1,0 +1,64 @@
+//------------------------------------------------
+//--- 010 Editor v7.0.1 Binary Template
+//
+//      File: HFSJournal.bt
+//   Authors: blukat29
+//   E-mail:  yunjong@kaist.ac.kr
+//   Version: 1.0
+//   Purpose: Parse an HFS+ (HFS Plus file system) journal file.
+//  Category: Operating System
+// File Mask: *.journal
+//  ID Bytes: 78 4C 4E 4A
+//   History:
+//   1.0  2016-06-19 blukat29: Initial version.
+//------------------------------------------------
+
+BigEndian();
+local int BLOCK_SIZE = 0x1000;
+
+typedef struct {
+    char   magic[4];
+    uint32 endian;
+    if (endian == 0x12345678)
+        BigEndian();
+    else
+        LittleEndian();
+    uint64 start;
+    uint64 end;
+    uint64 size;
+    uint32 blh_size;
+    uint32 checksum;
+    uint32 header_size;
+    char   pad[header_size - 44];
+} Header;
+
+typedef struct {
+    uint64 sector;
+    uint32 size;
+    uint32 next_ptr;
+} BlockInfo;
+
+typedef struct {
+    char data[BLOCK_SIZE];
+} BlockData;
+
+typedef struct {
+    local int start = FTell();
+    uint16    max_block_count;
+    uint16    num_block_info;
+    uint32    block_size;
+    uint32    checksum;
+    char      fixed_pad[4];
+    BlockInfo info[num_block_info];
+    local int pad_size = header.blh_size - num_block_info * 16 - 16;
+    char      pad[pad_size];
+    BlockData data[num_block_info-1] <optimize=false>;
+    FSeek( start + block_size );
+} BlockList;
+
+Header header;
+
+FSeek( header.start );
+while (!FEof() && (FTell() < header.end)) {
+    BlockList bl;
+}

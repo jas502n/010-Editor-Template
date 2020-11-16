@@ -1,0 +1,139 @@
+//--------------------------------------
+//--- 010 Editor v5.0.2 Binary Template
+//
+//      File: LZ4.bt
+//   Authors: Hanno Hugenberg
+//    E-mail: hanno.hugenberg@pergamonmed.com
+//   Version: 0.2
+//   Purpose: Template for LZ4 Framing Format. 
+//  Category: Archive
+// File Mask: *.lz4,*.lz4f
+//  ID Bytes: 04 22 4D 18
+//   History: 
+//   0.2   2016-10-24 Hanno Hugenberg: Fix for skippable frames and allow to parse concatenated lz4 frame files with varying frame types
+//   0.1   2016-08-15 Hanon Hugenberg: Initial release
+
+//
+// This is a helper template for Yan Collet's lz4 frame format which stores lz4 compressed data in streamable data chunks
+// For more info see:
+//  lz4: http://fastcompression.blogspot.de/p/lz4.html
+//  frame format description: http://fastcompression.blogspot.de/2013/04/lz4-streaming-format-final.html
+// todo: add legacy file format
+//--------------------------------------
+
+//define structures here
+
+enum <UBYTE> LZ4F_Block_Max_Size{ bms64KB=4, bms256KB=5, bms1MB=6, bms4MB=7 };
+
+typedef struct  LZ4F_Header_Flags {
+        UBYTE PresetDictionary      : 1;      
+        UBYTE Reserved              : 1 <hidden=true>;
+        UBYTE ContentChecksum       : 1;
+        UBYTE ContentSize           : 1;
+        UBYTE BlockChecksum         : 1;
+        UBYTE BlockIndependence     : 1;
+        UBYTE Version               : 2;
+};
+
+typedef struct  LZ4F_Header_BlockDescriptor {
+        BitfieldDisablePadding();
+        UBYTE Reserved                          : 4 <hidden=true>;
+        LZ4F_Block_Max_Size BlockMaximumSize    : 3;
+        UBYTE Reserved                          : 1 <hidden=true>;
+};
+
+typedef struct LZ4F_Header {
+    SetBackColor(cLtGreen);
+    UINT32  MagicNumber <format=hex, bgcolor=cGreen>;
+    
+    union {
+        UBYTE Value;
+        UBYTE Bin <format=binary>;
+        LZ4F_Header_Flags FlagData;
+    } Flags ;
+
+    union {
+        UBYTE Value;
+        UBYTE Bin <format=binary>;
+        LZ4F_Header_BlockDescriptor Descriptor;
+    } BlockDescriptor ;
+    
+    if (Flags.FlagData.ContentSize > 0)
+        UINT64 ContentSize;
+
+    if (Flags.FlagData.PresetDictionary > 0)
+        UINT32 DictionaryID;    
+    
+    UBYTE   HeaderChecksum;
+};
+
+typedef struct LZ4F_Data_Block (LZ4F_Header &header)
+    {
+        BitfieldDisablePadding();
+        UINT32 DataSize     :31 <bgcolor=cBlue, fgcolor=cWhite>;
+        UBYTE  Uncompressed :1  <bgcolor=cBlue, fgcolor=cWhite>;
+        UBYTE  Data[DataSize]   <optimize=true, bgcolor=cLtBlue>;
+        if (header.Flags.FlagData.BlockChecksum > 0)
+          UINT32 BlockChecksum <bgcolor=cLtAqua>;
+    }; 
+
+typedef struct LZ4F_Skippable_Frame
+    {
+        BitfieldDisablePadding();
+        UINT32 MagicNumber  :32 <format=hex, bgcolor=cLtRed>;
+        UINT32 DataSize     :32 <bgcolor=cSilver>;
+        UBYTE  Data[DataSize]   <optimize=true, bgcolor=cLtGray>;
+    }; 
+
+//start parsing here
+
+//everything is in little endian
+LittleEndian();
+
+local UINT32 MagicNumber = 0;
+
+//while not end of file, the lz4 frame format allows the concatenation of multiple frames with different types
+while ( ! FEof() )
+{
+    //check for file format
+    MagicNumber = ReadUInt();
+    
+    //simplify skippable frames magic number (16->1)
+    if ((MagicNumber & 0xFFFFFFF0) == 0x184D2A50)
+        MagicNumber &= 0xFFFFFFF0;
+    
+    Printf("Magic Number =%x \n", MagicNumber);
+
+    //check for magic numbers
+    switch (MagicNumber)
+    {
+        //default frame format header
+        // - parse all data blocks later
+        case 0x184D2204 : LZ4F_Header header; break;
+        //skippable frame
+        // - parse data block here
+        case 0x184D2A50 : LZ4F_Skippable_Frame DataBlock(); break;
+        //no support for legacy frame format
+        case 0x184C2102 : Warning( "Legacy Frame Format detected" ); return -1; break;
+        //unknown frame format / error
+        default         : Warning( "Unknown Frame Format. Lz4 Identifier not found." );   return -2; break;
+    };
+
+    //since the 010 script does not allow "continue" within a switch statement, we need to check again for 
+    // skippable frames and go to the next frame
+    if (MagicNumber == 0x184D2A50)
+        continue;    
+
+    //highlight all concatenated default frame data blocks
+    // - lz4 frame data block stream ends with an empty data block
+    do{
+        LZ4F_Data_Block DataBlock( header );
+    } while( DataBlock.DataSize > 0);
+    
+    //check for attached content checksum
+    // - content checksum can not be verified, since xxHash is not supported
+    if ( header.Flags.FlagData.ContentChecksum )
+    {
+      UINT32 ContentChecksum <bgcolor=cLtGreen>;
+    }
+}

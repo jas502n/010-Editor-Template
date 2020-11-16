@@ -1,0 +1,54 @@
+//------------------------------------------------
+//--- 010 Editor v9.0.1 Binary Template
+//
+//      File: IGI2_TMM.bt
+//   Authors: Rotari Artiom
+//    E-mail: ordersone@gmail.com
+//   Version: 1.0
+//   Purpose: 'IGI 2: Covert Strike' Terrain Material Map
+//  Category: Game
+// File Mask: *.tmm
+//  ID Bytes: 49 4c 53 46 // ILSF
+//   History: 
+//   1.0   2019-03-03 Rotari Artiom: _0 and _1 remain unknow
+//------------------------------------------------
+
+// This format is like indexed image but without color color map.
+// Can be converted to TGA but need to generate color map
+// for allmost 8 colors (maximum meeted index value is 7, minimum is 0)
+
+// pixel struct
+typedef struct INDEX_8
+{
+    BYTE I;
+};
+
+// main struct
+struct
+{
+    LittleEndian();
+
+    DWORD _0;      // unknown (allways 1008981770)
+
+    struct
+    {
+        DWORD Year;
+        DWORD Month;
+        DWORD Day;
+        DWORD Hour;
+        DWORD Minute;
+        DWORD Second;
+        DWORD Milisecond;
+    } DATE_TIME;   // creation date-time
+
+    DWORD _1;      // unknown (allways 0). May be encoded pixel format
+
+    DWORD Width;   // bitmap width
+    DWORD Heigth;  // bitmap heigth
+
+    // Indices data
+    INDEX_8 Indexmap[Width * Heigth];
+} IGI2_TMM;
+
+
+Assert(FEof());

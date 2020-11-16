@@ -1,0 +1,162 @@
+//------------------------------------------------
+//--- 010 Editor v9.0.1 Binary Template
+//
+//   File:      IGI2_SPR.bt
+//   Authors:   Rotari Artiom
+//    E-mail:   ordersone@gmail.com
+//   Version:   1.0
+//   Purpose:   'IGI 2: Covert Strike' Sprite and Picture format
+//   Category:  Game
+//   File Mask: *.spr;*.pic
+//   ID Bytes:  4C 4F 4F 50 // LOOP
+//   History: 
+//   1.0   2019-03-04 Rotari Artiom: Initial release
+//------------------------------------------------
+
+
+// This format is a container for multiple colormaps (or layers (or frames)).
+// I chose layers because all colormaps in one file has same width, height and pixel format (in fact).
+// But each colormap has their own header.
+// Probable this format allow to store colormaps with arbitrary properties in one file.
+// This format has two versions (9 and 7).
+// Format 7 (theoreticaly) allow to store colormaps with arbitrary width and heigth (but with same pixel format (declared in main header))
+// Format 9 (theoreticaly) allow to store colormaps with arbitrary properties (width, heigth and pixel width)
+// But (I repeat) in fact, all .spr (and .pic) files in game resources has one width, heigth and pixel width for all layers.
+
+
+typedef struct ARGB_1555
+{
+    BYTE B : 5;
+    BYTE G : 5;
+    BYTE R : 5;
+    BYTE A : 1;
+};
+
+
+typedef struct ARGB_8888
+{
+    BYTE B;
+    BYTE G;
+    BYTE R;
+    BYTE A;
+};
+
+
+struct
+{
+    struct
+    {
+        CHAR  Signature[4];  // LOOP
+
+        DWORD Version;       // may be version but I don't shore (9, 7)
+        DWORD _0;            // unknown (for version 9 - 0; for version 7 - 2880154539) look like filler
+        DWORD _1;            // unknown (for version 9 - 0; for version 7 - 2880154539) look like filler
+        DWORD _2;            // unknown (for version 9 - 327680; for version 7 - 0) may be flags
+        DWORD _3;            // unknown (allways 0)
+        DWORD _4;            // unknown (allways 0)
+        DWORD FooterOffset;  // FOOTER offset from start of file
+        DWORD NumLayer;      // number of layers
+        DWORD _6;            // unknown (for version 9 - 0; for version 7 - 2880154539) look like filler
+        DWORD Width;         // colormap width
+        DWORD Height;        // colormap heigth
+        DWORD PixelFormat;   // pixel format (2: ARGB_1555, 3: ARGB_8888)
+
+        // List of LAYER_HEAD
+        // For diferent versions LAYER_HEAD has some diference in fields
+        switch(Version)
+        {
+            case 9:
+                struct
+                {
+                    DWORD LayerBodyOffset;   // offset of layer colormap from start of file
+                    DWORD PixelFormat;       // pixel format (2: ARGB_1555, 3: ARGB_8888)
+                    WORD  LineWidth;         // scanline width in bytes (colormap width * pixel width)
+                    WORD  Width;             // colormap width
+                    WORD  Height;            // colormap heigth
+                    WORD  _0;                // (0, 1, 64) (0 - most common, 1 - in blood1.spr, h_scamera2.spr; 64 - for .pic files)
+                    DWORD _1;                // (allways 0)
+                    DWORD _2;                // (allways 0)
+                    DWORD _3;                // (allways 0)
+                    DWORD _4;                // (allways 0)
+                } LAYER_HEAD[NumLayer] <optimize=true>; break;
+
+            case 7:
+                struct
+                {
+                    DWORD LayerBodyOffset;   // offset of layer colormap from start of file
+                    WORD  LineWidth;         // scanline width in bytes (width * pixel width)
+                    WORD  _0;                // (allways 0)
+                    WORD  Width;             // colormap width
+                    WORD  _1;                // (allways 0)
+                    WORD  Height;            // colormap heigth
+                    WORD  _2;                // (allways 0)
+                    DWORD _3;                // (allways 0)
+                    DWORD _4;                // (allways 0)
+                    DWORD _5;                // (allways 0)
+                    DWORD _6;                // (allways 0)
+                    DWORD _7;                // (allways 0)
+                    DWORD _8;                // (allways 0)
+                } LAYER_HEAD[NumLayer] <optimize=true>; break;
+        }
+
+
+        // List of LAYER_BODY (colormaps)
+        // I use a 'for' loop to iter each LAYER_HEAD and parse colormap baset on corresponding LAYER_HEAD
+        // But in fact we dont need this. Because all colormap properties declared in LAYER_HEADs
+        // are identicaly with properties declared in main header
+        local DWORD i;
+
+        for(i = 0; i < NumLayer; i++)
+        {
+
+            switch(Version)
+            {
+                case 9:
+                    local DWORD LocalPixelFormat = LAYER_HEAD[i].PixelFormat; break;
+
+                case 7:
+                    local DWORD LocalPixelFormat = PixelFormat; break;
+            }
+
+            struct
+            {
+                switch(LocalPixelFormat)
+                {
+                    case 2:
+                    {
+                        BitfieldDisablePadding();
+                        ARGB_1555 Colormap[LAYER_HEAD[i].Width * LAYER_HEAD[i].Height] <optimize=true>;
+                    }; break;
+
+                    case 3:
+                    {
+                        ARGB_8888 Colormap[LAYER_HEAD[i].Width * LAYER_HEAD[i].Height] <optimize=true>;
+                    }; break;
+                }
+            } LAYER_BODY;
+        }
+    } HEADER;
+
+
+    struct
+    {
+        CHAR  Signature[4];  // LOOP
+
+        DWORD Version;  // version (allways 6)
+        DWORD _0;       // (1245120, 128, 256, 268475558, 268466886, 268468870, 268464265, 268470150, 3435973836, 429, 18, 268475574, 268470102, 268467670, 268465529) strange values
+        DWORD _1;       // (0, 2147348480, 128, 107, 1239244, 7661548, 3435973836, 1239248, 1239408, 1239412, 30) strange values
+        DWORD _2;       // (1, 2, 4, 5, 7)
+        DWORD _3;       // (1, 4)
+
+        struct
+        {
+            DWORD _0;       // (allways 0)
+            DWORD _1;       // (0, 256, 64, 128, 192, 320, 384)
+            DWORD _2;       // (0, 32, 64, 96)
+            DWORD Index;    // 1 for first, 2 for second, ...
+        } LAYER_FOOT[HEADER.NumLayer] <optimize=true>;
+    } FOOTER;
+} IGI2_SPR;
+
+
+Assert(FEof());

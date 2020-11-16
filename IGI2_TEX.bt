@@ -1,0 +1,100 @@
+//------------------------------------------------
+//--- 010 Editor v9.0.1 Binary Template
+//
+//      File: IGI2_TEX.bt
+//   Authors: Rotari Artiom
+//    E-mail: ordersone@gmail.com
+//   Version: 1.1
+//   Purpose: 'IGI 2: Covert Strike' Texture format
+//  Category: Game
+// File Mask: *.tex
+//  ID Bytes: 4C 4F 4F 50 //LOOP
+//   History: 
+//   1.1   2019-03-07 Rotari Artiom: 
+//                     Fight bug with Width and Heigth in Colormap
+//                     Colormap renamed to Clmap
+//                     PixelFormat renamed to Flags
+//                     Switch pixel format by Flags
+//                     Width and Heigth replaced
+//   1.0   2019-03-03 Rotari Artiom: 
+//                     Initial release
+//------------------------------------------------
+
+// This format can be easely converted to TGA without any colormap transformations.
+// But need to remember that entry points is setup to last pixel in colormap (Rigth-Down)
+// That meen is need to set TGA file to be mirrored verticaly and horisontaly.
+
+
+typedef struct ARGB_1555
+{
+    BYTE B : 5;
+    BYTE G : 5;
+    BYTE R : 5;
+    BYTE A : 1;
+};
+
+
+typedef struct ARGB_8888
+{
+    BYTE B;
+    BYTE G;
+    BYTE R;
+    BYTE A;
+};
+
+
+struct
+{
+    CHAR Signature[4];     // LOOP
+
+    DWORD _0;              // unknown (always 11)
+    DWORD Flags;           // image flags (2: 66: ARGB_1555, 3: 67: ARGB_8888)
+    DWORD _1;              // unknown (0, 524288 - 524288 for files with name  multi.tex)
+    DWORD _2;              // unknown (always 0)
+
+    WORD  _3;              // unknown (2, 3, 4, 5, 6, 7, 8 - in most cases is equal to 5 and other values in files with name infra_scale.tex)
+    WORD  Width;           // image width
+    WORD  Heigth;          // image heigth
+    WORD  _4;              // unknow (allways equal with width)
+    WORD  _5;              // unknow (allways equal with height)
+    WORD  _6;              // unknow (2: ARGB_1555, 4: ARGB_8888) may be pixel width
+
+    switch(Flags)
+    {
+        case 2:
+        case 66:
+        {
+            BitfieldDisablePadding();
+
+            if(!FEof()) ARGB_1555 Clmap[ (Width / 1)   * (Heigth / 1)   ] <optimize=true>;
+            if(!FEof()) ARGB_1555 Lod_0[ (Width / 2)   * (Heigth / 2)   ] <optimize=true>;
+            if(!FEof()) ARGB_1555 Lod_1[ (Width / 4)   * (Heigth / 4)   ] <optimize=true>;
+            if(!FEof()) ARGB_1555 Lod_2[ (Width / 8)   * (Heigth / 8)   ] <optimize=true>;
+            if(!FEof()) ARGB_1555 Lod_3[ (Width / 16)  * (Heigth / 16)  ] <optimize=true>;
+            if(!FEof()) ARGB_1555 Lod_4[ (Width / 32)  * (Heigth / 32)  ] <optimize=true>;
+            if(!FEof()) ARGB_1555 Lod_5[ (Width / 64)  * (Heigth / 64)  ] <optimize=true>;
+            if(!FEof()) ARGB_1555 Lod_6[ (Width / 128) * (Heigth / 128) ] <optimize=true>;
+            if(!FEof()) ARGB_1555 Lod_7[ (Width / 256) * (Heigth / 256) ] <optimize=true>;
+            if(!FEof()) ARGB_1555 Lod_8[ (Width / 512) * (Heigth / 512) ] <optimize=true>;
+
+            BitfieldEnablePadding();
+        }; break;
+
+        case 3:
+        case 67:
+        {
+            if(!FEof()) ARGB_8888 Clmap[ (Width / 1)   * (Heigth / 1)   ] <optimize=true>;
+            if(!FEof()) ARGB_8888 Lod_0[ (Width / 2)   * (Heigth / 2)   ] <optimize=true>;
+            if(!FEof()) ARGB_8888 Lod_1[ (Width / 4)   * (Heigth / 4)   ] <optimize=true>;
+            if(!FEof()) ARGB_8888 Lod_2[ (Width / 8)   * (Heigth / 8)   ] <optimize=true>;
+            if(!FEof()) ARGB_8888 Lod_3[ (Width / 16)  * (Heigth / 16)  ] <optimize=true>;
+            if(!FEof()) ARGB_8888 Lod_4[ (Width / 32)  * (Heigth / 32)  ] <optimize=true>;
+            if(!FEof()) ARGB_8888 Lod_5[ (Width / 64)  * (Heigth / 64)  ] <optimize=true>;
+            if(!FEof()) ARGB_8888 Lod_6[ (Width / 128) * (Heigth / 128) ] <optimize=true>;
+            if(!FEof()) ARGB_8888 Lod_7[ (Width / 256) * (Heigth / 256) ] <optimize=true>;
+            if(!FEof()) ARGB_8888 Lod_8[ (Width / 512) * (Heigth / 512) ] <optimize=true>;
+        }; break;
+    }
+} IGI2_TEX;
+
+Assert(FEof());

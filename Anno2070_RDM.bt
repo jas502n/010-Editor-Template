@@ -1,0 +1,69 @@
+//------------------------------------------------
+//--- 010 Editor v5.0 Binary Template
+//
+//      File: Anno2070_RDM.bt
+//    Author: Adrian Dale
+//   Version: 1.0
+//   Purpose: Unpack Anno 2070 .rdm 3D model files.
+//  Category: Game
+// File Mask: *.rdm
+//  ID Bytes: 52 44 4D //RDM
+//   History: 
+//   1.0   2019-12-30 hejun: n
+//------------------------------------------------
+
+typedef struct {
+    DWORD strLen;
+    DWORD dummy;
+    char str[strLen];
+} AnnoString;
+
+typedef struct {
+    ushort i1;
+    ushort i2;
+    ushort i3;
+} AnnoTriangle;
+
+typedef struct
+{
+    hfloat x;
+    hfloat y;
+    hfloat z;
+    ushort padding;
+    float ntx; // Normal Tangent
+    float nty;
+    float ntz;
+    hfloat u;
+    hfloat v;
+} AnnoVertexData;
+
+char RDMTag[3];
+
+// Check for header
+if( RDMTag != "RDM" )
+{
+    Warning( "RDM Tag not valid. Template stopped." );
+    return -1;
+}
+
+char dummy;
+DWORD unknown1[8];
+DWORD dataLen;
+DWORD unknown2[11];
+DWORD offsetToStr1;
+DWORD offsetToStr2;
+DWORD unknown3[16];
+AnnoString as1;
+AnnoString as2;
+DWORD unknown4[34];
+AnnoString as3;
+DWORD unknown5[46];
+DWORD vertexCount;
+DWORD vertexDataSize;
+
+AnnoVertexData vertexData[vertexCount];
+
+DWORD indexCount;
+DWORD indexDataSize;
+
+AnnoTriangle triangles[indexCount / 3];

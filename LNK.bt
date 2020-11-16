@@ -1,0 +1,1054 @@
+//------------------------------------------------
+//--- 010 Editor Binary Template
+//
+//      File: LNK.bt
+//   Authors: Didier Stevens, Trevor Welsby
+//   Version: 0.5
+//   Purpose: View data in a Microsoft shortcut (LNK) file. 
+//  Category: Operating System
+// File Mask: *.lnk
+//  ID Bytes: 4C 00 00 00 01 14 02 00
+//   History:                            
+//   0.5   2020-10-28 SweetScape: Bug fixes.
+//   0.4   2017-10-24 Cesaryuan: Support unicode local path string in LinkInfo.
+//   0.3   2017-09-12 SweetScape: Fixed errors if strings or attributes were empty.
+//   0.2   2017-02-26 T Welsby: Significant updates per history
+//   0.1   2016-01-28 SweetScape: Updated header for repository submission, added read function for StringData.
+//   0.0.4 2010-08-11 D Stevens:  First public release.
+//
+//	http://msdn.microsoft.com/en-us/library/dd871305%28PROT.10%29.aspx
+//
+//	Source code put in public domain by Didier Stevens, no Copyright
+//	https://DidierStevens.com
+//	Use at your own risk
+//
+//	History:
+//		2010/07/23: start development with 010 Editor v3.0.6
+//		2010/07/27: continue
+//		2010/07/30: added CommonNetworkRelativeLink
+//		2010/08/11: v0.0.4 added GUID processing to IDList
+//      2017/02/26: fix broken root folder CLSID lookup
+//                  replace some read functions with enums
+//                  add VOLUME and FILE IDList types
+//                  add read functions for FileAttributes and HotKeyFlags
+//                  replace NetworkProviderType with an enum
+//                  add GUID type
+//                  fix TrackerDataBlock GUID fields
+//                  add the following ExtraData structures:
+//			            ConsoleDataBlock
+//      			    ConsoleFEDataBlock
+//      			    DarwinDataBlock
+//            			EnvironmentVariableDataBlock
+//          			IconEnvironmentDataBlock
+//			            KnownFolderDataBlock
+//			            PropertyStoreDataBlock
+//			            ShimDataBlock
+//			            SpecialFolderDataBlock
+//			            VistaAndAboveIDListDataBlock
+//      2020/10/24: support Unicode local path string in LinkInfo
+//
+//	Todo:
+//		Add remaining ItemID types (NETWORK, URI etc.)
+//      Add remaining OLE property types (VT_x etc.)
+//------------------------------------------------
+
+local int iCOLOR = 0x95E8FF;
+
+local int iToggleColor = iCOLOR;
+
+void ToggleBackColor()
+{
+	if (iToggleColor == iCOLOR)
+		iToggleColor = cNone;
+	else
+		iToggleColor = iCOLOR;
+	SetBackColor(iToggleColor);
+}
+
+string UTCise(FILETIME filetime)
+{
+    string res;
+    SPrintf(res,"%s UTC",FileTimeToString(filetime));
+    return res;
+}
+
+typedef struct
+{
+	uint32 HasLinkTargetIDList : 1;
+	uint32 HasLinkInfo : 1;
+	uint32 HasName : 1;
+	uint32 HasRelativePath : 1;
+	uint32 HasWorkingDir : 1;
+	uint32 HasArguments : 1;
+	uint32 HasIconLocation : 1;
+	uint32 IsUnicode : 1;
+	uint32 ForceNoLinkInfo : 1;
+	uint32 HasExpString : 1;
+	uint32 RunInSeparateProcess : 1;
+	uint32 Unused1 : 1;
+	uint32 HasDarwinID : 1;
+	uint32 RunAsUser : 1;
+	uint32 HasExpIcon : 1;
+	uint32 NoPidlAlias : 1;
+	uint32 Unused2 : 1;
+	uint32 RunWithShimLayer : 1;
+	uint32 ForceNoLinkTrack : 1;
+	uint32 EnableTargetMetadata : 1;
+	uint32 DisableLinkPathTracking : 1;
+	uint32 DisableKnownFolderTracking : 1;
+	uint32 DisableKnownFolderAlias : 1;
+	uint32 AllowLinkToLink : 1;
+	uint32 UnaliasOnSave : 1;
+	uint32 PreferEnvironmentPath : 1;
+	uint32 KeepLocalIDListForUNCTarget : 1;
+	uint32 Unused : 5;
+
+} LinkFlags;
+
+typedef struct
+{
+	uint32 FILE_ATTRIBUTE_READONLY : 1;
+	uint32 FILE_ATTRIBUTE_HIDDEN : 1;
+	uint32 FILE_ATTRIBUTE_SYSTEM : 1;
+	uint32 FILE_ATTRIBUTE_VOLUME_LABEL : 1;
+	uint32 FILE_ATTRIBUTE_DIRECTORY : 1;
+	uint32 FILE_ATTRIBUTE_ARCHIVE : 1;
+	uint32 FILE_ATTRIBUTE_NORMAL : 1;
+	uint32 FILE_ATTRIBUTE_TEMPORARY : 1;
+	uint32 FILE_ATTRIBUTE_SPARSE_FILE : 1;
+	uint32 FILE_ATTRIBUTE_REPARSE_POINT : 1;
+	uint32 FILE_ATTRIBUTE_COMPRESSED : 1;
+	uint32 FILE_ATTRIBUTE_OFFLINE : 1;
+	uint32 FILE_ATTRIBUTE_NOT_CONTENT_INDEXED : 1;
+	uint32 FILE_ATTRIBUTE_ENCRYPTED : 1;
+    uint32 FILE_ATTRIBUTE_INTEGRITY_STREAM : 1;
+    uint32 FILE_ATTRIBUTE_VIRTUAL : 1;
+    uint32 FILE_ATTRIBUTE_NO_SCRUB_DATA : 1;
+	uint32 Unused : 15;
+
+} FileAttributes<read=ReadFileAttributes>;
+
+string ReadFileAttributes(FileAttributes &attr)
+{
+    string res;
+	if (attr.FILE_ATTRIBUTE_READONLY) res += "FILE_ATTRIBUTE_READONLY | ";
+	if (attr.FILE_ATTRIBUTE_HIDDEN) res+= "FILE_ATTRIBUTE_HIDDEN | ";
+	if (attr.FILE_ATTRIBUTE_SYSTEM) res+= "FILE_ATTRIBUTE_SYSTEM | ";
+	if (attr.FILE_ATTRIBUTE_VOLUME_LABEL) res+= "FILE_ATTRIBUTE_VOLUME_LABEL | ";
+	if (attr.FILE_ATTRIBUTE_DIRECTORY) res+= "FILE_ATTRIBUTE_DIRECTORY | ";
+	if (attr.FILE_ATTRIBUTE_ARCHIVE) res+= "FILE_ATTRIBUTE_ARCHIVE | ";
+	if (attr.FILE_ATTRIBUTE_NORMAL) res+= "FILE_ATTRIBUTE_NORMAL | ";
+	if (attr.FILE_ATTRIBUTE_TEMPORARY) res+= "FILE_ATTRIBUTE_TEMPORARY | ";
+	if (attr.FILE_ATTRIBUTE_SPARSE_FILE) res+= "FILE_ATTRIBUTE_SPARSE_FILE | ";
+	if (attr.FILE_ATTRIBUTE_REPARSE_POINT) res+= "FILE_ATTRIBUTE_REPARSE_POINT | ";
+	if (attr.FILE_ATTRIBUTE_COMPRESSED) res+= "FILE_ATTRIBUTE_COMPRESSED | ";
+	if (attr.FILE_ATTRIBUTE_OFFLINE) res+= "FILE_ATTRIBUTE_OFFLINE | ";
+	if (attr.FILE_ATTRIBUTE_NOT_CONTENT_INDEXED) res+= "FILE_ATTRIBUTE_NOT_CONTENT_INDEXED | ";
+	if (attr.FILE_ATTRIBUTE_ENCRYPTED) res+= "FILE_ATTRIBUTE_ENCRYPTED | ";
+    if (attr.FILE_ATTRIBUTE_INTEGRITY_STREAM) res+= "FILE_ATTRIBUTE_INTEGRITY_STREAM | ";
+    if (attr.FILE_ATTRIBUTE_VIRTUAL) res+= "FILE_ATTRIBUTE_VIRTUAL | ";
+    if (attr.FILE_ATTRIBUTE_NO_SCRUB_DATA) res += "FILE_ATTRIBUTE_NO_SCRUB_DATA | ";
+    if (Strlen(res)) return StrDel(res,Strlen(res)-3,3);
+    return "";
+}
+
+typedef struct
+{
+	uint16 FILE_ATTRIBUTE_READONLY : 1;
+	uint16 FILE_ATTRIBUTE_HIDDEN : 1;
+	uint16 FILE_ATTRIBUTE_SYSTEM : 1;
+	uint16 FILE_ATTRIBUTE_VOLUME_LABEL : 1;
+	uint16 FILE_ATTRIBUTE_DIRECTORY : 1;
+	uint16 FILE_ATTRIBUTE_ARCHIVE : 1;
+	uint16 FILE_ATTRIBUTE_NORMAL : 1;
+	uint16 FILE_ATTRIBUTE_TEMPORARY : 1;
+	uint16 FILE_ATTRIBUTE_SPARSE_FILE : 1;
+	uint16 FILE_ATTRIBUTE_REPARSE_POINT : 1;
+	uint16 FILE_ATTRIBUTE_COMPRESSED : 1;
+	uint16 FILE_ATTRIBUTE_OFFLINE : 1;
+	uint16 FILE_ATTRIBUTE_NOT_CONTENT_INDEXED : 1;
+	uint16 FILE_ATTRIBUTE_ENCRYPTED : 1;
+    uint16 FILE_ATTRIBUTE_INTEGRITY_STREAM : 1;
+    uint16 FILE_ATTRIBUTE_VIRTUAL : 1;
+
+} FileAttributesL<read=ReadFileAttributesL>;
+
+string ReadFileAttributesL(FileAttributesL &attr)
+{
+    string res;
+	if (attr.FILE_ATTRIBUTE_READONLY) res += "FILE_ATTRIBUTE_READONLY | ";
+	if (attr.FILE_ATTRIBUTE_HIDDEN) res+= "FILE_ATTRIBUTE_HIDDEN | ";
+	if (attr.FILE_ATTRIBUTE_SYSTEM) res+= "FILE_ATTRIBUTE_SYSTEM | ";
+	if (attr.FILE_ATTRIBUTE_VOLUME_LABEL) res+= "FILE_ATTRIBUTE_VOLUME_LABEL | ";
+	if (attr.FILE_ATTRIBUTE_DIRECTORY) res+= "FILE_ATTRIBUTE_DIRECTORY | ";
+	if (attr.FILE_ATTRIBUTE_ARCHIVE) res+= "FILE_ATTRIBUTE_ARCHIVE | ";
+	if (attr.FILE_ATTRIBUTE_NORMAL) res+= "FILE_ATTRIBUTE_NORMAL | ";
+	if (attr.FILE_ATTRIBUTE_TEMPORARY) res+= "FILE_ATTRIBUTE_TEMPORARY | ";
+	if (attr.FILE_ATTRIBUTE_SPARSE_FILE) res+= "FILE_ATTRIBUTE_SPARSE_FILE | ";
+	if (attr.FILE_ATTRIBUTE_REPARSE_POINT) res+= "FILE_ATTRIBUTE_REPARSE_POINT | ";
+	if (attr.FILE_ATTRIBUTE_COMPRESSED) res+= "FILE_ATTRIBUTE_COMPRESSED | ";
+	if (attr.FILE_ATTRIBUTE_OFFLINE) res+= "FILE_ATTRIBUTE_OFFLINE | ";
+	if (attr.FILE_ATTRIBUTE_NOT_CONTENT_INDEXED) res+= "FILE_ATTRIBUTE_NOT_CONTENT_INDEXED | ";
+	if (attr.FILE_ATTRIBUTE_ENCRYPTED) res+= "FILE_ATTRIBUTE_ENCRYPTED | ";
+    if (attr.FILE_ATTRIBUTE_INTEGRITY_STREAM) res+= "FILE_ATTRIBUTE_INTEGRITY_STREAM | ";
+    if (attr.FILE_ATTRIBUTE_VIRTUAL) res+= "FILE_ATTRIBUTE_VIRTUAL | ";
+    if (Strlen(res)) return StrDel(res,Strlen(res)-3,3);
+}
+
+typedef ubyte GUID[16] <read=ReadGUID>;
+
+string ReadGUID(GUID id)
+{
+	string sGUID;
+
+	SPrintf(sGUID, "{%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+        id[3], id[2], id[1], id[0], id[5], id[4], id[7], id[6], id[8], id[9], id[10], id[11],
+        id[12], id[13], id[14], id[15]);
+	return sGUID;
+}
+
+typedef struct
+{
+	uint32 HeaderSize <read=ReadCheckHeaderSize>;	/* Must be 0x0000004C */
+	GUID LinkCLSID <read=ReadCheckCLSID>; 	    	/* This value MUST be 00021401-0000-0000-C000-000000000046. */
+	LinkFlags sLinkFlags;
+	FileAttributes sFileAttributes;
+	FILETIME CreationTime<read=UTCise>;
+	FILETIME AccessTime<read=UTCise>;
+	FILETIME WriteTime<read=UTCise>;
+ 	uint32 FileSize;
+	uint32 IconIndex;
+
+	enum <uint32> {
+        SW_SHOWNORMAL = 0x00000001,
+        SW_SHOWMAXIMIZED = 0x00000003,
+        SW_SHOWMINNOACTIVE = 0x00000007
+    } ShowCommand;
+
+	uint16 HotKey<read=ReadHotKey>;
+	uint16 Reserved;
+	uint32 Reserved;
+	uint32 Reserved;
+
+} ShellLinkHeader;
+
+string ReadHotKey(uint16 hotkey)
+{
+    string res;
+    if (hotkey&0x0200) res += "CTRL + ";
+    if (hotkey&0x0400) res += "ALT + ";
+    if (hotkey&0x0100) res += "SHIFT + ";
+
+    hotkey &= 0xFF;
+    if (hotkey >= 0x30 && hotkey <= 0x39) SPrintf(res,"%s%c",res,hotkey);
+    else if (hotkey >= 0x41 && hotkey <= 0x5A) SPrintf(res,"%s%c",res,hotkey);
+    else if (hotkey >= 0x70 && hotkey <= 0x87) SPrintf(res,"%sF%d",res,hotkey-0x6F);
+    else if (hotkey == 0x90) SPrintf(res,"%sNUM LOCK",res);
+    else if (hotkey == 0x91) SPrintf(res,"%sSCROLL LOCK",res);
+    else SPrintf(res,"%sUNKNOWN",res);
+    return res;
+}
+
+string ReadCheckHeaderSize(uint32 data)
+{
+    string res;
+	if (data == 0x4C) return "76";
+    else
+    {
+		SPrintf(result, "Unexpected headersize: %08Xh", data);
+        return res;
+	}
+}
+
+string ReadCheckCLSID(GUID id)
+{
+    string clsid = ReadGUID(id);
+	if (Strcmp(clsid,"{00021401-0000-0000-C000-000000000046}"))
+	{
+		SPrintf(clsid, "Unexpected CLSID: %s", clsid);
+	}
+    return clsid;
+}
+
+typedef struct
+{
+    DOSDATE Date;
+    DOSTIME Time;
+
+} DOSDATETIME <read=ReadDosDateTime>;
+
+string ReadDosDateTime(DOSDATETIME &datetime)
+{
+    string res;
+    SPrintf(res,"%s %s UTC",DosDateToString(datetime.Date,"MM/dd/yyyy"),DosTimeToString(datetime.Time));
+    return res;
+}
+
+typedef struct
+{
+    uint16 Size;
+    uint16 Version;
+    uint32 Signature;
+    switch (Signature)
+    {
+        case 0xbeef0000:
+        case 0xbeef0001:
+        case 0xbeef0002:
+        case 0xbeef0003:
+            byte BlockData[BlockSize - 8];
+            break;
+
+        case 0xbeef0004:
+            DOSDATETIME Created;
+            DOSDATETIME Accessed;
+            uint16 Identifier;
+            if (Version >= 7)
+            {
+                uint16 Unknown;
+                uint64 FileReference;
+                uint64 Unknown;
+            }
+            if (Version >= 3)
+            {
+                uint16 LongStringSize;
+            }
+            if (Version >= 9)
+            {
+                uint32 Unknown;
+            }
+            if (Version >= 8)
+            {
+                uint32 Unknown;
+            }
+            if (Version >= 3)
+            {
+                wstring Name;
+                
+                if (LongStringSize > 0)
+                {
+                    if (Version >= 7) wstring LocalizedName;
+                    else string LocalizedName;
+                }
+                uint16 VersionOffset;
+            }
+            break;
+
+        case 0xbeef0005:
+        case 0xbeef0006:
+        case 0xbeef0007:
+        case 0xbeef0008:
+        case 0xbeef0009:
+        case 0xbeef000a:
+        case 0xbeef000b:
+        case 0xbeef000c:
+        default:
+            byte Data[Size - 8];
+    }
+
+} ExtraDataBlock <read=ReadExtraBlock>;
+
+string ReadExtraBlock(ExtraDataBlock &ExtraBlock)
+{
+    switch (ExtraBlock.Signature)
+    {
+        case 0xbeef0000:
+        case 0xbeef0001:
+        case 0xbeef0002:
+        case 0xbeef0003:
+            break;
+
+        case 0xbeef0004:
+            return ExtraBlock.Name;
+
+        case 0xbeef0005:
+        case 0xbeef0006:
+        case 0xbeef0007:
+        case 0xbeef0008:
+        case 0xbeef0009:
+        case 0xbeef000a:
+        case 0xbeef000b:
+        case 0xbeef000c:
+        default:
+    }
+    return "";
+}
+
+// http://msdn.microsoft.com/en-us/library/cc144089%28VS.85%29.aspx#unknown_74413
+typedef struct
+{
+	uint16 Size;
+
+    ubyte TypeData : 4;
+    enum <ubyte>
+    {
+        ROOT = 0x1,
+        VOLUME = 0x2,
+        FILE = 0x3,
+        NETWORK = 0x4,
+        COMPRESSED = 0x5,
+        URI = 0x6,
+        CONTROL_PANEL = 0x7
+    } Type : 4;
+
+    switch (Type)
+    {
+        case ROOT:
+            if (TypeData == 0xF)
+            {
+                enum <ubyte> {
+                    INTERNET_EXPLORER1 = 0x00,
+                    LIBRARIES = 0x42,
+                    USERS = 0x44,
+                    MY_DOCUMENTS = 0x48,
+                    MY_COMPUTER = 0x50,
+                    MY_NETWORK_PLACES = 0x58,
+                    RECYCLE_BIN = 0x60,
+                    INTERNET_EXPLORER2 = 0x68,
+                    UNKNOWN = 0x70,
+                    MY_GAMES = 0x80
+                } SortIndex;
+
+              	GUID CLSID;
+   	            if (Size > 0x14) ExtraDataBlock ExtraBlock;
+            }
+            else ubyte Unknown[Size-3];
+            break;
+
+        case VOLUME:
+            if (TypeData & 0x1) char Name[Size-3];
+            else ubyte Unknown[Size-3];
+            break;
+
+        case FILE:
+            ubyte Unknown;
+            uint32 FileSize;
+            DOSDATETIME Modified;
+            FileAttributesL Attributes;
+            if (TypeData & 0x4) wstring PrimaryName;
+            else
+            {
+                string PrimaryName;
+                if (!(Strlen(PrimaryName)%2)) ubyte Align;
+            }
+            ExtraDataBlock ExtraBlock;
+            break;
+
+        default:
+            ubyte Data[Size-3];
+    }
+
+} IDList <read=ReadIDList>;
+
+string ReadIDList(IDList &sIDList)
+{
+	switch (sIDList.Type)
+    {
+        case ROOT:
+    		if (exists(sIDList.CLSID)) return LookupGUID(ReadGUID(sIDList.CLSID));
+            break;
+
+        case VOLUME:
+            if(sIDList.TypeData&0x1) return sIDList.Name;
+            break;
+
+        case FILE:
+            return ReadExtraBlock(sIDList.ExtraBlock);
+	}
+    return "";
+}
+
+// GUIDs found in shlguid.h
+string LookupGUID(string sGUID)
+{
+	if (!Stricmp(sGUID, "{208D2C60-3AEA-1069-A2D7-08002B30309D}"))
+		return "CLSID_NetworkPlaces";
+	else if (!Stricmp(sGUID, "{46e06680-4bf0-11d1-83ee-00a0c90dc849}"))
+		return "CLSID_NetworkDomain";
+	else if (!Stricmp(sGUID, "{c0542a90-4bf0-11d1-83ee-00a0c90dc849}"))
+		return "CLSID_NetworkServer";
+	else if (!Stricmp(sGUID, "{54a754c0-4bf1-11d1-83ee-00a0c90dc849}"))
+		return "CLSID_NetworkShare";
+	else if (!Stricmp(sGUID, "{20D04FE0-3AEA-1069-A2D8-08002B30309D}"))
+		return "CLSID_MyComputer";
+	else if (!Stricmp(sGUID, "{871C5380-42A0-1069-A2EA-08002B30309D}"))
+		return "CLSID_Internet";
+	else if (!Stricmp(sGUID, "{F3364BA0-65B9-11CE-A9BA-00AA004AE837}"))
+		return "CLSID_ShellFSFolder";
+	else if (!Stricmp(sGUID, "{645FF040-5081-101B-9F08-00AA002F954E}"))
+		return "CLSID_RecycleBin";
+	else if (!Stricmp(sGUID, "{21EC2020-3AEA-1069-A2DD-08002B30309D}"))
+		return "CLSID_ControlPanel";
+	else if (!Stricmp(sGUID, "{450D8FBA-AD25-11D0-98A8-0800361B1103}"))
+		return "CLSID_MyDocuments";
+	else
+		return sGUID;
+}
+
+typedef struct
+{
+	uint16 IDListSize;
+
+	while(ReadUShort(FTell()) != 0x0000)
+	{
+		IDList sIDList;
+	}
+	uint16 TerminalID;
+
+} LinkTargetIDList<read=ReadLinkTargetIDList>;
+
+string ReadLinkTargetIDList(LinkTargetIDList &list)
+{
+    string res = "";
+
+    int i = 0;
+    while (exists(list.sIDList[i]))
+    {
+        switch (list.sIDList[i].Type)
+        {
+            case ROOT:
+                if (exists(list.sIDList[i].CLSID))
+                {
+                    res += LookupGUID(ReadGUID(list.sIDList[i].CLSID));
+                    res += "\\";
+                }
+                break;
+
+            case VOLUME:
+                res += list.sIDList[i].Name;
+                break;
+
+            case FILE:
+                res += list.sIDList[i].ExtraBlock.Name;
+                if (exists(list.sIDList[i+1])) res += "\\";
+                break;
+        }
+        i++;
+    }
+
+    return res;
+}
+
+typedef struct
+{
+	int VolumeIDAndLocalBasePath : 1;
+	int CommonNetworkRelativeLinkAndPathSuffix : 1;
+	int Unused1 : 30;
+
+} LinkInfoFlags;
+
+typedef struct
+{
+	uint32 VolumeIDSize;
+
+	enum <uint32> {
+        DRIVE_UNKNOWN = 0x00000000,
+        DRIVE_NO_ROOT_DIR = 0x00000001,
+        DRIVE_REMOVABLE = 0x00000002,
+        DRIVE_FIXED = 0x00000003,
+        DRIVE_REMOTE = 0x00000004,
+        DRIVE_CDROM = 0x00000005,
+        DRIVE_RAMDISK = 0x00000006
+    } DriveType;
+
+	uint32 DriveSerialNumber;
+	uint32 VolumeLabelOffset;
+	if (VolumeLabelOffset == 0x00000014)
+	{
+		uint32 VolumeLabelOffsetUnicode;
+	}
+	string Data;
+
+} VolumeID;
+
+typedef struct
+{
+	uint32 CommonNetworkRelativeLinkSize;
+	uint32 CommonNetworkRelativeLinkFlags;
+	uint32 NetNameOffset;
+	uint32 DeviceNameOffset;
+
+	enum <uint32> {
+        WNNC_NET_AVID = 0x001A0000,
+        WNNC_NET_DOCUSPACE = 0x001B0000,
+        WNNC_NET_MANGOSOFT = 0x001C0000,
+        WNNC_NET_SERNET = 0x001D0000,
+        WNNC_NET_RIVERFRONT1 = 0X001E0000,
+        WNNC_NET_RIVERFRONT2 = 0x001F0000,
+        WNNC_NET_DECORB = 0x00200000,
+        WNNC_NET_PROTSTOR = 0x00210000,
+        WNNC_NET_FJ_REDIR = 0x00220000,
+        WNNC_NET_DISTINCT = 0x00230000,
+        WNNC_NET_TWINS = 0x00240000,
+        WNNC_NET_RDR2SAMPLE = 0x00250000,
+        WNNC_NET_CSC = 0x00260000,
+        WNNC_NET_3IN1 = 0x00270000,
+        WNNC_NET_EXTENDNET = 0x00290000,
+        WNNC_NET_STAC = 0x002A0000,
+        WNNC_NET_FOXBAT = 0x002B0000,
+        WNNC_NET_YAHOO = 0x002C0000,
+        WNNC_NET_EXIFS = 0x002D0000,
+        WNNC_NET_DAV = 0x002E0000,
+        WNNC_NET_KNOWARE = 0x002F0000,
+        WNNC_NET_OBJECT_DIRE = 0x00300000,
+        WNNC_NET_MASFAX = 0x00310000,
+        WNNC_NET_HOB_NFS = 0x00320000,
+        WNNC_NET_SHIVA = 0x00330000,
+        WNNC_NET_IBMAL = 0x00340000,
+        WNNC_NET_LOCK = 0x00350000,
+        WNNC_NET_TERMSRV = 0x00360000,
+        WNNC_NET_SRT = 0x00370000,
+        WNNC_NET_QUINCY = 0x00380000,
+        WNNC_NET_OPENAFS = 0x00390000,
+        WNNC_NET_AVID1 = 0x003A0000,
+        WNNC_NET_DFS = 0x003B0000,
+        WNNC_NET_KWNP = 0x003C0000,
+        WNNC_NET_ZENWORKS = 0x003D0000,
+        WNNC_NET_DRIVEONWEB = 0x003E0000,
+        WNNC_NET_VMWARE = 0x003F0000,
+        WNNC_NET_RSFX = 0x00400000,
+        WNNC_NET_MFILES = 0x00410000,
+        WNNC_NET_MS_NFS = 0x00420000,
+        WNNC_NET_GOOGLE = 0x00430000
+    } NetworkProviderType;
+
+	if (NetNameOffset > 0x14)
+	{
+		uint32 NetNameOffsetUnicode;
+		uint32 DeviceNameOffsetUnicode;
+	}
+	string NetName;
+    if( DeviceNameOffset > 0 )
+    	string DeviceName;
+	if (NetNameOffset > 0x14)
+	{
+		string NetNameUnicode;			// Must be UNICODE
+		string DeviceNameUnicode;		// Must be UNICODE
+	}
+
+} CommonNetworkRelativeLink;
+
+local int64 LinkInfoStart;
+typedef struct
+{
+    LinkInfoStart = FTell();
+	uint32 LinkInfoSize;
+	uint32 LinkInfoHeaderSize;
+	LinkInfoFlags sLinkInfoFlags;
+	uint32 VolumeIDOffset;
+	uint32 LocalBasePathOffset;
+	uint32 CommonNetworkRelativeLinkOffset;
+	uint32 CommonPathSuffixOffset;
+	if (LinkInfoHeaderSize > 28 )
+	{
+		uint32 LocalBasePathOffsetUnicode;
+		if (LinkInfoHeaderSize > 32 )
+	    {
+		    uint32 CommonPathSuffixOffsetUnicode;
+	    }
+	}
+	if (sLinkInfoFlags.VolumeIDAndLocalBasePath == 1)
+	{
+		VolumeID sVolumeID;
+        FSeek(LocalBasePathOffset + LinkInfoStart);
+		string LocalBasePath;
+		FSeek(CommonPathSuffixOffset + LinkInfoStart);
+        string CommonPathSuffix;
+        if (LinkInfoHeaderSize > 28 ) 
+	    {
+            FSeek(LocalBasePathOffsetUnicode + LinkInfoStart);
+		    wstring LocalBasePathUnicode;
+		    if (LinkInfoHeaderSize > 32 )
+	        {
+                FSeek(CommonPathSuffixOffsetUnicode + LinkInfoStart);
+		        wstring CommonPathSuffixUnicode;
+	        }
+	    }
+	}
+	if (sLinkInfoFlags.CommonNetworkRelativeLinkAndPathSuffix == 1)
+	{
+        FSeek(CommonNetworkRelativeLinkOffset + LinkInfoStart);
+		CommonNetworkRelativeLink sCommonNetworkRelativeLink;
+	}
+    FSeek(LinkInfoSize + LinkInfoStart);
+
+} LinkInfo;
+
+typedef struct
+{
+	uint16 CountCharacters;
+    if( CountCharacters > 0 )
+    	wchar_t String[CountCharacters];
+} StringData <read=ReadStringData>;
+
+wstring ReadStringData( StringData &sd )
+{
+    if( sd.CountCharacters > 0 )
+        return sd.String;
+    else
+        return "";
+}
+
+typedef struct
+{
+    uint32 Size;
+    uint32 Signature;
+    char TargetANSI[260];
+    if (Size > 268)	wchar_t TargetUnicode[260];
+
+} EnvironmentVariableDataBlock;
+
+typedef struct
+{
+    uint32 Size;
+    uint32 Signature;
+
+    enum <uint16> {
+        FOREGROUND_BLUE = 0x0001,
+        FOREGROUND_GREEN = 0x0002,
+        FOREGROUND_RED = 0x0004,
+        FOREGROUND_INTENSITY = 0x0008,
+        BACKGROUND_BLUE = 0x0010,
+        BACKGROUND_GREEN = 0x0020,
+        BACKGROUND_RED = 0x0040,
+        BACKGROUND_INTENSITY = 0x0080
+    } FillAttributes, PopupFillAttributes;
+
+    uint16 ScreenBufferSizeX;
+    uint16 ScreenBufferSizeY;
+    uint16 WindowSizeX;
+    uint16 WindowSizeY;
+    uint16 WindowOriginX;
+    uint16 WindowOriginY;
+    uint32 Unused;
+    uint32 Unused;
+    uint32 FontSize;
+    
+    enum <uint32> {
+        FF_DONTCARE = 0x0000,
+        FF_ROMAN = 0x0010,
+        FF_SWISS = 0x0020,
+        FF_MODERN = 0x0030,
+        FF_SCRIPT = 0x0040,
+        FF_DECORATIVE = 0x0050
+    } FontFamily;
+
+    uint32 FontWeight;
+    wchar_t FaceName[32];
+    uint32 CursorSize;
+    uint32 FullScreen;
+    uint32 QuickEdit;
+    uint32 InsertMode;
+    uint32 AutoPosition;
+    uint32 HistoryBufferSize;
+    uint32 NumberOfHistoryBuffers;
+    uint32 HistoryNoDup;
+    uint32 ColorTable[16];
+
+} ConsoleDataBlock;
+
+typedef struct
+{
+	uint32 Size;
+	uint32 Signature;
+	uint32 Length;
+	uint32 Version;
+	byte MachineID[16];
+	GUID FileDroid;
+    GUID VolumeDroid;
+	GUID FileDroidBirth;
+    GUID VolumeDroidBirth;
+
+} TrackerDataBlock;
+
+typedef struct
+{
+    uint32 Size;
+    uint32 Signature;
+    uint32 CodePage;
+
+} ConsoleFEDataBlock;
+
+typedef struct
+{
+	uint32 Size;
+	uint32 Signature;
+    uint32 SpecialFolderID;
+    uint32 Offset;
+
+} SpecialFolderDataBlock;
+
+typedef struct
+{
+    uint32 Size;
+    uint32 Signature;
+    char TargetANSI[260];
+    if (Size > 268)	wchar_t TargetUnicode[260];
+
+} DarwinDataBlock;
+
+typedef struct
+{
+	uint32 Size;
+	uint32 Signature;
+    char TargetANSI[260];
+    if (Size > 268)	wchar_t TargetUnicode[260];
+
+} IconEnvironmentDataBlock;
+
+typedef struct
+{
+    uint32 Size;
+    uint32 Signature;
+    wchar_t LayerName[Size-8];
+
+} ShimDataBlock ;
+
+typedef struct(int Size)
+{
+    enum <uint16> TYPE {
+        VT_EMPTY = 0x0000,
+        VT_NULL = 0x0001,
+        VT_I2 = 0x0002,
+        VT_I4 = 0x0003,
+        VT_R4 = 0x0004,
+        VT_R8 = 0x0005,
+        VT_CY = 0x0006,
+        VT_DATE = 0x0007,
+        VT_BSTR = 0x0008,
+        VT_ERROR = 0x000A,
+        VT_BOOL = 0x000B,
+        VT_VARIANT = 0x000C,
+        VT_DECIMAL = 0x000E,
+        VT_I1 = 0x0010,
+        VT_UI1 = 0x0011,
+        VT_UI2 = 0x0012,
+        VT_UI4 = 0x0013,
+        VT_I8 = 0x0014,
+        VT_UI8 = 0x0015,
+        VT_INT = 0x0016,
+        VT_UINT = 0x0017,
+        VT_LPSTR = 0x001E,
+        VT_LPWSTR = 0x001F,
+        VT_FILETIME = 0x0040,
+        VT_BLOB = 0x0041,
+        VT_STREAM = 0x0042,
+        VT_STORAGE = 0x0043,
+        VT_STREAMED_OBJECT = 0x0044,
+        VT_STORED_OBJECT = 0x0045,
+        VT_BLOB_OBJECT = 0x0046,
+        VT_CF = 0x0047,
+        VT_CLSID = 0x0048,
+        VT_VERSIONED_STREAM = 0x0049,
+        VT_VECTOR = 0x1000,
+        VT_ARRAY = 0x2000,
+    } Type;
+
+    uint16 Padding;
+
+    switch (Type)
+    {
+        case VT_LPWSTR:
+            uint32 Length;
+            if (Length%2) wchar_t Value[Length+1];
+            else wchar_t Value[Length];
+            break;
+
+        case VT_CLSID:
+            GUID CLSID;
+            break;
+
+        default:
+            ubyte Value[Size];
+    }
+
+} TypedPropertyValue;
+
+typedef struct
+{
+    uint32 ValueSize;
+    uint32 NameSize;
+    ubyte Reserved;
+    wchar_t Value[NameSize/2];
+    TypedPropertyValue Value[ValueSize-NameSize-13];
+
+} PropertyStringValue;
+
+typedef struct
+{
+    uint32 Size;
+    uint32 ID;
+    ubyte Reserved;
+    TypedPropertyValue Value(Size-13);
+
+} PropertyIntegerValue;
+
+typedef struct
+{
+    uint32 Size;
+    uint32 Version;
+
+    GUID FormatID;
+    if (Strcmp(FormatID,"{D5CDD505-2E9C-101B-9397-08002B2CF9AE}"))
+    {
+    	while(ReadUInt(FTell()) != 0x0000)
+    	{
+    		PropertyIntegerValue sPropertyIntegerValue;
+    	}
+    }
+    else
+    {
+    	while(ReadUInt(FTell()) != 0x0000)
+    	{
+    		PropertyStringValue sPropertyStringValue;
+    	}
+    }
+
+	uint32 TerminalBlock;
+
+} PropertyStoreList;
+
+typedef struct
+{
+	uint32 Size;
+	uint32 Signature;
+
+  	while(ReadUInt(FTell()) != 0x0000)
+   	{
+        PropertyStoreList sPropertyStoreList;
+    }
+
+	uint32 TerminalBlock;
+
+} PropertyStoreDataBlock;
+
+typedef struct
+{
+    uint32 Size;
+    uint32 Signature;
+
+   	while(ReadUShort(FTell()) != 0x0000)
+	{
+		IDList sIDList;
+	}
+	uint16 TerminalID;
+
+} VistaAndAboveIDListDataBlock;
+
+typedef struct
+{
+	uint32 Size;
+	uint32 Signature;
+    GUID KnownFolderID;
+    uint32 Offset;
+
+} KnownFolderDataBlock;
+
+typedef struct
+{
+	while(ReadUInt(FTell()) >= 0x00000004)
+	{
+		switch (ReadUInt(FTell() + 4))
+		{
+            case 0xA0000001:
+                EnvironmentVariableDataBlock sEnvironmentVariableDataBlock;
+                break;
+
+            case 0xA0000002:
+                ConsoleDataBlock sConsoleDataBlock;
+                break;
+
+			case 0xA0000003:
+				TrackerDataBlock sTrackerDataBlock;
+				break;
+
+            case 0xA0000004:
+                ConsoleFEDataBlock sConsoleFEDataBlock;
+                break;
+
+			case 0xA0000005:
+				SpecialFolderDataBlock sSpecialFolderDataBlock;
+				break;
+
+            case 0xA0000006:
+                DarwinDataBlock sDarwinDataBlock;
+                break;
+
+            case 0xA0000007:
+                IconEnvironmentDataBlock sIconEnvironmentDataBlock;
+                break;
+
+            case 0xA0000008:
+                ShimDataBlock sShimDataBlock;
+                break;
+
+            case 0xA0000009:
+                PropertyStoreDataBlock sPropertyStoreDataBlock;
+                break;
+
+            case 0xA000000A:
+                VistaAndAboveIDListDataBlock sVistaAndAboveIDListDataBlock;
+                break;
+
+            case 0xA000000B:
+                KnownFolderDataBlock sKnownFolderDataBlock;
+                break;
+
+			default:
+				ExtraDataBlock sExtraDataBlock;
+		}
+	}
+	uint32 TerminalBlock;
+} ExtraData;
+
+// Start
+LittleEndian();
+
+SetBackColor(iToggleColor);
+ShellLinkHeader sShellLinkHeader;
+
+if (sShellLinkHeader.sLinkFlags.HasLinkTargetIDList == 1)
+{
+	ToggleBackColor();
+	LinkTargetIDList sLinkTargetIDList;
+}
+
+if (sShellLinkHeader.sLinkFlags.HasLinkInfo == 1)
+{
+	ToggleBackColor();
+	LinkInfo sLinkInfo;
+}
+
+if (sShellLinkHeader.sLinkFlags.HasName == 1)
+{
+	ToggleBackColor();
+	StringData NAME_STRING;
+}
+
+if (sShellLinkHeader.sLinkFlags.HasRelativePath == 1)
+{
+	ToggleBackColor();
+	StringData RELATIVE_PATH;
+}
+
+if (sShellLinkHeader.sLinkFlags.HasWorkingDir == 1)
+{
+	ToggleBackColor();
+	StringData WORKING_DIR;
+}
+
+if (sShellLinkHeader.sLinkFlags.HasArguments == 1)
+{
+	ToggleBackColor();
+	StringData COMMAND_LINE_ARGUMENTS;
+}
+
+if (sShellLinkHeader.sLinkFlags.HasIconLocation == 1)
+{
+	ToggleBackColor();
+	StringData ICON_LOCATION;
+}
+
+ToggleBackColor();
+ExtraData sExtraData;
+
+SetBackColor(cNone);

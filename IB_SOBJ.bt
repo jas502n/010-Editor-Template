@@ -1,0 +1,208 @@
+//------------------------------------------------
+//--- 010 Editor v9.0.2 Binary Template
+//
+//      File: IB_SOBJ.bt
+//   Authors: Dave uRrr
+//   Version: 1.1
+//   Purpose: Parse Monster World Hunter: Iceborne object files.
+//  Category: Game
+// File Mask: *.sobj
+//  ID Bytes: 
+//   History: 
+//   1.1 2020-10-12 Dave uRrr : no funciona
+//   1.0 2020-10-12 Dave uRrr: Solo quiero subir esto, deja de complicarme la vida maldito programa.
+//      Janurary 2020
+//              All previous Reversed Engineered structs were brought over from Vanilla
+//          and updated for Iceborne.
+//------------------------------------------------
+
+// Header Information
+typedef struct {
+    long    signature<name="Capcom Garbage">;
+    long    fType<name="File Type">;
+    if (fType == 6451059) {
+        long    Version;
+        long    sType;
+        long    SOHCnt;
+        if (SOHCnt > 0){long    SOH[SOHCnt];}    //Only for Otomos
+    }
+    uint32  ObjCnt<bgcolor=0x0000ff,name="Object Count">;
+} Header;
+
+//------------------------------------------------
+// SOBJL File
+typedef struct {
+    long    SOH<bgcolor=0xff0000,name="Start of Header">;
+    long    ind<bgcolor=0x0000ff,name="Index">;
+    long    rSetObjecth<bgcolor=0x800800,name="rSetObject">;
+    if (rSetObjecth == 0){}
+    else{string  pat<bgcolor=0x800080,name="Path">;}
+    uint32  NUL<name="Null">;
+} rSetObject;
+
+//------------------------------------------------
+//Include cSetObject Templates
+#include "IB_SOBJ(cStructs).bt"
+#include "IB_cSetAnimalArea.bt"
+#include "IB_cSetFishArea.bt"
+#include "IB_cEmSetter.bt"
+#include "IB_cVillageNpcSetter.bt"
+#include "IB_cOtXSetter.bt"
+#include "IB_cXTraceLogSetter.bt"
+
+//------------------------------------------------
+// SOBJ
+typedef struct {
+    long    IBsignature;
+    string  cType<bgcolor=0xFF0000,name="Command Type">;
+    long    EOT0<hidden=true>;
+    Spawn   spawn<read=ReadSpawn,name="Spawn">;
+    string  oName<bgcolor=0xff0000,name="[Object] Name">;
+    oStruct ostruct<name="Odd Struct">;
+    string  pointA<bgcolor=0x800080,name="[Object] Pointer A / [Name] Folder">;
+    string  pointB<bgcolor=0x800080,name="[Object] Pointer B / [Name] Unknown">;
+    string  Nihongo<bgcolor=0x800080,name="Japanese Name?">;
+    string  EV<bgcolor=0x800080,name="EV ?">;
+    uint32  pCount<bgcolor=0x0000ff,name="[Object] Parameter Count">;
+    if (pCount != 0) {Parameters parameters[pCount]<read=ReadParam,name="Parameters",optimize=false>;}
+    byte    CD[64]<name="CD NULL">;
+    byte    gm<name="[Object] GM Extra">;
+    if(gm != 0){GM  gm<name="GM Unknown">;}
+    if (Strstr(cType, "cSetAnim") == 0){AnimalArea  aa<bgcolor=0x010010,name="cSetAnimalArea Data">;}
+    if (Strstr(cType, "cSetFish") == 0){FishArea    fa<bgcolor=0x010010,name="cSetFishArea Data">;}
+    if (Strstr(cType, "cVillage") == 0){NPC         npc<bgcolor=0x010010,name="cVillageNPCSetter Data">;}
+    if (Strstr(cType, "cQuestNp") == 0){NPC         npc<bgcolor=0x010010,name="cQuestNpcSetter Data">;}
+    if (Strstr(cType, "cEmDesir") == 0){EMDesire    emd<bgcolor=0x010010,name="cEmDesireSetter Data">;}
+    if (Strstr(cType, "cEmRepop") == 0){EMDesire    rep<bgcolor=0x010010,name="cEMRepopSetter">;}
+    if (Strstr(cType, "cEmSette") == 0){EM          em<bgcolor=0x010010,name="cEMSetter Data">;}
+    if (Strstr(cType, "cEmGroup") == 0){EMGroup     emg<bgcolor=0x010010,name="cEmGroupSetter Data ">;}
+    if (Strstr(cType, "cPlJumpP") == 0){PlJumpPos   pjp<bgcolor=0x010010,name="cPlJumpPos Data">;}
+    if (Strstr(cType, "cTerrain") == 0){Terrain     tp<bgcolor=0x010010,name="cTerrainPoint Data">;}
+    if (Strstr(cType, "cTraceLo") == 0){TraceLog    tl<bgcolor=0x010010,name="cTraceLogSetter Data">;}
+    if (Strstr(cType, "cKimenTr") == 0){TraceLog    tl<bgcolor=0x010010,name="cKimentTraceLogSetter">;}
+    if (Strstr(cType, "cNpcTrac") == 0){TraceLog    tl<bgcolor=0x010010,name="cNpcTraceLogSetter">;}
+    if (Strstr(cType, "cWildCat") == 0){TraceLog    tl<bgcolor=0x010010,name="cWildCatTraceLogSetter">;}
+    if (Strstr(cType, "cOtGroup") == 0){Group   otgrp<bgcolor=0x010010,name="cOtGroupSetter">;}
+    if (Strstr(cType, "cOtOtasuk") == 0){uint32 OtCnt; Otasuke  otsu[OtCnt]<bgcolor=0x010010,name="cOtOtasukeSetter",optimize=false>;}
+    if (Strstr(cType, "cOtRandom") == 0){uint32 OtCnt; Random   rando[OtCnt]<bgcolor=0x010010,name="cOtRandomSetter",optimize=false>; uint32 NULL;}
+    if (Strstr(cType, "cOtPosSet") == 0){uint32 OtID<bgcolor=0x800080,name="Otomo ID">;}
+    //Mostly for printing
+    local float x;
+    local float y;
+    local float z;
+    
+    x = spawn.Pos_X;
+    y = spawn.Pos_Y;
+    z = spawn.Pos_Z;
+
+    local int32 ID;
+    local int32 subID;
+    local int32 R;
+    local int32 C;
+    if (Strstr(cType, "cSetAnim") == 0){ID = aa.ID; subID = aa.subID; R = aa.rBool;}
+    if (Strstr(cType, "cSetFish") == 0){C = fa.vCnt; R = fa.rBool;}
+    if (Strstr(cType, "cPlJumpPos") == 0){ID = pjp.ID;}
+} SOBJ;
+
+//------------------------------------------------
+//Read Strings
+string ReadHead(Header& r) {
+    string s;
+    SPrintf(s, "Obj: %d", r.ObjCnt);
+    return s;
+}
+
+string ReadSOBJL(rSetObject& r) {
+    string s;
+    if(r.rSetObjecth == 0){SPrintf(s, "Index: %d",r.ind);}
+    else{SPrintf(s, "Index: %d \t " + r.pat, r.ind);}
+    return s;
+}
+
+string ReadSOBJ(SOBJ& r){
+    string s;
+    if (r.cType == "cSetAnimalArea"){
+        SPrintf(s, "ID: %d \t sID: %d \t Rarity: %d \t [X: %f \t Y: %f \t Z: %f]", r.ID, r.subID, r.R, r.x, r.y, r.z);
+    }
+    if (r.cType == "cSetFishArea") {
+        SPrintf(s, "CT: %d \t Rarity: %d \t [X: %f \t Y: %f \t Z: %f]", r.C, r.R, r.x, r.y, r.z);
+    }
+    if (r.cType == "cAssetBasicSetObject") {
+        SPrintf(s, r.oName + "\t" + r.pointA + "\t" + r.pointB + "\t [X: %f \t Y: %f \t Z: %f]", r.x, r.y, r.z);
+    }
+    if (r.cType == "cVillageNpcSetter" || r.cType == "cQuestNpcSetter"){
+        SPrintf(s, r.oName + "\t" + r.pointA + "\t" + r.pointB + "\t [X: %f \t Y: %f \t Z: %f]", r.x, r.y, r.z);
+    }
+    if (r.cType == "cPlJumpPos") {
+        SPrintf(s, "ID: %d \t [X: %f \t Y: %f \t Z: %f]", r.ID, r.x, r.y, r.z);
+    }
+    return s;
+}
+
+//------------------------------------------------
+//Display Info
+Header header<bgcolor=0x00ffff,read=ReadHead,name="Header">;
+
+local int i;
+local int p;
+local string cType;
+local int m;
+
+//Changes the if or case
+m = 0;
+
+for (i = 0; i < header.ObjCnt; i++) {
+    if (header.fType == 10) {
+        rSetObject  sobjl<name="rSetObject",read=ReadSOBJL>;
+    }
+    if (m == 0) {
+        if (header.fType == 6451059) {
+            FSkip(4);
+            cType = ReadString(FTell());
+            switch (cType) {
+                case "cSetAnimalArea"           : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cSetAnimalArea">;            break;
+                case "cSetFishArea"             : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cSetFishArea">;              break;
+                case "cAssetBasicSetObject"     : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cAssetBasicObject">;         break;
+                case "cEmDesireSetter"          : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cEmDesireSetter">;           break;
+                case "cEmGroupSetter"           : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cEmGroupSetter">;            break;
+                case "cEmRepopSetter"           : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cEmRepopSetter">;            break;
+                case "cEmSetter"                : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cEmSetter">;                 break;
+                case "cFishingFloatSetter"      : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cFishingFloatSetter">;       break;
+                case "cPlJumpPos"               : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cPlJumpPos">;                break;
+                case "cOtGroupSetter"           : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cOtGroupSetter">;            break;
+                case "cOtOtasukeSetter"         : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cOtOtasukeSetter">;          break;
+                case "cOtRandomSetter"          : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cOtRandomSetter">;           break;
+                case "cOtPosSetter"             : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cOtPosSetter">;              break;
+                case "cTerrainPoint"            : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cTerrainPoint">;             break;
+                case "cTraceLogSetter"          : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cTraceLogSetter">;           break;
+                case "cKimenTraceLogSetter"     : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cKimenTraceLogSetter">;      break;
+                case "cNpcTraceLogSetter"       : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cNpcTraceLogSetter">;        break;
+                case "cWildCatTraceLogSetter"   : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cWildCatTraceLogSetter">;    break;
+                case "cVillageNpcSetter"        : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cVillageNpcSetter">;         break;
+                case "cQuestNpcSetter"          : FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cQuestNpcSetter">;           break;
+            }
+        }
+    }
+    if (m == 1) {
+        if (header.fType == 6451059) {
+            FSkip(4);
+            cType = ReadString(FTell());
+            if (cType == "cSetAnimalArea"          ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cSetAnimalArea">;}
+            if (cType == "cSetFishArea"            ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cSetFishArea">;}
+            if (cType == "cAssetBasicSetObject"    ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cAssetBasicObject">;}
+            if (cType == "cEmDesireSetter"         ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cEmDesireSetter">;}
+            if (cType == "cEmGroupSetter"          ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cEmGroupSetter">;}
+            if (cType == "cEmRepopSetter"          ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cEmRepopSetter">;}
+            if (cType == "cEmSetter"               ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cEmSetter">;}
+            if (cType == "cFishingFloatSetter"     ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cFishingFloatSetter">;}
+            if (cType == "cPlJumpPos"              ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cPlJumpPos">;}
+            if (cType == "cTerrainPoint"           ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cTerrainPoint">;}
+            if (cType == "cTraceLogSetter"         ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cTraceLogSetter">;}
+            if (cType == "cKimenTraceLogSetter"    ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cKimenTraceLogSetter">;}
+            if (cType == "cNpcTraceLogSetter"      ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cNpcTraceLogSetter">;}
+            if (cType == "cWildCatTraceLogSetter"  ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cWildCatTraceLogSetter">;}
+            if (cType == "cVillageNpcSetter"       ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cVillageNpcSetter">;}
+            if (cType == "cQuestNpcSetter"         ){FSkip(-4); SOBJ sobj<read=ReadSOBJ,name="cQuestNpcSetter">;}
+        }
+    }
+}

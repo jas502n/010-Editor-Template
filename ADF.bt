@@ -1,0 +1,447 @@
+//------------------------------------------------
+//--- 010 Editor v9.0.1 Binary Template
+//
+//         File: ADF.bt
+//      Authors: Volker Broemmel (VB)
+//      Version: 1.0
+//      Purpose: Detect block types of AmigaDOS disk images.
+//     Category: Drives
+//    File Mask: *.adf
+//     ID Bytes:
+//      History:
+//   1.0 2019-02-xx VB: tested on HD disk images -- works.
+//                      fixed ROOTBLOCK.bmflag datatype and all sec_type datatypes.
+//   0.9 2019-02-07 VB: initial release
+//
+//      Remarks: use template at your own risk. Please make backups of your files first.
+//
+//Documentation:
+//	The knowledge that has flowed in here came mainly
+//	from the outstanding "The .ADF (Amiga Disk File) format FAQ"
+//	of Laurent Clévy (http://lclevy.free.fr/adflib/adf_info.html).
+//
+//	DiskType of boot block (first int32 of disk):
+//		'D''O''S' + flags
+//		flags = 3 least signifiant bits
+//			set			clr
+//		0	FFS			OFS
+//		1	INTL ONLY	NO_INTL ONLY
+//		2	DIRC&INTL	NO_DIRC&INTL
+//	find further information in Laurent's FAQ.
+//
+//	Protection bit flags (File Header Block / User Directory Block):
+//		Bit		If set, means
+//		If MultiUser FileSystem : Owner
+//		0		delete forbidden (D)
+//		1		not executable (E)
+//		2		not writable (W)
+//		3		not readable (R)
+//
+//		4		is archived (A)
+//		5		pure (reetrant safe), can be made resident (P)
+//		6		file is a script (Arexx or Shell) (S)
+//		7		Hold bit. if H+P (and R+E) are set the file can be made resident on first load (OS 2.x and 3.0)
+//
+//		8		Group (D) : is delete protected 
+//		9		Group (E) : is executable 
+//		10		Group (W) : is writable 
+//		11		Group (R) : is readable 
+//
+//		12		Other (D) : is delete protected 
+//		13		Other (E) : is executable 
+//		14		Other (W) : is writable 
+//		15		Other (R) : is readable 
+//
+//		30-16	reserved
+//		31		SUID, MultiUserFS Only
+//
+// Program flow:
+//	First off, the important info about the image file is gathered like 
+//	block count and if it's a FFS or an OFS file system. Also the global
+//	block info array is initialized which has the size of block count
+//	and holds information on each block if it is a known block type or not.
+//		Then the image file is analyzed almost sequentially	block by block. 
+//  There are a few exceptions, though. Block-Types like
+//	Bitmap-Block or FFS-Data-Block are hard or even impossible to tetect
+//	by themselves. Thus certain collections are followed right away,
+//	"breaking" the sequence:
+//		* bm_pages collection in Root-Block
+//		* data_blocks collection in File-Header-Block (FFS only)
+//		* data_blocks collection in File-Extension-Block (FFS only)
+//	Analyzing such a block again is avoided by marking it as KnownBlockType.
+//	The sequence-loop skips those blocks.
+//
+//  Known issus:
+//	*	Link-Blocks are not supported
+//	*	Directory cache blocks (FFS) are not supported
+//	This version is not tested on hard disk images.
+//------------------------------------------------
+
+
+
+/*
+ * Prerequisites
+ */
+// Values in 68xxx CPU's are BigEndian
+BigEndian();
+
+// Define constants
+const int BSIZE		= 512;			// sizeof a disk sector in bytes
+const int64 FSIZE	= FileSize();
+const int BCOUNT	= FSIZE/BSIZE;
+
+
+// Define enums
+enum BLOCKINFO {
+	TBA					= 0,		// To be analyzed
+	KnownBlockType		= 1,
+	UnknownBlockType	= 2
+};
+local BLOCKINFO _blockInfo[BCOUNT];
+_initBlockInfo();
+
+// Define globals
+local int isFFS = 0;				// determines if this is an OFS or FFS disk
+_getFileSystemType();
+
+
+/*
+ *	Block structure definitions
+ */
+// Boot block structure
+typedef struct {
+	uchar		DiskType[3]				<comment="'D''O''S' + flags",fgcolor=cPurple,bgcolor=cRed>;
+	uchar		flags					<format=binary,comment=_getDiskFlagsString>;
+	ulong		chksum					<format=hex,comment="special block checksum",fgcolor=cAqua,bgcolor=cWhite>;
+	ulong		Rootblock				<comment="Value is 880 for DD and HD",fgcolor=cLtYellow,bgcolor=cBlack>;
+	uchar		Bootblock_code[1012]	<comment="BOOT_CODE",fgcolor=cWhite,bgcolor=cBlack>;
+} BOOTBLOCK <bgcolor=cGray,comment="Boot block">;
+
+// Root block structure
+typedef struct {
+	ulong		type					<comment="block primary type = T_HEADER (value 2)">;
+	ulong		header_key				<comment="unused in rootblock (value 0)">;
+	ulong		high_seq				<comment="unused (value 0)">;
+	ulong		ht_size					<comment="Hash table size in long (= BSIZE/4 - 56). For floppy disk value 0x48">;
+	ulong		first_data				<comment="unused (value 0)">;
+	ulong		chksum					<format=hex,comment="Rootblock checksum">;
+	ulong		ht[(BSIZE/4)-56]		<comment="hash table (entry block number) (= (BSIZE/4) - 56) for floppy disk: size= 72 longwords">;
+	long		bm_flag					<comment="bitmap flag, -1 means VALID">;
+	ulong		bm_pages[25]			<comment="bitmap blocks pointers (first one at bm_pages[0])">;
+	ulong		bm_ext					<comment="first bitmap extension block (Hard disks only)">;
+	ulong		r_days					<comment="last root alteration date (days since 1 jan 78)">;
+	ulong		r_mins					<comment="minutes past midnight">;
+	ulong		r_ticks					<comment="ticks (1/50 sec) past last minute">;
+	uchar		name_len				<comment="volume name length">;
+	char		diskname[30]			<comment="volume name">;
+	uchar		UNUSED					<comment="set to 0">;
+	ulong		UNUSED					<comment="set to 0">;
+	ulong		UNUSED					<comment="set to 0">;
+	ulong		v_days					<comment="last disk alteration date (days since 1 jan 78)">;
+	ulong		v_mins					<comment="minutes past midnight">;
+	ulong		v_ticks					<comment="ticks (1/50 sec) past last minute">;
+	ulong		c_days					<comment="filesystem creation date (days since 1 jan 78)">;
+	ulong		c_mins					<comment="minutes past midnight">;
+	ulong		c_ticks					<comment="ticks (1/50 sec) past last minute">;
+	ulong		next_hash				<comment="unused (value = 0)">;
+	ulong		parent_dir				<comment="unused (value = 0)">;
+	ulong		extension				<comment="FFS: first directory cache block, 0 otherwise">;
+	long		sec_type				<comment="block secondary type = ST_ROOT (value 1)">;
+} ROOTBLOCK <bgcolor=cGray,comment="Root block">;
+
+// Bitmap block structure
+typedef struct {
+	ulong		chksum					<format=hex,comment="normal algorithm">;
+	ulong		map[(BSIZE/4) - 1]		<comment="map">;
+} BITMAPBLOCK <bgcolor=cGray,comment="Bitmap block">;
+
+// Bitmap extension block (hard disk only)
+typedef struct {
+	ulong		map[(BSIZE/4) - 1]		<comment="bitmap block pointers">;
+	ulong		next					<comment="next bitmap extension block (0 for last)">;
+} BITMAPEXTENSIONBLOCK <bgcolor=cGray,comment="Bitmap extension block">;
+
+// File header block structure
+typedef struct {
+	ulong		type					<comment="block primary type T_HEADER (==2)">;
+	ulong		header_key				<comment="self pointer (to this block)">;
+	ulong		high_seq				<comment="number of data block ptr stored here">;
+	ulong		data_size				<comment="unused (==0)">;
+	ulong		first_data				<comment="first data block ptr">;
+	ulong		chksum					<format=hex,comment="same algorithm as rootblock">;
+	ulong		data_blocks[(BSIZE/4)-56]	<comment="data blk ptr (first at BSIZE-204) = (BSIZE/4) - 56">;
+	ulong		UNUSED0					<comment="unused (==0)">;
+	ushort		UID						<comment="UserID">;
+	ushort		GID						<comment="GroupID">;
+	ulong		protect					<comment="protection flags (set to 0 by default)">;
+	ulong		byte_size				<comment="file size in bytes">;
+	uchar		comm_len				<comment="file comment length">;
+	uchar		comment[79]				<comment="comment (max. 79 chars permitted)">;
+	uchar		UNUSED1[12]				<comment="set to 0">;
+	ulong		days					<comment="last change date (days since 1 jan 78)">;
+	ulong		mins					<comment="last change time">;
+	ulong		ticks					<comment="in 1/50s of a seconds">;
+	uchar		name_len				<comment="filename length">;
+	char		filename[30]			<comment="filename (max. 30 chars permitted)">;
+	uchar		UNUSED					<comment="set to 0">;
+	ulong		UNUSED					<comment="set to 0">;
+	ulong		real_entry				<comment="FFS : unused (== 0)">;
+	ulong		next_link				<comment="FFS : hardlinks chained list (first=newest)">;
+	ulong		UNUSED3[5]				<comment="set to 0">;
+	ulong		hash_chain				<comment="next entry ptr with same hash">;
+	ulong		parent					<comment="parent directory">;
+	ulong		extension				<comment="pointer to 1st file extension block">;
+	long		sec_type				<comment="secondary type : ST_FILE (== -3)">;
+} FILEHEADERBLOCK <bgcolor=cGray,comment="File header block">;
+
+// File extension block structure (sometimes also called "file list block")
+typedef struct {
+	ulong		type					<comment="primary type : T_LIST (== 16)">;
+	ulong		header_key				<comment="self pointer">;
+	ulong		high_seq				<comment="number of data blk ptr stored">;
+	ulong		UNUSED0					<comment="unused (==0)">;
+	ulong		UNUSED1					<comment="unused (==0)">;
+	ulong		chksum					<format=hex,comment="rootblock algorithm">;
+	ulong		data_blocks[(BSIZE/4)-56]	<comment="data blk ptr (first at BSIZE-204) = (BSIZE/4) - 56">;
+	ulong		info[46]				<comment="unused (==0)">;
+	ulong		UNUSED2					<comment="unused (==0)">;
+	ulong		parent					<comment="file header block">;
+	ulong		extension				<comment="next file extension block, 0 for last">;
+	long		sec_type				<comment="secondary type : ST_FILE (== -3)">;
+} FILEEXTENSIONBLOCK <bgcolor=cGray,comment="File extension block">;
+
+// OFS data block structure
+typedef struct {
+	ulong		type					<comment="Block type">;
+	ulong		header_key				<comment="Pointer to FileHeader block">;
+	ulong		seq_num					<comment="file data block number (first is #1)">;
+	ulong		data_size				<comment="data size <= (BSIZE-2">;
+	ulong		next_data				<comment="next data block ptr (0 for last)">;
+	ulong		chksum					<format=hex,comment="rootblock algorithm">;
+	uchar		data[BSIZE-24]			<format=hex,comment="file data, size <= (BSIZE-24)">;
+} DATABLOCKOFS <comment="Data block (OFS)">; 
+
+// FFS data block structure
+typedef struct {
+	uchar		data[BSIZE]				<format=hex,comment="file data, full block">;
+} DATABLOCKFFS <comment="Data block (FFS)">; 
+
+// User directory block structure
+typedef struct {
+	ulong		type					<comment="block primary type = T_HEADER (value 2)">;
+	ulong		header_key				<comment="self pointer">;
+	ulong		UNUSED0[3]				<comment="unused (==0)">;
+	ulong		chksum					<format=hex,comment="normal checksum algorithm">;
+	ulong		ht[(BSIZE/4)-56]		<comment="hash table (entry block number) (= (BSIZE/4) - 56) for floppy disk: size= 72 longwords">;
+	ulong		UNUSED1[2]				<comment="unused (==0)">;
+	ushort		UID						<comment="User ID">;
+	ulong		GID						<comment="Group ID">;
+	ulong		protect					<comment="protection flags (set to 0 by default)">;
+	ulong		UNUSED					<comment="unused (==0)">;
+	uchar		comm_len				<comment="directory comment length">;
+	char		comment[79]				<comment="comment (max. 79 chars permitted)">;
+	uchar		UNUSED2[6]				<comment="set to 0">;
+	ulong		days					<comment="last access date (days since 1 jan 78)">;
+	ulong		mins					<comment="last access time">;
+	ulong		ticks					<comment="in 1/50s of a seconds">;
+	uchar		name_len				<comment="directory name length">;
+	char		dirname[30]				<comment="directory (max. 30 chars permitted)">;
+	uchar		UNUSED					<comment="set to 0">;
+	ulong		UNUSED3[2]				<comment="set to 0">;
+	ulong		next_link				<comment="FFS : hardlinks chained list (first=newest)">;
+	ulong		UNUSED4[5]				<comment="set to 0">;
+	ulong		hash_chain				<comment="next entry ptr with same hash">;
+	ulong		parent_dir				<comment="parent directory">;
+	ulong		extension				<comment="FFS: first directory cache block, 0 otherwise">;
+	long		sec_type				<comment="block secondary type = ST_USERDIR (== 2)">;
+} USERDIRECTORYBLOCK <bgcolor=cGray,comment="User directory block">;
+
+
+
+/*
+ * helper functions
+ */
+// initialize block info array
+void _initBlockInfo(){
+	local int i;
+
+	for( i = 0; i < BCOUNT; i++ ){
+		_blockInfo[i] = TBA;
+	}
+	//_printBlockInfoArray();
+}
+
+// print block info for debugging purposes
+void _printBlockInfoArray(){
+	local int i, j;
+
+	for ( i = 0; i < BCOUNT; i++ )
+	{	
+		if(i%16==0){Printf("\n");}
+		Printf("%02x ",_blockInfo[i]);
+	}
+	Printf("\n\n");
+}
+
+// get file system type
+void _getFileSystemType(){
+	local uchar firstBytes[4];
+
+	FSeek(0);
+	ReadBytes( firstBytes, 0, 4 );
+
+	if( ((firstBytes[3]) & (1<<(0))) ) { isFFS = 1; }
+}
+
+// get disk type flags string for comments
+string _getDiskFlagsString( byte flags ) {
+	string strFlags = "";
+
+	if( ((flags) & (1<<(0))) ) {
+		strFlags += "| FFS ";
+	} else {
+		strFlags += "| OFS ";
+	}
+
+	if( ((flags) & (1<<(1))) ) {
+		strFlags += "| INTL ONLY ";
+	} else {
+		strFlags += "| NO_INTL ONLY ";
+	}
+
+	if( ((flags) & (1<<(2))) ) {
+		strFlags += "| DIRC&INTL ";
+	} else {
+		strFlags += "| NO_DIRC&INTL ";
+	}
+
+	return strFlags;
+}
+
+
+
+/*
+ * main functions
+ */
+// Loop through disk sectors sequentially
+void _sequentialAproach() {
+	local int blockNumber = 0;
+
+	for ( blockNumber = 0; blockNumber < BCOUNT; blockNumber++ )
+	{
+		_detectBlockType( blockNumber );
+	}
+}
+
+// get block type
+void _detectBlockType( int blockNumber ){
+	//check if block was already detected
+	if( _blockInfo[blockNumber] == KnownBlockType ) {
+		return; 
+	}
+
+	//prepare vars
+	local uchar blockArray[BSIZE];
+
+	//detect boot block
+	//blockArray = _readBlock( blockNumber );
+	FSeek( blockNumber * BSIZE );
+	ReadBytes( blockArray, blockNumber * BSIZE, BSIZE );
+
+	if ( blockArray[0] == 'D' && blockArray[1] == 'O' && blockArray[2] == 'S' &&
+		 blockArray[4] != 'D' && blockArray[5] != 'O' && blockArray[6] != 'S' ) {	//detect root block
+		BOOTBLOCK typebootblock;
+		_blockInfo[0] = KnownBlockType;
+		_blockInfo[1] = KnownBlockType; // boot block consists of 2 blocks on floppy disks (not on hard disks, though)
+	}
+
+	//get type ulongs of block
+	local int type = ReadInt( blockNumber * BSIZE );
+	local int sec_type = ReadInt( (blockNumber * BSIZE) + 508 );
+
+	//detect different block types
+	if ( type == 2 && sec_type == 1 ) {			//detect root block
+		ROOTBLOCK typerootblock;
+		_blockInfo[blockNumber] = KnownBlockType;
+
+		//follow bitmap blocks
+		_followBitmapBlocks( typerootblock.bm_pages );
+	}
+
+	if ( type == 2 && sec_type == -3 ) {		//detect file header
+		FILEHEADERBLOCK typefileheaderblock;
+		_blockInfo[blockNumber] = KnownBlockType;
+		if( isFFS == 1 ) { _followDataBlocks( typefileheaderblock.data_blocks ); }
+	}
+
+	if ( type == 16 && sec_type == -3 ) {		//detect file extension block
+		FILEEXTENSIONBLOCK typefileextensionblock;
+		_blockInfo[blockNumber] = KnownBlockType;
+		if( isFFS == 1 ) { _followDataBlocks( typefileheaderblock.data_blocks ); }
+	}
+
+	if ( isFFS == 0 && type == 8 ) {			//detect data block
+		DATABLOCKOFS typedatablock;
+		_blockInfo[blockNumber] = KnownBlockType;
+	}
+
+	if ( type == 2 && sec_type == 2 ) {			//detect user directory block
+		USERDIRECTORYBLOCK typeuserdirectoryblock;
+		_blockInfo[blockNumber] = KnownBlockType;
+	}
+
+	// no known block type
+	if ( _blockInfo[blockNumber] != KnownBlockType ) { _blockInfo[blockNumber] = UnknownBlockType; }
+}
+
+// follow block chains
+void _followBitmapBlocks( ulong bm_pages[] ){
+	//prepare vars
+	local uchar blockArray[BSIZE];
+	local int i;
+
+	for ( i = 0; i < sizeof(bm_pages)/4; i++ ){
+		// skip iteration or even break out of the loop
+		if ( bm_pages[i] == 0 || bm_pages[i] > BCOUNT -1 ) { continue; } 
+
+		// mark bitmap block
+		FSeek( bm_pages[i] * BSIZE );
+		ReadBytes( blockArray, bm_pages[i] * BSIZE, BSIZE );
+		BITMAPBLOCK typebitmapblock;
+	}
+	
+	// TODO: here should follow a possible bitmap extension block(s) analysis for hard disk files
+}
+
+void _followDataBlocks( ulong data_blocks[] ){
+	//prepare vars
+	local uchar blockArray[BSIZE];
+	local int i;
+
+	for ( i = 0; i < sizeof(data_blocks)/4; i++ ){
+		// skip iteration or even break out of the loop
+		if ( data_blocks[i] == 0 || data_blocks[i] > BCOUNT -1 ) { continue; } 
+
+		// mark bitmap block
+		FSeek( data_blocks[i] * BSIZE );
+		ReadBytes( blockArray, data_blocks[i] * BSIZE, BSIZE );
+		DATABLOCKFFS typedatablockffs;
+		_blockInfo[data_blocks[i]] = KnownBlockType;
+	}
+}
+
+
+
+/*
+ * template action
+ */
+Printf( "Filesize   : %d (%s)\n", FSIZE, FSIZE == 901120 ? "DD" : "HD" );
+Printf( "Block Count: %d\n", BCOUNT );
+Printf( "isFFS      : %d\n\n", isFFS );
+
+Printf( "Start template\n" );
+
+_sequentialAproach();
+
+//_printBlockInfoArray();
+Printf( "Template done\n\n" );

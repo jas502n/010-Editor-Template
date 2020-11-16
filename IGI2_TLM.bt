@@ -1,0 +1,57 @@
+//------------------------------------------------
+//--- 010 Editor v9.0.1 Binary Template
+//
+//      File: IGI2_TLM.bt
+//   Authors: Rotari Artiom
+//    E-mail: ordersone@gmail.com
+//   Version: 1.0
+//   Purpose: 'IGI 2: Covert Strike' Terrain Light Map
+//  Category: Game
+// File Mask: *.tlm
+//  ID Bytes: 49 4c 53 46 // ILSF
+//   History: 
+//   1.0   2019-03-03 Rotari Artiom: _1 remain unknow
+//------------------------------------------------
+
+// This format is just ARGB image.
+// Easely can ve converted to TGA without modify bitmap
+
+
+// pixel struct
+typedef struct ARGB_8888
+{
+    BYTE B;
+    BYTE G;
+    BYTE R;
+    BYTE A;
+};
+
+// main struct
+struct
+{
+    LittleEndian();
+
+    DWORD _0;      // unknown (allways 1008981770)
+
+    struct
+    {
+        DWORD Year;
+        DWORD Month;
+        DWORD Day;
+        DWORD Hour;
+        DWORD Minute;
+        DWORD Second;
+        DWORD Milisecond;
+    } DATE_TIME;   // creation date-time
+
+    DWORD _1;      // unknown (allways 3). May be encoded pixel format
+
+    DWORD Width;   // bitmap width
+    DWORD Heigth;  // bitmap heigth
+
+    // Color data
+    ARGB_8888 Colormap[Width * Heigth];
+} IGI2_TLM;
+
+
+Assert(FEof());

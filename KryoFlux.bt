@@ -1,0 +1,198 @@
+//------------------------------------------------
+//--- 010 Editor v7.0 Binary Template
+//
+//      File: KryoFlux.bt
+//   Authors: Vasyl Tsvirkunov
+//   Version: 0.2
+//   Purpose: Kryoflux Stream file template.
+//  Category: Misc
+// File Mask: *.raw
+//  ID Bytes: 0D 04
+//   History: 
+// 0.2 2016-03-29 Vasyl Tsvirkunov: Updated for v7 compliancy
+// 0.1 2014-11-06 Vasyl Tsvirkunov: Original release
+//------------------------------------------------
+
+LittleEndian();
+
+typedef struct
+{
+    while((unsigned byte)ReadByte(FTell()) >= 0x0e)
+        byte flux;
+} FluxSequence <read=ReadFluxSequence>;
+
+string ReadFluxSequence(FluxSequence& fs)
+{
+    string s;
+    SPrintf(s, "%d flux reversals", sizeof(fs));
+    return s;
+}
+
+typedef struct
+{
+    short flux;
+} Flux2;
+
+typedef struct
+{
+    byte nop;
+} Nop1;
+
+typedef struct
+{
+    byte nop[2];
+} Nop2;
+
+typedef struct
+{
+    byte nop[3];
+} Nop3;
+
+typedef struct
+{
+    byte ovl;
+} Ovl16;
+
+typedef struct
+{
+    byte header;
+    short flux;
+} Flux3;
+
+
+typedef struct
+{
+    byte header;
+    byte type;
+    short size;
+} OOBInvalid;
+
+typedef struct
+{
+    byte header;
+    byte type;
+    short size;
+    long streamPos;
+    long transferTime;
+} OOBStreamInfo;
+
+typedef struct
+{
+    byte header;
+    byte type;
+    short size;
+    long streamPos;
+    long sampleCounter;
+    long indexCounter;
+} OOBIndex;
+
+typedef struct
+{
+    byte header;
+    byte type;
+    short size;
+    long streamPos;
+    long result;
+} OOBStreamEnd <read=ReadOOBStreamEnd>;
+
+string ReadOOBStreamEnd(OOBStreamEnd& se)
+{
+    switch(se.result)
+    {
+    case 0x00: return "Ok";
+    case 0x01: return "Error: Buffering problem";
+    case 0x02: return "Error: No index";
+    }
+}
+
+typedef struct
+{
+    byte header;
+    byte type;
+    short size;
+    char info[size];
+} OOBKFInfo <read=ReadOOBKFInfo>;
+
+string ReadOOBKFInfo(OOBKFInfo& kf)
+{
+    return kf.info;
+}
+
+typedef struct
+{
+    byte header;
+    byte type;
+    short size;
+} OOBEOF;
+
+
+local unsigned byte header;
+local long validatePos = 0;
+
+while(!FEof())
+{
+    header = ReadByte(FTell());
+    if(header >= 0x0e)
+    {
+        FluxSequence flux1;
+        validatePos += sizeof(flux1);
+    }
+    else if(header <= 0x07)
+    {
+        Flux2 flux2;
+        validatePos += 2;
+    }
+    else
+    {
+        switch(header)
+        {
+        case 0x08:
+            Nop1 nop1;
+            validatePos ++;
+            break;
+        case 0x09:
+            Nop2 nop2;
+            validatePos += 2;
+            break;
+        case 0x0a:
+            Nop3 nop3;
+            validatePos += 3;
+            break;
+        case 0x0b:
+            Ovl16 ovl16;
+            validatePos ++;
+            break;
+        case 0x0c:
+            Flux3 flux3;
+            validatePos += 3;
+            break;
+        case 0x0d:
+            switch(ReadByte(FTell()+1))
+            {
+            case 0x00:
+                OOBInvalid oobInvalid;
+                break;
+            case 0x01:
+                OOBStreamInfo oobStreamInfo;
+                if(oobStreamInfo.streamPos != validatePos)
+                {
+                    Printf("Failed stream validation!");
+                    return;
+                }
+                break;
+            case 0x02:
+                OOBIndex oobIndex;
+                break;
+            case 0x03:
+                OOBStreamEnd oobStreamEnd;
+                break;
+            case 0x04:
+                OOBKFInfo oobKFInfo;
+                break;
+            case 0x0d:
+                OOBEOF oobEOF;
+                return;
+            }
+        }
+    }
+}

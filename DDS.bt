@@ -1,0 +1,656 @@
+//------------------------------------------------
+//--- 010 Editor v8.0 Binary Template
+//
+//      File: DDS.bt
+//   Authors: Aaron Cooper
+//    E-mail: aaron@kingcoopa.com
+//   Version: 1.1
+//   Purpose: Parse DDS images
+//  Category: Image
+// File Mask: *.dds
+//  ID Bytes: 44 44 53 20
+//   History:
+//   1.1   2017-07-12 Aaron Cooper: Added pixel format flags formatting.
+//   1.0   2017-07-11 Aaron Cooper: Initial release.
+//
+// More information available at
+//  https://msdn.microsoft.com/en-us/library/windows/desktop/bb943991(v=vs.85).aspx
+//------------------------------------------------
+
+struct DDS_PIXELFORMAT {
+    uint size;
+    uint flags <format=binary, read=ReadDDSPixelFormatFlags>;
+    char fourCC[4];
+    uint RGBBitCount;
+    uint RBitMask <format=binary>;
+    uint GBitMask <format=binary>;
+    uint BBitMask <format=binary>;
+    uint ABitMask <format=binary>;
+};
+
+typedef uint DXGI_FORMAT <read=ReadDXGIFormat>;
+typedef uint D3D10_RESOURCE_DIMENSION <read=ReadD3D10ResourceDimension>;
+
+char magic[4];
+struct DDS_HEADER {
+    uint size;
+    uint flags <format=binary, read=ReadHeaderFlags>;
+    uint height;
+    uint width;
+    uint pitchOrLinearSize;
+    uint depth;
+    uint mipMapCount;
+    uint reserved1[11];
+    DDS_PIXELFORMAT ddspf;
+    uint caps <format=binary, read=ReadHeaderCaps>;
+    uint caps2 <format=binary, read=ReadHeaderCaps2>;
+    uint caps3;
+    uint caps4;
+    uint reserved2;
+} dds_header;
+
+if(dds_header.ddspf.fourCC == "DX10")
+{
+    struct DDS_HEADER_DXT10 {
+        DXGI_FORMAT dxgiFormat;
+        D3D10_RESOURCE_DIMENSION resourceDimension;
+        uint miscFlag <format=binary, read=ReadHeader10MiscFlag>;
+        uint arraySize;
+        uint miscFlags2 <format=binary, read=ReadHeader10MiscFlags2>;
+    } ds_header_dxt10;
+}
+
+string ReadDXGIFormat(DXGI_FORMAT &dxgiFormat)
+{
+    switch( dxgiFormat)
+    {
+    case 0:
+        return "DXGI_FORMAT_UNKNOWN";
+    case 1:
+        return "DXGI_FORMAT_R32G32B32A32_TYPELESS";
+    case 2:
+        return "DXGI_FORMAT_R32G32B32A32_FLOAT";
+    case 3:
+        return "DXGI_FORMAT_R32G32B32A32_UINT";
+    case 4:
+        return "DXGI_FORMAT_R32G32B32A32_SINT";
+    case 5:
+        return "DXGI_FORMAT_R32G32B32_TYPELESS";
+    case 6:
+        return "DXGI_FORMAT_R32G32B32_FLOAT";
+    case 7:
+        return "DXGI_FORMAT_R32G32B32_UINT";
+    case 8:
+        return "DXGI_FORMAT_R32G32B32_SINT";
+    case 9:
+        return "DXGI_FORMAT_R16G16B16A16_TYPELESS";
+    case 10:
+        return "DXGI_FORMAT_R16G16B16A16_FLOAT";
+    case 11:
+        return "DXGI_FORMAT_R16G16B16A16_UNORM";
+    case 12:
+        return "DXGI_FORMAT_R16G16B16A16_UINT";
+    case 13:
+        return "DXGI_FORMAT_R16G16B16A16_SNORM";
+    case 14:
+        return "DXGI_FORMAT_R16G16B16A16_SINT";
+    case 15:
+        return "DXGI_FORMAT_R32G32_TYPELESS";
+    case 16:
+        return "DXGI_FORMAT_R32G32_FLOAT";
+    case 17:
+        return "DXGI_FORMAT_R32G32_UINT";
+    case 18:
+        return "DXGI_FORMAT_R32G32_SINT";
+    case 19:
+        return "DXGI_FORMAT_R32G8X24_TYPELESS";
+    case 20:
+        return "DXGI_FORMAT_D32_FLOAT_S8X24_UINT";
+    case 21:
+        return "DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS";
+    case 22:
+        return "DXGI_FORMAT_X32_TYPELESS_G8X24_UINT";
+    case 23:
+        return "DXGI_FORMAT_R10G10B10A2_TYPELESS";
+    case 24:
+        return "DXGI_FORMAT_R10G10B10A2_UNORM";
+    case 25:
+        return "DXGI_FORMAT_R10G10B10A2_UINT";
+    case 26:
+        return "DXGI_FORMAT_R11G11B10_FLOAT";
+    case 27:
+        return "DXGI_FORMAT_R8G8B8A8_TYPELESS";
+    case 28:
+        return "DXGI_FORMAT_R8G8B8A8_UNORM";
+    case 29:
+        return "DXGI_FORMAT_R8G8B8A8_UNORM_SRGB";
+    case 30:
+        return "DXGI_FORMAT_R8G8B8A8_UINT";
+    case 31:
+        return "DXGI_FORMAT_R8G8B8A8_SNORM";
+    case 32:
+        return "DXGI_FORMAT_R8G8B8A8_SINT";
+    case 33:
+        return "DXGI_FORMAT_R16G16_TYPELESS";
+    case 34:
+        return "DXGI_FORMAT_R16G16_FLOAT";
+    case 35:
+        return "DXGI_FORMAT_R16G16_UNORM";
+    case 36:
+        return "DXGI_FORMAT_R16G16_UINT";
+    case 37:
+        return "DXGI_FORMAT_R16G16_SNORM";
+    case 38:
+        return "DXGI_FORMAT_R16G16_SINT";
+    case 39:
+        return "DXGI_FORMAT_R32_TYPELESS";
+    case 40:
+        return "DXGI_FORMAT_D32_FLOAT";
+    case 41:
+        return "DXGI_FORMAT_R32_FLOAT";
+    case 42:
+        return "DXGI_FORMAT_R32_UINT";
+    case 43:
+        return "DXGI_FORMAT_R32_SINT";
+    case 44:
+        return "DXGI_FORMAT_R24G8_TYPELESS";
+    case 45:
+        return "DXGI_FORMAT_D24_UNORM_S8_UINT";
+    case 46:
+        return "DXGI_FORMAT_R24_UNORM_X8_TYPELESS";
+    case 47:
+        return "DXGI_FORMAT_X24_TYPELESS_G8_UINT";
+    case 48:
+        return "DXGI_FORMAT_R8G8_TYPELESS";
+    case 49:
+        return "DXGI_FORMAT_R8G8_UNORM";
+    case 50:
+        return "DXGI_FORMAT_R8G8_UINT";
+    case 51:
+        return "DXGI_FORMAT_R8G8_SNORM";
+    case 52:
+        return "DXGI_FORMAT_R8G8_SINT";
+    case 53:
+        return "DXGI_FORMAT_R16_TYPELESS";
+    case 54:
+        return "DXGI_FORMAT_R16_FLOAT";
+    case 55:
+        return "DXGI_FORMAT_D16_UNORM";
+    case 56:
+        return "DXGI_FORMAT_R16_UNORM";
+    case 57:
+        return "DXGI_FORMAT_R16_UINT";
+    case 58:
+        return "DXGI_FORMAT_R16_SNORM";
+    case 59:
+        return "DXGI_FORMAT_R16_SINT";
+    case 60:
+        return "DXGI_FORMAT_R8_TYPELESS";
+    case 61:
+        return "DXGI_FORMAT_R8_UNORM";
+    case 62:
+        return "DXGI_FORMAT_R8_UINT";
+    case 63:
+        return "DXGI_FORMAT_R8_SNORM";
+    case 64:
+        return "DXGI_FORMAT_R8_SINT";
+    case 65:
+        return "DXGI_FORMAT_A8_UNORM";
+    case 66:
+        return "DXGI_FORMAT_R1_UNORM";
+    case 67:
+        return "DXGI_FORMAT_R9G9B9E5_SHAREDEXP";
+    case 68:
+        return "DXGI_FORMAT_R8G8_B8G8_UNORM";
+    case 69:
+        return "DXGI_FORMAT_G8R8_G8B8_UNORM";
+    case 70:
+        return "DXGI_FORMAT_BC1_TYPELESS";
+    case 71:
+        return "DXGI_FORMAT_BC1_UNORM";
+    case 72:
+        return "DXGI_FORMAT_BC1_UNORM_SRGB";
+    case 73:
+        return "DXGI_FORMAT_BC2_TYPELESS";
+    case 74:
+        return "DXGI_FORMAT_BC2_UNORM";
+    case 75:
+        return "DXGI_FORMAT_BC2_UNORM_SRGB";
+    case 76:
+        return "DXGI_FORMAT_BC3_TYPELESS";
+    case 77:
+        return "DXGI_FORMAT_BC3_UNORM";
+    case 78:
+        return "DXGI_FORMAT_BC3_UNORM_SRGB";
+    case 79:
+        return "DXGI_FORMAT_BC4_TYPELESS";
+    case 80:
+        return "DXGI_FORMAT_BC4_UNORM";
+    case 81:
+        return "DXGI_FORMAT_BC4_SNORM";
+    case 82:
+        return "DXGI_FORMAT_BC5_TYPELESS";
+    case 83:
+        return "DXGI_FORMAT_BC5_UNORM";
+    case 84:
+        return "DXGI_FORMAT_BC5_SNORM";
+    case 85:
+        return "DXGI_FORMAT_B5G6R5_UNORM";
+    case 86:
+        return "DXGI_FORMAT_B5G5R5A1_UNORM";
+    case 87:
+        return "DXGI_FORMAT_B8G8R8A8_UNORM";
+    case 88:
+        return "DXGI_FORMAT_B8G8R8X8_UNORM";
+    case 89:
+        return "DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM";
+    case 90:
+        return "DXGI_FORMAT_B8G8R8A8_TYPELESS";
+    case 91:
+        return "DXGI_FORMAT_B8G8R8A8_UNORM_SRGB";
+    case 92:
+        return "DXGI_FORMAT_B8G8R8X8_TYPELESS";
+    case 93:
+        return "DXGI_FORMAT_B8G8R8X8_UNORM_SRGB";
+    case 94:
+        return "DXGI_FORMAT_BC6H_TYPELESS";
+    case 95:
+        return "DXGI_FORMAT_BC6H_UF16";
+    case 96:
+        return "DXGI_FORMAT_BC6H_SF16";
+    case 97:
+        return "DXGI_FORMAT_BC7_TYPELESS";
+    case 98:
+        return "DXGI_FORMAT_BC7_UNORM";
+    case 99:
+        return "DXGI_FORMAT_BC7_UNORM_SRGB";
+    case 100:
+        return "DXGI_FORMAT_AYUV";
+    case 101:
+        return "DXGI_FORMAT_Y410";
+    case 102:
+        return "DXGI_FORMAT_Y416";
+    case 103:
+        return "DXGI_FORMAT_NV12";
+    case 104:
+        return "DXGI_FORMAT_P010";
+    case 105:
+        return "DXGI_FORMAT_P016";
+    case 106:
+        return "DXGI_FORMAT_420_OPAQUE";
+    case 107:
+        return "DXGI_FORMAT_YUY2";
+    case 108:
+        return "DXGI_FORMAT_Y210";
+    case 109:
+        return "DXGI_FORMAT_Y216";
+    case 110:
+        return "DXGI_FORMAT_NV11";
+    case 111:
+        return "DXGI_FORMAT_AI44";
+    case 112:
+        return "DXGI_FORMAT_IA44";
+    case 113:
+        return "DXGI_FORMAT_P8";
+    case 114:
+        return "DXGI_FORMAT_A8P8";
+    case 115:
+        return "DXGI_FORMAT_B4G4R4A4_UNORM";
+    case 130:
+        return "DXGI_FORMAT_P208";
+    case 131:
+        return "DXGI_FORMAT_V208";
+    case 132:
+        return "DXGI_FORMAT_V408";
+    case 0xffffffff:
+        return "DXGI_FORMAT_FORCE_UINT";
+    }
+
+    return "";
+}
+
+string ReadD3D10ResourceDimension(D3D10_RESOURCE_DIMENSION &resourceDimension)
+{
+    switch(resourceDimension)
+    {
+    case 0:
+      return "D3D10_RESOURCE_DIMENSION_UNKNOWN";
+    case 1:
+      return "D3D10_RESOURCE_DIMENSION_BUFFER";
+    case 2:
+      return "D3D10_RESOURCE_DIMENSION_TEXTURE1D";
+    case 3:
+      return "D3D10_RESOURCE_DIMENSION_TEXTURE2D";
+    case 4:
+      return "D3D10_RESOURCE_DIMENSION_TEXTURE3D";
+    }
+    
+    return "";
+}
+
+string ReadHeaderFlags(uint flags)
+{
+    string value = "";
+
+    if(flags == 0)
+    {
+        return "";
+    }
+
+    int i = 0;
+    int flag = 0;
+
+    int flagsFound = 0;
+
+    for(i = 0; i < 32; i++)
+    {
+        flag = flags & (1 << i);
+
+        if(flag != 0)
+        {
+            flagsFound++;
+        }
+    }
+
+    int flagCounter = 0;
+    for(i = 0; i < 32; i++)
+    {
+        flag = flags & (1 << i);
+
+        switch(flag)
+        {
+        case 0x1:
+            value += "DDSD_CAPS";
+            break;
+        case 0x2:
+            value += "DDSD_HEIGHT";
+            break;
+        case 0x4:
+            value += "DDSD_WIDTH";
+            break;
+        case 0x8:
+            value += "DDSD_PITCH";
+            break;
+        case 0x1000:
+            value += "DDSD_PIXELFORMAT";
+            break;
+        case 0x20000:
+            value += "DDSD_MIPMAPCOUNT";
+            break;
+        case 0x80000:
+            value += "DDSD_LINEARSIZE";
+            break;
+        case 0x800000:
+            value += "DDSD_DEPTH";
+            break;
+        }
+
+        if(flag != 0)
+        {
+            flagCounter++;
+            if(flagCounter < flagsFound)
+            {
+                value += " | ";
+            }
+        }
+    }
+
+    return value;
+}
+
+string ReadDDSPixelFormatFlags(uint flags)
+{
+    string value = "";
+
+    if(flags == 0)
+    {
+        return "";
+    }
+
+    int i = 0;
+    int flag = 0;
+
+    int flagsFound = 0;
+
+    for(i = 0; i < 32; i++)
+    {
+        flag = flags & (1 << i);
+
+        if(flag != 0)
+        {
+            flagsFound++;
+        }
+    }
+
+    int flagCounter = 0;
+    for(i = 0; i < 32; i++)
+    {
+        flag = flags & (1 << i);
+
+        switch(flag)
+        {
+        case 0x1:
+            value += "DDPF_ALPHAPIXELS";
+            break;
+        case 0x2:
+            value += "DDPF_ALPHA";
+            break;
+        case 0x4:
+            value += "DDPF_FOURCC";
+            break;
+        case 0x40:
+            value += "DDPF_RGB";
+            break;
+        case 0x200:
+            value += "DDPF_YUV";
+            break;
+        case 0x20000:
+            value += "DDPF_LUMINANCE";
+            break;
+        }
+
+        if(flag != 0)
+        {
+            flagCounter++;
+            if(flagCounter < flagsFound)
+            {
+                value += " | ";
+            }
+        }
+    }
+
+    return value;
+}
+
+string ReadHeaderCaps(uint caps)
+{
+    string value = "";
+
+    if(caps == 0)
+    {
+        return "";
+    }
+
+    int i = 0;
+    int flag = 0;
+
+    int flagsFound = 0;
+
+    for(i = 0; i < 32; i++)
+    {
+        flag = caps & (1 << i);
+
+        if(flag != 0)
+        {
+            flagsFound++;
+        }
+    }
+
+    int flagCounter = 0;
+    for(i = 0; i < 32; i++)
+    {
+        flag = caps & (1 << i);
+
+        switch(flag)
+        {
+        case 0x8:
+            value += "DDSCAPS_COMPLEX";
+            break;
+        case 0x400000:
+            value += "DDSCAPS_MIPMAP";
+            break;
+        case 0x1000:
+            value += "DDSCAPS_TEXTURE";
+            break;
+        }
+
+        if(flag != 0)
+        {
+            flagCounter++;
+            if(flagCounter < flagsFound)
+            {
+                value += " | ";
+            }
+        }
+    }
+
+    return value;
+}
+
+string ReadHeaderCaps2(uint caps)
+{
+    string value = "";
+
+    if(caps == 0)
+    {
+        return "";
+    }
+
+    int i = 0;
+    int flag = 0;
+
+    int flagsFound = 0;
+
+    for(i = 0; i < 32; i++)
+    {
+        flag = caps & (1 << i);
+
+        if(flag != 0)
+        {
+            flagsFound++;
+        }
+    }
+
+    int flagCounter = 0;
+    for(i = 0; i < 32; i++)
+    {
+        flag = caps & (1 << i);
+
+        switch(flag)
+        {
+        case 0x200:
+            value += "DDSCAPS2_CUBEMAP";
+            break;
+        case 0x400:
+            value += "DDSCAPS2_CUBEMAP_POSITIVEX";
+            break;
+        case 0x800:
+            value += "DDSCAPS2_CUBEMAP_NEGATIVEX";
+            break;
+        case 0x1000:
+            value += "DDSCAPS2_CUBEMAP_POSITIVEY";
+            break;
+        case 0x2000:
+            value += "DDSCAPS2_CUBEMAP_NEGATIVEY";
+            break;
+        case 0x4000:
+            value += "DDSCAPS2_CUBEMAP_POSITIVEZ";
+            break;
+        case 0x8000:
+            value += "DDSCAPS2_CUBEMAP_NEGATIVEZ";
+            break;
+        case 0x200000:
+            value += "DDSCAPS2_VOLUME";
+            break;
+        }
+
+        if(flag != 0)
+        {
+            flagCounter++;
+            if(flagCounter < flagsFound)
+            {
+                value += " | ";
+            }
+        }
+    }
+
+    return value;
+}
+
+string ReadHeader10MiscFlag(uint flags)
+{
+    string value = "";
+
+    if(flags == 0)
+    {
+        return "";
+    }
+
+    int i = 0;
+    int flag = 0;
+
+    int flagsFound = 0;
+
+    for(i = 0; i < 32; i++)
+    {
+        flag = caps & (1 << i);
+
+        if(flag != 0)
+        {
+            flagsFound++;
+        }
+    }
+
+    int flagCounter = 0;
+    for(i = 0; i < 32; i++)
+    {
+        flag = flags & (1 << i);
+
+        switch(flag)
+        {
+        case 0x4:
+            value += "DDS_RESOURCE_MISC_TEXTURECUBE";
+            break;
+        }
+
+        if(flag != 0)
+        {
+            flagCounter++;
+            if(flagCounter < flagsFound)
+            {
+                value += " | ";
+            }
+        }
+    }
+
+    return value;
+}
+
+string ReadHeader10MiscFlags2(uint flags)
+{
+    switch(flags)
+    {
+    case 0:
+        return "DDS_ALPHA_MODE_UNKNOWN";
+    case 1:
+        return "DDS_ALPHA_MODE_STRAIGHT";
+    case 2:
+        return "DDS_ALPHA_MODE_PREMULTIPLIED";
+    case 3:
+        return "DDS_ALPHA_MODE_OPAQUE";
+    case 4:
+        return "DDS_ALPHA_MODE_CUSTOM";
+    }
+
+    return "";
+}

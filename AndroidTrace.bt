@@ -1,0 +1,109 @@
+//------------------------------------------------
+//--- 010 Editor v8.0 Binary Template
+//
+//      File: AndroidTrace.bt
+//   Authors: Banny
+//   Version: 1.0
+//   Purpose: Define a template for parsing dmtrace.trace files.
+//  Category: Operating System
+//   History: 
+//   1.0   2017-09-19 Banny: record v3 tested.
+//------------------------------------------------
+
+string readMyLine() {
+    local int start = FTell();
+    local int i;
+    for(i = start; i < FileSize(); i++) {
+        if(ReadByte(i) == 0xa) {
+            break;
+        }
+    }
+    local string ret=  ReadString(start, i - start);
+    FSeek(i + 1);
+    return ret;
+}
+
+readMyLine(); // version header
+readMyLine(); // version
+
+local string line;
+while(Strcmp(line = readMyLine(), "*threads") != 0) {
+    Printf("Prop: %s\n", line);
+}
+while(Strcmp(line = readMyLine(), "*methods") != 0) {
+    Printf("Thread: %s\n", line);
+}
+while(Strcmp(line = readMyLine(), "*end") != 0) {
+    Printf("Method: %s\n", line);
+}
+
+local int pos = FTell();
+
+char magic[4];
+ushort version;
+ushort offset;
+uint64 start_time;
+
+if(version >= 2) {
+    ushort record_size;
+}
+
+FSeek(pos + offset);
+
+local int record_count;
+if(version >= 2) {
+    record_count = (FileSize() - FTell()) / record_size;
+} else {
+    record_count = (FileSize() - FTell()) / 10;
+}
+
+local uint kTraceMethodActionMask = 0x3;
+
+string methodId(uint method) {
+    char buf[32];
+    SPrintf(buf, "0x%x", method & ~kTraceMethodActionMask);
+    return buf;
+}
+
+string methodName(uint method) {
+    switch(method & kTraceMethodActionMask) {
+        case 0:
+            return "Enter";
+        case 1:
+            return "Exit";
+        case 2:
+        default:
+            return "Exception";
+    }
+}
+
+typedef struct {
+    ubyte threadId;
+    uint method <read=methodId, name=methodName>;
+    uint delta;
+} RecordV1;
+
+typedef struct {
+    ushort threadId;
+    uint method <read=methodId, name=methodName>;
+    uint delta;
+} RecordV2;
+
+typedef struct {
+    ushort threadId;
+    uint method <read=methodId, name=methodName>;
+    uint delta;
+    uint wall;
+} RecordV3;
+
+switch(version) {
+    case 1:
+        RecordV1 records[record_count];
+        break;
+    case 2:
+        RecordV2 records[record_count];
+        break;
+    case 3:
+        RecordV3 records[record_count];
+        break;
+}

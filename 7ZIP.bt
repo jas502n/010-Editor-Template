@@ -1,0 +1,847 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: 7ZIP.bt
+//    Author: Richard Perrott
+//   Version: 0.1
+//   Purpose: Parse 7-Zip archive files.
+//  Category: Archive
+// File Mask: *.7z
+//  ID Bytes: 37 7A BC AF 27 1C 
+//   History: 
+//   0.1   2019-01-28 Richard Perrott: Initial release
+//
+// More information available at:
+// https://www.7-zip.org/7z.html
+// https://infogalactic.com/info/7z
+// https://sourceforge.net/projects/sevenzip/files/7-Zip/
+//   in the org.apache.commons.compress.archivers.sevenz.SevenZFile call and associated classes.
+//------------------------------------------------
+
+//
+// This is a tricky file format to built a template for, because of the confusing official docs
+// and the structure optimisations for compression; source code looks better for clarifying how
+// to actually comprehend the structures and their use.
+//
+// The lack of support for local structs, local struct arrays, and local references in the template language is really annoying; 
+// I had to needlessly use multiple, transient variables and presized arrays, including arrays of FTell values!
+//
+
+LittleEndian();
+
+local uint64 offsetPos;
+
+// Variables for CRC
+local uint64 nextHeaderPos;
+local uint64 nextHeaderSize;
+local uint32 nextHeaderCRC;
+local ubyte HeadersScanned = 0;
+
+void initCRC(uint64 _nextHeaderPos, uint64 _nextHeaderSize, uint32 _nextHeaderCRC) {
+    nextHeaderPos = _nextHeaderPos;
+    nextHeaderSize = _nextHeaderSize;
+    nextHeaderCRC = _nextHeaderCRC;
+}
+
+void checkCRC() {
+    local uint64 size = FTell()-nextHeaderPos;
+    if (nextHeaderSize != size) {
+        Printf("nextHeaderSize(%0Xh) != %0xh\n", nextHeaderSize, size);
+        Exit(-1);
+    }
+    local uint32 crc = Checksum(CHECKSUM_CRC32, nextHeaderPos, size);
+    Printf("nextHeaderPos=%LX size=%d crc=%X\n",nextHeaderPos, size,crc);
+    if (nextHeaderCRC != crc) {
+        Printf("nextHeaderCRC(%0Xh) != %0xh\n", nextHeaderCRC, crc);
+        Exit(-1);
+    }
+}
+
+// Variables for Archive
+local uint64 Archive_PackPos = 0;
+local uint64 Archive_PackOffset = 0;
+//
+const uint64 Archice_PackSizes_Count = 0;
+const uint64 Archice_PackSizes_Count_Max=10;
+local uint64 Archive_PackSizes[Archice_PackSizes_Count_Max] = 0;
+//
+const uint64 Archive_PackCrcsDefined_Count = 0;
+local ubyte Archive_PackCrcsDefined[Archice_PackSizes_Count_Max] = 0; // boolean array
+//
+local uint64 Archive_PackCrcs_Count = 0;
+local uint64 Archive_PackCrcs[Archice_PackSizes_Count_Max] = 0;
+
+void InitArchive() {
+    Archive_PackPos = 0;
+    Archice_PackSizes_Count = 0;
+    Archive_PackCrcsDefined_Count = 0;
+    Archive_PackCrcs_Count = 0;
+}
+
+// Variables for transient Codec_ values
+local byte Codec_Id_Size;
+local uint64 Codec_Id_Pos;
+local uint64 Codec_NumInStreams = 0;
+local uint64 Codec_NumOutStreams = 0;
+local byte Codec_Properties_Size;
+local uint64 Codec_Properties_Pos;
+void ClearCodecTransients() {
+    Codec_Id_Size = 0;
+    Codec_Id_Pos = 0;
+    Codec_NumInStreams = 0;
+    Codec_NumOutStreams = 0;
+	Codec_Properties_Size = 0;
+	Codec_Properties_Pos = 0;
+}
+
+
+// Variables for transient Folder_ values
+//
+local uint64  Folder_Pos = 0;
+local uint64  Folder_NumInStreams = 0;
+local uint64  Folder_NumOutStreams = 0;
+local uint64  Folder_NumBindPairs = 0;
+local uint64  Folder_InIndex = 0;
+local uint64  Folder_OutIndex = 0;
+local uint64  Folder_NumPackedStreams = 0;
+local uint64  Folder_PackedStreamsPos = 0;
+
+void ClearFolderTransients() {
+    ClearCodecTransients();
+    Folder_NumInStreams = 0;
+    Folder_NumOutStreams = 0;
+    Folder_NumBindPairs = 0;
+	Folder_InIndex = 0;
+	Folder_OutIndex = 0;
+	Folder_NumPackedStreams = 0;
+	Folder_PackedStreamsPos = 0;
+}
+
+// Variables to work around annoying lack of support for local structures 
+// and updateable array references!
+//
+local uint64 Folders_I = 0;
+local uint64 Folders_Size = 0;
+local uint64 Folders_Count = 0;
+const uint64 Folders_Count_Max=1000;
+//
+local byte Folders_Codec_Id_Size[Folders_Count_Max];
+local uint64 Folders_Codec_Id_Pos[Folders_Count_Max];
+//
+local uint64 Folders_Pos[Folders_Count_Max];
+local uint64 Folders_Len[Folders_Count_Max];
+local uint64 Folders_UnPackSize_Pos[Folders_Count_Max];
+local uint64 Folders_UnPackSize_EndPos[Folders_Count_Max];
+//
+local byte Folders_Codec_Properties_Size[Folders_Count_Max];
+local uint64 Folders_Codec_Properties_Pos[Folders_Count_Max];
+//
+
+void InitFoldersTransients(uint64 NumFolders) {
+    ClearCodecTransients();
+
+    if (NumFolders > Folders_Count_Max) {
+        Printf("Increase MaxNumFolders to %Ld\n",Folder_Count_Max);
+        Exit(-1);
+    }
+    Folders_Count = 0;
+    Folders_Size = NumFolders;
+}
+
+void addFolder() {
+    if (HeadersScanned) return;
+    Folders_I = Folders_Count++;
+    if (Folders_Count > Folders_Size) {
+        Printf("Folders_Count(%d) > Folders_Size(%d)\n",Folders_Count,Folders_Size);
+        Exit(-1);
+    }
+
+
+	// Don't bother saving more, because we reload the Folder1 layer
+    Folders_Pos[Folders_I] = Folder_Pos;
+    Folders_Len[Folders_I] = FTell() - Folder_Pos;
+}
+
+// Provides missing SPrintf "%,d" functionality.
+void StrcatfCommaNum(char target[], string format, int64 x, string separator) {
+    if (Strlen(target) > 0 && Strlen(separator)>0) Strcat(target,separator);
+    local char s1[22];
+    SPrintf(s1,"%Lu",x);
+    // Copy with added commas.
+    local char s2[27];
+    local uint log10 = Strlen(s1)-1; // log10 of digit.
+    local int i1=0, i2=0;
+    while (log10>0) {
+        s2[i2++] = s1[i1++];
+        if (log10--%3==0) {
+            s2[i2++] = ',';
+        }
+    }
+    s2[i2++] = s1[i1++]; // Not in loop, because never a comma for log10==0.
+    s2[i2++] = 0;
+    local char s3[80];
+    SPrintf(s3,format,s2);
+    Strcat(target,s3);
+}
+
+// Pretty SPrintf byte sizes
+const int64 KiB = 1024;
+const int64 MiB = KiB * KiB;
+const int64 GiB = MiB * KiB;
+void StrcatfSciBytes(char target[], string format, int64 x, string separator) {
+    if (Strlen(target) > 0 && Strlen(separator)>0) Strcat(target,separator);
+    local char s1[12];
+    if (x >= GiB) {
+        SPrintf(s1,"%d GiB", x / GiB);
+    } else if (x >= MiB) {
+        SPrintf(s1,"%d MiB", x / MiB);
+    } else if (x >= KiB) {
+        SPrintf(s1,"%d KiB", x / KiB);
+    } else {
+        SPrintf(s1,"%d B", x);
+    }
+    local char s2[64];
+    SPrintf(s2,format,s1);
+    Strcat(target,s2);
+}
+
+void StrcatfNum(char target[], string format, int64 x, string separator) {
+    if (x!=0) {
+        if (Strlen(target) > 0 && Strlen(separator)>0) Strcat(target,separator);
+        local char str[20];
+        SPrintf(str,format,x);
+        Strcat(target,str);
+    }
+}
+
+void StrcatfStr(char target[], string format, string x, string separator) {
+    if (Strlen(x)>0) {
+        if (Strlen(target) > 0 && Strlen(separator)>0) Strcat(target,separator);
+        local char str[20];
+        SPrintf(str,format,x);
+        Strcat(target,str);
+    }
+}
+
+local int depth;
+
+void Indent() {
+    local int i = depth;
+    while (i-- >0) {
+        Printf("    ");
+    }
+}
+
+void checkEOF(string where, uint64 pos) {
+    if (pos==FileSize()) {
+        Indent();
+        Printf("Unexpected EOF in %s\n", where);
+        Exit(-1);
+    }
+}
+
+byte PeekByte(string where) {
+    local uint64 pos = FTell();
+    checkEOF(where,pos);
+    local byte v = ReadByte();
+    FSeek(pos);
+    return v;
+}
+
+ubyte PeekUByte(string where) {
+    local uint64 pos = FTell();
+    checkEOF(where,pos);
+    local ubyte v = ReadUByte();
+    FSeek(pos);
+    return v;
+}
+
+//
+
+typedef uint64 REAL_UINT64;
+
+string read_uint64(uint64 x) {
+    local char str[64];
+    StrcatfNum(str,"%Xh",x,"");
+    StrcatfCommaNum(str,"%s",x," | ");
+    return str;
+}
+
+// A Big-Endian like value
+typedef struct {
+    local uint b = PeekUByte("uint64_");
+    local uint len = 1;
+    while (b & 0x80) {
+        len++;
+        b = (b & 0x7F) << 1;
+    }
+    ubyte y[len];
+} uint64_ <optimize=false, read=uint64_read>;
+
+uint64 to_uint64(uint64_ &x) {
+    local int len = sizeof(x.y);
+    local uint64 v = x.y[0] & ((1<<(8-len))-1);
+    local int i=len-1;
+    while (i>=1) {
+        v <<= 8;
+        v |= x.y[i--];
+    }
+    return v;
+}
+
+string uint64_read(uint64_ &x) {
+    return read_uint64(to_uint64(x));
+}
+
+uint64 ReadUInt64_() {
+    uint64_ x <hidden=true>;
+    return to_uint64(x);
+}
+
+// Define structures used in ZIP files
+enum <ubyte> NID_ {
+    kEnd=0x00,
+    kHeader=0x01,
+    kArchiveProperties=0x02,
+    kAdditionalStreamsInfo=0x03,
+    kMainStreamsInfo=0x04,
+    kFilesInfo=0x05,
+
+    kPackInfo=0x06,
+    kUnPackInfo=0x07,
+    kSubStreamsInfo=0x08,
+
+    kSize=0x09,
+    kCRC=0x0A,
+
+    kFolder=0x0B,
+
+    kCodersUnPackSize=0x0C,
+    kNumUnPackStream=0x0D,
+
+    kEmptyStream=0x0E,
+    kEmptyFile=0x0F,
+    kAnti=0x10,
+
+    kName=0x11,
+    kCTime=0x12,
+    kATime=0x13,
+    kMTime=0x14,
+    kWinAttributes=0x15,
+    kComment=0x16,
+
+    kEncodedHeader=0x17,
+
+    kStartPos=0x18,
+    kDummy=0x19
+};
+
+NID_ PeekNID(string where) {
+    if (FTell()==FileSize()) {
+        return kEnd;
+    }
+    return PeekUByte(where);
+}
+
+void RequireNID(string where, NID_ nid, NID_ expected) {
+    if (nid != expected) {
+        Indent();
+        Printf("required %s for %s, not %s=0x%02X\n",
+            EnumToString(expected),where,EnumToString(nid),nid);
+        Exit(1);
+    }
+    Indent();
+    Printf("%s=0x%02X @ %LXh {\n",EnumToString(nid),nid,FTell());
+    depth++;        
+}
+
+
+void EffectiveEND() {
+    depth--;
+    Indent();
+    Printf("}\n");
+}
+
+byte RequireEND(string where) {
+    local uint64 pos = FTell();
+    if (pos==FileSize()) {
+        EffectiveEND();
+        return 0;
+    }
+
+    local NID_ nid = PeekByte(where);
+    if (nid != kEnd) {
+        Indent();
+        Printf("required kEnd for %s, not %s=0x%02X\n",
+            where,EnumToString(nid),nid);
+        Exit(1);
+    }
+
+    return 1;
+}
+
+typedef struct (uint64 numPackStreams){
+    NID_ NID; //0x09
+    RequireNID("Size_",NID,kSize);
+
+    uint64_ packSizes[numPackStreams];
+
+    EffectiveEND();
+} Size_ <optimize=false>;
+
+typedef struct (uint64 numStreams) { // Used by PackInfo_
+    NID_ NID; //0x0A
+    RequireNID("CRC_",NID,kCRC);
+
+	byte AllAreDefined;
+	local uint64 NumDefined = 0;
+	if (AllAreDefined==0) {
+		local uint64 i = numStreams;
+		while (i-->0) {
+			ubyte Defined;
+			if (Defined) NumDefined++;
+		}
+	} else {
+        NumDefined = numStreams;
+    }
+	if (NumDefined > 0) {
+		uint32 CRCs[NumDefined];
+	}
+
+    EffectiveEND();
+} CRC_ <optimize=false>;
+
+typedef struct {
+    NID_ NID; //0x06
+    RequireNID("PackInfo_",NID,kPackInfo);
+    uint64_ PackPos;
+    uint64_ NumPackStreams;
+    local uint64 numPackStreams = to_uint64(NumPackStreams);
+
+    if (PeekNID("PackInfo_") == kSize) {
+        Size_ Size(numPackStreams);
+    }
+
+    if (PeekNID("PackInfo_") == kCRC) {
+        CRC_ CRC(numPackStreams);
+    }
+
+    RequireEND("PackInfo_");
+    NID_ END_NID; 
+} PackInfo_ <optimize=false>;
+
+typedef struct () { // Used by Folder1_
+    // Start of Bits
+    byte CodecIdSize:4; //0..3 0x0F
+    byte IsComplexCoder:1; //4 0x10
+    byte HasAttributes:1; // 5 0x20
+    byte Reserved:1; // 5 0x40
+    byte MoreAlternativeMethods:1; //6 0x80]
+    // End of Bits
+    Codec_Id_Pos = FTell();
+    Codec_Id_Size = CodecIdSize;
+    byte CodecId[CodecIdSize];
+    if (IsComplexCoder) {
+      uint64_ _NumInStreams;
+      uint64_ _NumOutStreams;
+      Codec_NumInStreams = to_uint64(_NumInStreams);
+      Codec_NumOutStreams = to_uint64(_NumOutStreams);
+    } else {
+      Codec_NumInStreams = 1;
+      Codec_NumOutStreams = 1;
+    }
+    Indent();
+    Printf("NumInStreams=%Ld, NumOutStreams=%Ld\n",Codec_NumInStreams, Codec_NumOutStreams);
+    if (HasAttributes) {
+      uint64_ PropertiesSize;
+      byte Properties[to_uint64(PropertiesSize)];
+    }
+    if (MoreAlternativeMethods) {
+        Indent();
+        Printf("Codec_ read failed, because so no docs or reference code for MoreAlternativeMethods flag bit\n");
+        Exit(-1);
+    }
+} Codec_ <optimize=false>;
+
+typedef struct {
+    ClearFolderTransients();
+	//
+	Folder_Pos = FTell();
+    uint64_ NumCoders;
+    local uint64 numCoders = to_uint64(NumCoders);
+    local uint64 i = numCoders;
+    while (i-- > 0) {
+        Codec_ Codec;
+        Folder_NumInStreams += Codec_NumInStreams;
+        Folder_NumOutStreams += Codec_NumOutStreams;
+    }
+    Indent();
+    Printf("NumInStreamsTotal=%Ld, NumOutStreamsTotal=%Ld\n",
+Folder_NumInStreams,Folder_NumOutStreams);
+    if (Folder_NumOutStreams == 0) {
+        Indent();
+        Printf("Folder_NumOutStreams can't be zero\n");
+        Exit(-1);
+    }
+
+    Folder_NumBindPairs = Folder_NumOutStreams - 1;
+    Indent();
+    Printf("NumBindPairs=%Ld\n",Folder_NumBindPairs);
+    if (Folder_NumBindPairs > 0) {
+        struct {
+            uint64_ _InIndex;
+            uint64_ _OutIndex;
+        } BindPairs[Folder_NumBindPairs];
+    }
+    if (Folder_NumInStreams < Folder_NumBindPairs) {
+        Indent();
+        Printf("NumInStreamsTotal can't be less than NumBindPairs\n");
+        Exit(-1);
+    }
+    local uint64 Folder_NumPackedStreams = Folder_NumInStreams - Folder_NumBindPairs;
+    if (Folder_NumPackedStreams > 1) {
+        uint64_ PackedStreams[Folder_NumPackedStreams];
+    }
+    //
+    addFolder();
+} Folder1_ <optimize=false>;
+
+typedef struct {
+    NID_ NID; //0x0B
+    RequireNID("Folder_",NID,kFolder);
+    uint64_ _NumFolders;
+    byte External;
+    switch(External) {
+        case 0:
+            local uint64 NumFolders = to_uint64(_NumFolders);
+            InitFoldersTransients(NumFolders);
+            Folder1_ Folders[NumFolders];
+            break;
+        case 1 :
+            uint64_ DataStreamIndex;
+            break;
+    }
+    EffectiveEND();
+} Folder_ <optimize=false>;
+
+typedef struct {
+    NID_ NID; //0x0C
+    RequireNID("CodersUnPackSize_",NID,kCodersUnPackSize);
+    if (Folders_Count > 0) {
+        local uint64 i;
+        while (i < Folders_Count) {
+			local uint64 len = Folder_NumOutStreams;
+			Folders_UnPackSize_Pos[i] = FTell();
+            uint64_ UnPackSize[len];
+			Folders_UnPackSize_EndPos[i] = FTell();
+			i++;
+        }
+    }
+    
+    if (PeekNID("CodersUnPackSize_") == kCRC)
+        CRC_ CRC(Folders_Count);
+
+    RequireEND("CodersUnPackSize_");
+    NID_ END_NID; 
+} CodersUnPackSize_ <optimize=false>;
+
+typedef struct {
+    NID_ NID; //0x07
+    RequireNID("UnPackInfo_",NID,kUnPackInfo);
+    InitFoldersTransients(0);
+
+    if (PeekNID("UnPackInfo_") == kFolder)
+        Folder_ Folders;
+
+    CodersUnPackSize_ CodersUnPackSize;
+
+    if (PeekNID("UnPackInfo_") == kCRC)
+        CRC_ CRC;
+
+    RequireEND("UnPackInfo_");
+    NID_ END_NID; 
+} UnPackInfo_ <optimize=false>;
+
+typedef struct {
+    NID_ NID; //0x0D
+    RequireNID("NumUnPackStream_",NID,kNumUnPackStream);
+
+    uint64_ NumUnPackStreamsInFolders[NumFolders];
+
+    EffectiveEND();
+} NumUnPackStream_ <optimize=false>;
+
+typedef struct {
+    NID_ NID; //0x05
+    RequireNID("FilesInfo_",NID,kFilesInfo);
+
+    uint64_ NumFiles;
+    local uint64 numFiles = to_uint64(NumFiles);
+    local int i;
+    while (true) {
+        NID_ PropertyType;
+        if (PropertyType == 0) break;
+        uint64_ Size;
+        switch(PropertyType) {
+            case kEmptyStream:
+                byte IsEmptyStream[numFiles];
+                break;
+            case kEmptyFile:
+                byte IsEmptyFile[EmptyStreams];
+                break;
+            case kAnti:
+                byte IsEmptyFile[EmptyStreams];
+                break;      
+            case kCTime:
+            case kATime:
+            case kMTime:
+                byte AllAreDefined;
+                if (AllAreDefined == 0) {
+                    byte TimeDefined[numFiles];
+                }
+                byte External;
+                if(External != 0)
+                    uint64_ DataIndex;
+                REAL_UINT64 Time[numFiles];
+                break;      
+            case kName:
+                byte External;
+                if(External != 0)
+                    uint64_ DataIndex;
+                struct (int size) {
+                    wchar_t Names[size];
+                    wchar_t Zero;
+                } Names[File];
+                break;      
+            case kWinAttributes:
+                byte AllAreDefined;
+                if (AllAreDefined == 0)
+                    byte AttributesAreDefined[numFiles];
+                byte External;
+                if(External != 0)
+                    uint64_ DataIndex;
+                uint32 Attributes[numFiles];
+                break;
+            default:
+                Indent();
+                Printf("FilesInfo_: Unexpected PropertyType %d\n",PropertyType);
+                Exit(-1);
+        } 
+    }
+
+    EffectiveEND();
+} FilesInfo_ <optimize=false>;
+
+typedef struct {
+    NID_ NID; //0x02
+    RequireNID("ArchiveProperties_",NID,kArchiveProperties);
+
+    local byte PropertyType; 
+    while (true) {
+        if (PeekByte()==0) break;
+        struct {
+            ubyte PropertyType;
+            uint64_ PropertySize;
+            ubyte PropertyData[to_uint64(PropertySize)];
+        } ArchiveProperty;
+    }
+
+    EffectiveEND();
+} ArchiveProperties_ <optimize=false>;
+
+typedef struct {
+    NID_ NID; //0x08
+    RequireNID("SubStreamsInfo_",NID,kSubStreamsInfo);
+
+    if (PeekNID() == kNumUnPackStream)
+       NumUnPackStream_ NumUnPackStreamsInFolders;
+
+   if (PeekNID() == kSize)
+        Size_ Size;
+
+    if (PeekNID() == kCRC)
+        CRC_ CRC;
+
+    RequireEND("SubStreamsInfo_");
+    NID_ END_NID; 
+} SubStreamsInfo_ <optimize=false>;
+
+typedef struct {
+    NID_ NID; //0x17
+    RequireNID("EncodedHeader_",NID,kEncodedHeader);
+
+    if (PeekNID("EncodedHeader_") == kPackInfo) {
+        PackInfo_ PackInfo;
+    }
+
+    if (PeekNID("EncodedHeader_") == kUnPackInfo) {
+        UnPackInfo_ UnPackInfo;
+    } else {
+        // set only one folder.
+    }
+
+    if (PeekNID("EncodedHeader_") == kSubStreamsInfo)
+        SubStreamsInfo_ SubStreamsInfo;
+
+    if (RequireEND("EncodedHeader_")) {
+        NID_ END_NID; 
+    }
+} EncodedHeader_ <optimize=false>;
+
+typedef struct (string where) {
+    if (PeekNID(where) == kPackInfo)
+        PackInfo_ PackInfo;
+
+	if (PeekNID(where) == kSize)
+        Size_ Size;
+
+    if (PeekNID(where) == kCRC)
+        CRC_ CRC;
+
+    RequireEND(where);
+    NID_ END_NID; 
+} OtherStreamsInfo_ <optimize=false>;
+
+typedef struct {
+    NID_ NID; //0x03
+    RequireNID("AdditionalStreamsInfo_",NID,kAdditionalStreamsInfo);
+
+    RequireEND("AdditionalStreamsInfo_");
+    NID_ END_NID; 
+} AdditionalStreamsInfo_ <optimize=false>;
+
+typedef struct {
+    NID_ NID; //0x04
+    RequireNID("MainStreamsInfo_",NID,kMainStreamsInfo);
+
+    OtherStreamsInfo_ StreamsInfo;
+
+    EffectiveEND();
+} MainStreamsInfo_ <optimize=false>;
+
+typedef struct {
+    NID_ NID; //0x01
+    RequireNID("Header_",NID,kHeader);
+
+    ArchiveProperties_ ArchiveProperties;
+
+    if (PeekNID("Header_") == kAdditionalStreamsInfo)
+        AdditionalStreamsInfo_ AdditionalStreamsInfo;
+
+    if (PeekNID("Header_") == kMainStreamsInfo)
+        MainStreamsInfo_ MainStreamsInfo;
+
+    FilesInfo_ FilesInfo;
+
+    RequireEND("Header_");
+    NID_ END_NID; 
+} Header_ <optimize=false>;
+
+typedef struct { // 32 bytes
+    local uint64 thisStart = FTell();
+    byte    kSignature[6]; //[6] 0..5
+    struct { // [12] 0..11
+        byte    Major; //[1] 6
+        byte    Minor; //[1] 7
+    } ArchiveVersion ;
+    uint32 StartHeaderCRC; //[4] 8..11
+} SignatureHeader_ <optimize=false>;
+
+// ======================
+// = Start of main code =
+// ======================
+
+
+// ReadHeader
+SignatureHeader_ sigHead; // 0..11
+
+initCRC(FTell(), 20, sigHead.StartHeaderCRC);
+struct { // [20] 12..31
+    REAL_UINT64 NextHeaderOffset; //[8] 12..19
+    REAL_UINT64 NextHeaderSize; // [8] 20..27
+    uint32 NextHeaderCRC; //[4] 28..31
+} StartHeader;
+checkCRC();
+
+// All subsequent pointers seem to be relative to this position in the file
+offsetPos = FTell();
+
+initCRC(offsetPos + StartHeader.NextHeaderOffset, StartHeader.NextHeaderSize, StartHeader.NextHeaderCRC);
+FSeek(nextHeaderPos);
+if (PeekNID("After StartHeader") == kEncodedHeader) {
+    EncodedHeader_ EncodedHeader;
+}
+// Probably never present uncompressed.
+if (PeekNID("After StartHeader") == kHeader) {
+    Header_ Header;
+}
+checkCRC();
+
+// Disable collection code
+HeadersScanned = 1; 
+
+//
+// The actual file details are often in a compressed (e.g. LZMA {03h,01h,01h}) kHeader struct,
+// so it'd be hard to do much more than below without access to codecs, possibly in a usable DLL.
+//
+
+typedef struct (ubyte size) {
+    ubyte array[size];
+} Bytes;
+
+typedef struct (ubyte size) {
+    uint64_ array[size];
+} uint64_s;
+
+void bytesToString(char str[], Bytes &x) {
+    local char hex[4];
+    local char sep = ' ';
+    local int i = 0;
+    while (i < len) {
+        SPrintf(hex,"%c%02Xh",sep,x.array[i++]);
+        Strcat(str,hex);
+        sep=',';
+    }
+    Strcat(str," ");
+}
+
+// Lots of seeking, to re-read data.
+local uint64 i,j,j_len;
+for (i = 0; i < Folders_Count; i++) {
+    local ubyte len = Folders_Codec_Id_Size[i];
+    local char codecId[2+(len*4)];
+    if (len > 0) {
+        FSeek(Folders_Codec_Id_Pos[i]);
+        Bytes CodecId(len) <hidden=true>;
+        bytesToString(codecId,CodecId);
+    }
+    len = Folders_Codec_Id_Size[i];
+    local char codecProperties[2+(len*4)];
+    if (len > 0) {
+        FSeek(Folders_Codec_Properties_Pos[i]);
+        Bytes CodecProperties(len) <hidden=true>;
+        bytesToString(codecProperties,CodecProperties);
+    }
+
+    FSeek(Folders_Pos[i]);
+    Folder1_ folder1 <hidden=true>;
+	Printf("Folder1[%d] CodecIs(%s) CodecProperties(%s) NumInStreams=%d NumOutStreams=%d NumBindPairs=%d\n" ,
+		i,
+        codecId,
+        codecProperties,
+        Folder_NumInStreams, 
+        Folder_NumOutStreams,
+        Folder_NumBindPairs);
+	for (j = 0; j <  Folder_NumBindPairs; j++) {
+        Printf(" BindPair[%d] {InIndex=%Ld Oi=utIndex=%Ld}\n", j, 
+            to_uint64(Flder1.BindPairs[j]._InIndex),
+            to_uint64(Flder1.BindPairs[j]._OutIndex));
+    }
+	FSeek(Folders_UnPackSize_Pos[i]);
+	j_len = Folder_NumOutStreams;
+	uint64_s UnPackSizes(j_len) <hidden=true>;
+	for (j = 0; j <  j_len; j++) {
+        Printf(" UnPackSize[%d] = %Ld\n", j, to_uint64(UnPackSizes.array[j]));
+    }
+    Printf("\n");
+}

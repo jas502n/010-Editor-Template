@@ -1,0 +1,62 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: CSV.bt
+//   Authors: Tim Evans
+//   Version: 1.0
+//   Purpose: Syntax highlighting for CSV files. Supports comma, tab, semicolon, space, and pipe delimiters.
+//  Category: Syntax
+// File Mask: *.csv,*.tsv
+//  ID Bytes: 
+//   History: 
+//   1.0   2019-06-09 Tim Evans: Initial version.
+//------------------------------------------------
+RequiresVersion( 9 );
+
+// To save memory, allow a single copy of this template to provide 
+//  syntax highlighting for all open files that match the file mask.
+HighlightAllowInstanceSharing( true );
+
+// Get list of coloring styles
+local int stringStyle   = HighlightFindStyle( "code-string" );
+local int operatorStyle = HighlightFindStyle( "code-operator", 0xff00ff, -1, 0xcc99ff, -1 );
+
+// Types of rules we may be applying that may span multiple lines
+const int RULE_NONE              = 0;
+const int RULE_MULTILINE_COMMENT = 1;
+const int RULE_STRING            = 2;
+
+// Main function to apply syntax highlighting to a line of text.
+//  flags is preserved between lines and allows us to do multi-line comments.
+void HighlightLineRealtime( int64 line, wchar_t text[], int foreColors[], int backColors[], int count, ushort &flags )
+{
+    int i, len, pos, match, rule = flags;
+    while( i < count )
+    {  
+        // Double-quoted strings
+        if( (text[i] == '\"') && 
+            HighlightCheckSingleLineRule( text, count, "\"", "\"", i, 
+            foreColors, backColors, stringStyle, HIGHLIGHT_CSTRING ) ) 
+            continue;
+
+        // Single-quoted strings
+        if( (text[i] == '\'') &&
+            HighlightCheckSingleLineRule( text, count, "\'", "\'", i, 
+            foreColors, backColors, stringStyle, HIGHLIGHT_CSTRING ) ) 
+            continue;
+
+        // Outside of strings, match tabs, pipes, commas, semicolons, and spaces.
+        if( WStrchr( L"[\t|,; ]", text[i] ) != -1 )
+        {
+            HighlightApplyStyle( foreColors, backColors, i, 1, operatorStyle );
+            i += 1;
+            continue;
+        }
+    
+        // Nothing found - skip over whole words
+        i = HighlightGetNextToken( text, count, i );
+    }
+
+    // Save rule in the flags for the next line
+    flags = rule;
+}

@@ -1,0 +1,55 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: InspectorGUID.bt
+//   Authors: SweetScape Software
+//   Version: 1.0
+//   Purpose: Demonstrates how to add a GUID
+//            data type to the inspector. Currently
+//            GUID is readonly.
+//  Category: Inspector
+//   History: 
+//   1.0   2020-01-17 SweetScape Software: Initial version.
+//------------------------------------------------
+RequiresVersion( 9.0 );
+
+// Calculate the position for each variable,
+//  either at the beginning of the selection
+//  or at the current cursor position.
+local int64 pos;
+if( GetSelSize() > 0 )
+    pos = GetSelStart();
+else
+    pos = GetCursorPos();
+
+// GUID - Global Unique Identifier - currently read only.
+typedef UBYTE GUID[16] <read=ReadGUID, format=hex>;
+string ReadGUID( GUID &g )
+{
+    string s;
+    SPrintf( s, "{%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+        g[3],g[2],g[1],g[0],g[5],g[4],g[7],g[6],g[8],g[9],g[10],g[11],g[12],g[13],g[14],g[15] );
+    return s;
+}
+FSeek( pos ); GUID     _guid <name="GUID">;
+
+// Define variables for the inspector
+FSeek( pos ); byte     _si8  <name="Signed Byte">;
+FSeek( pos ); ubyte    _ui8  <name="Unsigned Byte">;
+FSeek( pos ); short    _si16 <name="Signed Short">;
+FSeek( pos ); ushort   _ui16 <name="Unsigned Short">;
+FSeek( pos ); int      _si32 <name="Signed Int">;
+FSeek( pos ); uint     _ui32 <name="Unsigned Int">;
+FSeek( pos ); int64    _si64 <name="Signed Int64">;
+FSeek( pos ); uint64   _ui64 <name="Unsigned Int64">;
+FSeek( pos ); float    _f    <name="Float">;
+FSeek( pos ); double   _d    <name="Double">;
+FSeek( pos ); hfloat   _hf   <name="Half Float">;
+FSeek( pos ); char     _s [ReadStringLength(pos,256)]  <name="String">;  // limit to 256 characters
+//FSeek( pos ); wchar_t  _ws[ReadWStringLength(pos,256)] <name="Unicode">; // limit to 256 characters - uncomment to enable
+FSeek( pos ); DOSDATE  _dd   <name="DOS Date">;
+FSeek( pos ); DOSTIME  _dt   <name="DOS Time">;
+FSeek( pos ); FILETIME _ft   <name="FILETIME">;
+FSeek( pos ); OLETIME  _ot   <name="OLETIME">;
+FSeek( pos ); time_t   _tt   <name="time_t">;
+FSeek( pos ); time64_t _tt64 <name="time64_t">;

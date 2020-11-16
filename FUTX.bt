@@ -1,0 +1,61 @@
+//------------------------------------------------
+//--- 010 Editor v9.0.2 Binary Template
+//
+//      File: FUTX.bt
+//   Authors: Pascal Mathis
+//   Website: https://pascalmathis.com
+//   Version: 0.2
+//   Purpose: Interpret user accounting information exposed by FreeBSD
+//            as /var/run/utx.active, which uses a custom on-disk format
+//            called futx. It differs from the in-memory representation
+//            specified in POSIX known as utmpx.
+//  Category: Operating System
+// File Mask: utx.active
+//  ID Bytes: 
+//   History: 
+//   0.2    2019-06-30 Pascal Mathis: Fix timestamp calculation and enum comments.
+//   0.1    2019-06-30 Pascal Mathis: Initial release.
+//------------------------------------------------
+
+#define FUTX_USERSIZE 32
+#define FUTX_LINESIZE 16
+#define FUTX_HOSTSIZE 128
+
+BigEndian();
+
+string TVRead(uint64 tv) {
+    uint64 tv_secs = Floor(tv / 1000000);
+    uint64 tv_usecs = tv - (tv_secs * 1000000);
+
+    string result = Time64TToString(tv_secs, "yyyy-dd-MM hh:mm:ss");
+    SPrintf(result, "%s.%lu", result, tv_usecs);
+
+    return result;
+}
+
+typedef enum <byte> {
+    EMPTY = 0,          /* No valid user accounting information. */
+    BOOT_TIME = 1,      /* Time of system boot. */
+    OLD_TIME = 2,       /* Time when system clock changed. */
+    NEW_TIME = 3,       /* Time after system clock changed. */
+    USER_PROCESS = 4,   /* A process. */
+    INIT_PROCESS = 5,   /* A process spawned by the init process. */
+    LOGIN_PROCESS = 6,  /* The session leader of a logged-in user. */
+    DEAD_PROCESS = 7,   /* A session leader who has exited. */
+    SHUTDOWN_TIME = 8   /* Time of system shutdown. */
+} ENTRY_TYPE;
+
+struct futx {
+    ENTRY_TYPE fu_type;             /* Type of entry. */
+    uint64 fu_tv <read=TVRead>;     /* Time entry was made. */
+    char fu_id[8];                  /* Record identifier. */
+    uint32 fu_pid;                  /* Process ID. */
+    char fu_user[FUTX_USERSIZE];    /* User login name. */
+    char fu_line[FUTX_LINESIZE];    /* Device name. */
+    char fu_host[FUTX_HOSTSIZE];    /* Remote hostname. */
+};
+
+FSeek(0);
+while(!FEof()) {
+    futx FUTX_entry;
+}
